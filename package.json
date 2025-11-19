@@ -1,0 +1,81 @@
+{
+  "name": "google-genai-api",
+  "version": "1.0.0",
+  "description": "Node.js wrapper for Google GenAI API (Gemini 2.5 Flash Image & Imagen 4)",
+  "type": "module",
+  "main": "api.js",
+  "bin": {
+    "google-genai": "./cli.js"
+  },
+  "exports": {
+    ".": "./api.js",
+    "./api": "./api.js",
+    "./utils": "./utils.js",
+    "./config": "./config.js"
+  },
+  "files": [
+    "api.js",
+    "cli.js",
+    "utils.js",
+    "config.js",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:ui": "vitest --ui",
+    "test:coverage": "vitest run --coverage",
+    "google:help": "node cli.js --help",
+    "google:examples": "node cli.js --examples",
+    "google:gemini": "node cli.js --gemini",
+    "google:imagen": "node cli.js --imagen",
+    "semantic-release": "semantic-release"
+  },
+  "keywords": [
+    "google",
+    "genai",
+    "gemini",
+    "imagen",
+    "ai",
+    "image-generation",
+    "text-to-image",
+    "image-to-image",
+    "semantic-masking"
+  ],
+  "author": "img-gen Contributors",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/aself101/google-genai-api.git"
+  },
+  "bugs": {
+    "url": "https://github.com/aself101/google-genai-api/issues"
+  },
+  "homepage": "https://github.com/aself101/google-genai-api#readme",
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "dependencies": {
+    "@google/genai": "^0.3.0",
+    "axios": "^1.6.2",
+    "commander": "^11.1.0",
+    "dotenv": "^16.3.1",
+    "winston": "^3.11.0"
+  },
+  "devDependencies": {
+    "@semantic-release/changelog": "^6.0.3",
+    "@semantic-release/commit-analyzer": "^13.0.1",
+    "@semantic-release/git": "^10.0.1",
+    "@semantic-release/github": "^11.0.6",
+    "@semantic-release/npm": "^12.0.2",
+    "@semantic-release/release-notes-generator": "^14.1.0",
+    "@vitest/coverage-v8": "^1.1.0",
+    "@vitest/ui": "^1.1.0",
+    "semantic-release": "^24.2.9",
+    "vitest": "^1.1.0"
+  }
+}
