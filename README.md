@@ -913,9 +913,9 @@ Check your quota at: https://console.cloud.google.com/apis/dashboard
 
 ## License
 
-This project is licensed under the MIT License (with Extra Silliness) - see the [LICENSE](../LICENSE) file for details.
+This project is licensed under the MIT License - see the [LICENSE](../LICENSE) file for details.
 
-By using this software, you agree to generate at least one image of a mountain landscape at sunset (optional but encouraged).
+By using this software, you agree to generate at least one image of a dog performing a backflip (optional but encouraged).
 
 ---
 
