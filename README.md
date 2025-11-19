@@ -196,7 +196,7 @@ This is perfect for global npm installations where you want the API key availabl
 
 ## Installation
 
-### Option 1: Install from npm (Coming Soon)
+### Option 1: Install from npm
 
 ```bash
 # Install globally for CLI usage
