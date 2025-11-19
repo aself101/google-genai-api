@@ -45,6 +45,7 @@ const parts = extractGeminiParts(response);
 ## Table of Contents
 
 - [Overview](#overview)
+- [Public API](#public-api)
 - [Models](#models)
 - [Authentication Setup](#authentication-setup)
 - [Installation](#installation)
@@ -74,6 +75,53 @@ The Google GenAI API provides access to cutting-edge image generation and editin
 - **Organized Storage** - Structured directories with timestamped files and metadata
 - **CLI Orchestration** - Command-line tool for easy batch generation
 - **Comprehensive Testing** - 118 tests with Vitest for reliability
+
+## Public API
+
+When installed via npm, import from the package name:
+
+### Main Exports (`google-genai-api`)
+
+```javascript
+import {
+  GoogleGenAIAPI,      // Main API class
+  extractGeminiParts,   // Extract parts from Gemini response
+  extractImagenImages   // Extract images from Imagen response
+} from 'google-genai-api';
+```
+
+### Utility Exports (`google-genai-api/utils`)
+
+```javascript
+import {
+  imageToInlineData,    // Convert local file/URL to inlineData format
+  validateImageUrl,     // Validate and sanitize image URLs (SSRF protection)
+  validateImagePath,    // Validate local image files (magic byte checking)
+  saveBase64Image,      // Save base64 image data to file
+  generateFilename,     // Generate timestamped filenames
+  saveMetadata,         // Save generation metadata as JSON
+  ensureDirectory,      // Create directories recursively
+  pause,                // Async delay helper
+  createSpinner,        // Create CLI spinner for progress
+  setLogLevel,          // Set logging level
+  logger                // Winston logger instance
+} from 'google-genai-api/utils';
+```
+
+### Config Exports (`google-genai-api/config`)
+
+```javascript
+import {
+  getApiKey,            // Get API key from environment/config
+  redactApiKey,         // Redact API key for logging (shows last 4 chars)
+  MODELS,               // Model endpoint definitions
+  MODEL_CONSTRAINTS,    // Model parameter constraints
+  detectGeminiMode,     // Detect Gemini generation mode
+  validateModelParams   // Validate parameters before API calls
+} from 'google-genai-api/config';
+```
+
+**Note:** When running from source (development), use local path imports (`'./api.js'`, `'./utils.js'`, `'./config.js'`) as shown in the examples below.
 
 ## Models
 
@@ -304,7 +352,7 @@ const parts = extractGeminiParts(response);
 
 **Image-to-Image:**
 ```javascript
-import { imageToInlineData } from './utils.js';
+import { imageToInlineData } from 'google-genai-api/utils';
 
 const inputImage = await imageToInlineData('./photo.jpg');
 
@@ -317,6 +365,8 @@ const response = await api.generateWithGemini({
 
 **Semantic Masking:**
 ```javascript
+import { imageToInlineData } from 'google-genai-api/utils';
+
 const inputImage = await imageToInlineData('./street_scene.jpg');
 
 const response = await api.generateWithGemini({
