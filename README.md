@@ -13,7 +13,7 @@ This service follows the data-collection architecture pattern with organized dat
 
 ### CLI Usage
 ```bash
-# Install globally (coming soon)
+# Install globally
 npm install -g google-genai-api
 
 export GOOGLE_GENAI_API_KEY="your-api-key"
