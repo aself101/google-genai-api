@@ -1,3 +1,10 @@
+## [1.0.1](https://github.com/aself101/google-genai-api/compare/v1.0.0...v1.0.1) (2025-11-19)
+
+
+### Bug Fixes
+
+* Updated README and clarified examples ([6754403](https://github.com/aself101/google-genai-api/commit/6754403e28c1468e821121cafae1bd2014785780))
+
 # 1.0.0 (2025-11-19)
 
 
