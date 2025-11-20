@@ -1,3 +1,10 @@
+## [1.0.2](https://github.com/aself101/google-genai-api/compare/v1.0.1...v1.0.2) (2025-11-20)
+
+
+### Bug Fixes
+
+* **security:** add DNS rebinding prevention to SSRF protection ([b089a80](https://github.com/aself101/google-genai-api/commit/b089a80ace954b1c576166057b0bd3485fbd8c8b))
+
 ## [1.0.1](https://github.com/aself101/google-genai-api/compare/v1.0.0...v1.0.1) (2025-11-19)
 
 
