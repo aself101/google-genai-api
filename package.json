@@ -26,6 +26,7 @@
     "test:watch": "vitest",
     "test:ui": "vitest --ui",
     "test:coverage": "vitest run --coverage",
+    "google": "node cli.js",
     "google:help": "node cli.js --help",
     "google:examples": "node cli.js --examples",
     "google:gemini": "node cli.js --gemini",
