@@ -1,6 +1,6 @@
 {
   "name": "google-genai-api",
-  "version": "1.0.1",
+  "version": "1.0.3",
   "description": "Node.js wrapper for Google GenAI API (Gemini 2.5 Flash Image & Imagen 4)",
   "type": "module",
   "main": "api.js",

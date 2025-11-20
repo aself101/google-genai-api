@@ -159,7 +159,7 @@ const program = new Command();
 program
   .name('google-genai')
   .description('Google GenAI API - Gemini 2.5 Flash Image & Imagen 4')
-  .version('1.0.0');
+  .version('1.0.3');
 
 // Model selection flags
 program
