@@ -191,10 +191,15 @@ if (options.examples) {
   process.exit(0);
 }
 
+// Show help if no arguments provided
+if (!process.argv.slice(2).length) {
+  program.outputHelp();
+  process.exit(0);
+}
+
 // Show help if no model selected
 if (!options.gemini && !options.imagen) {
-  console.log('Error: Please specify a model (--gemini or --imagen)\n');
-  program.help();
+  program.outputHelp();
   process.exit(1);
 }
 
@@ -206,8 +211,7 @@ if (options.gemini && options.imagen) {
 
 // Validate prompt
 if (!options.prompt || options.prompt.length === 0) {
-  console.error('Error: --prompt is required\n');
-  program.help();
+  program.outputHelp();
   process.exit(1);
 }
 

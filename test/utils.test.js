@@ -3,7 +3,14 @@
  * Tests for file I/O, image conversion, filename generation, and security utilities
  */
 
-import { describe, it, expect, beforeAll, afterAll } from 'vitest';
+import { describe, it, expect, beforeAll, afterAll, beforeEach, vi } from 'vitest';
+
+// Mock DNS module before importing utils
+vi.mock('dns/promises', () => ({
+  lookup: vi.fn()
+}));
+
+import { lookup } from 'dns/promises';
 import {
   validateImageUrl,
   validateImagePath,
@@ -124,88 +131,150 @@ describe('Utility Functions', () => {
 
 describe('Image Validation (Security)', () => {
   describe('validateImageUrl', () => {
-    it('should accept valid HTTPS URLs', () => {
-      expect(() => validateImageUrl('https://example.com/image.jpg')).not.toThrow();
-      expect(() => validateImageUrl('https://cdn.example.com/path/to/image.png')).not.toThrow();
+    beforeEach(() => {
+      vi.clearAllMocks();
     });
 
-    it('should reject HTTP URLs', () => {
-      expect(() => validateImageUrl('http://example.com/image.jpg'))
-        .toThrow('HTTPS');
+    it('should accept valid HTTPS URLs with public IPs', async () => {
+      lookup.mockResolvedValue({ address: '8.8.8.8', family: 4 });
+      await expect(validateImageUrl('https://example.com/image.jpg')).resolves.toBe('https://example.com/image.jpg');
+
+      lookup.mockResolvedValue({ address: '1.1.1.1', family: 4 });
+      await expect(validateImageUrl('https://cdn.example.com/path/to/image.png')).resolves.toBe('https://cdn.example.com/path/to/image.png');
     });
 
-    it('should reject localhost', () => {
-      expect(() => validateImageUrl('https://localhost/image.jpg'))
-        .toThrow('localhost');
-      expect(() => validateImageUrl('https://127.0.0.1/image.jpg'))
-        .toThrow('localhost');
+    it('should reject HTTP URLs', async () => {
+      await expect(validateImageUrl('http://example.com/image.jpg'))
+        .rejects.toThrow('HTTPS');
     });
 
-    it('should reject IPv6 localhost', () => {
-      expect(() => validateImageUrl('https://[::1]/image.jpg'))
-        .toThrow('localhost');
+    it('should reject localhost', async () => {
+      await expect(validateImageUrl('https://localhost/image.jpg'))
+        .rejects.toThrow('metadata');
+      await expect(validateImageUrl('https://127.0.0.1/image.jpg'))
+        .rejects.toThrow('private');
     });
 
-    it('should reject private IP addresses', () => {
-      expect(() => validateImageUrl('https://10.0.0.1/image.jpg'))
-        .toThrow('private');
-      expect(() => validateImageUrl('https://192.168.1.1/image.jpg'))
-        .toThrow('private');
-      expect(() => validateImageUrl('https://172.16.0.1/image.jpg'))
-        .toThrow('private');
-      expect(() => validateImageUrl('https://172.20.0.1/image.jpg'))
-        .toThrow('private');
-      expect(() => validateImageUrl('https://172.31.255.255/image.jpg'))
-        .toThrow('private');
+    it('should reject IPv6 localhost', async () => {
+      await expect(validateImageUrl('https://[::1]/image.jpg'))
+        .rejects.toThrow('private');
     });
 
-    it('should reject link-local addresses', () => {
-      expect(() => validateImageUrl('https://169.254.169.254/image.jpg'))
-        .toThrow();
+    it('should reject private IP addresses', async () => {
+      await expect(validateImageUrl('https://10.0.0.1/image.jpg'))
+        .rejects.toThrow('private');
+      await expect(validateImageUrl('https://192.168.1.1/image.jpg'))
+        .rejects.toThrow('private');
+      await expect(validateImageUrl('https://172.16.0.1/image.jpg'))
+        .rejects.toThrow('private');
+      await expect(validateImageUrl('https://172.20.0.1/image.jpg'))
+        .rejects.toThrow('private');
+      await expect(validateImageUrl('https://172.31.255.255/image.jpg'))
+        .rejects.toThrow('private');
     });
 
-    it('should reject cloud metadata endpoints', () => {
-      expect(() => validateImageUrl('https://metadata.google.internal/computeMetadata'))
-        .toThrow('metadata');
-      expect(() => validateImageUrl('https://169.254.169.254/latest/meta-data'))
-        .toThrow();
+    it('should reject link-local addresses', async () => {
+      await expect(validateImageUrl('https://169.254.169.254/image.jpg'))
+        .rejects.toThrow('private');
     });
 
-    it('should reject IPv4-mapped IPv6 localhost (SSRF bypass prevention)', () => {
-      expect(() => validateImageUrl('https://[::ffff:127.0.0.1]/image.jpg'))
-        .toThrow('localhost');
+    it('should reject cloud metadata endpoints', async () => {
+      await expect(validateImageUrl('https://metadata.google.internal/computeMetadata'))
+        .rejects.toThrow('metadata');
+      await expect(validateImageUrl('https://169.254.169.254/latest/meta-data'))
+        .rejects.toThrow('private');
     });
 
-    it('should reject IPv4-mapped IPv6 private IPs (SSRF bypass prevention)', () => {
-      expect(() => validateImageUrl('https://[::ffff:10.0.0.1]/image.jpg'))
-        .toThrow('private');
-      expect(() => validateImageUrl('https://[::ffff:192.168.1.1]/image.jpg'))
-        .toThrow('private');
-      expect(() => validateImageUrl('https://[::ffff:169.254.169.254]/image.jpg'))
-        .toThrow('private');
+    it('should reject IPv4-mapped IPv6 localhost (SSRF bypass prevention)', async () => {
+      await expect(validateImageUrl('https://[::ffff:127.0.0.1]/image.jpg'))
+        .rejects.toThrow('localhost');
     });
 
-    it('should reject IPv6 link-local addresses', () => {
-      expect(() => validateImageUrl('https://[fe80::1]/image.jpg'))
-        .toThrow('private');
+    it('should reject IPv4-mapped IPv6 private IPs (SSRF bypass prevention)', async () => {
+      await expect(validateImageUrl('https://[::ffff:10.0.0.1]/image.jpg'))
+        .rejects.toThrow('private');
+      await expect(validateImageUrl('https://[::ffff:192.168.1.1]/image.jpg'))
+        .rejects.toThrow('private');
+      await expect(validateImageUrl('https://[::ffff:169.254.169.254]/image.jpg'))
+        .rejects.toThrow('private');
     });
 
-    it('should reject IPv6 unique local addresses', () => {
-      expect(() => validateImageUrl('https://[fc00::1]/image.jpg'))
-        .toThrow('private');
-      expect(() => validateImageUrl('https://[fd00::1]/image.jpg'))
-        .toThrow('private');
+    it('should reject IPv6 link-local addresses', async () => {
+      await expect(validateImageUrl('https://[fe80::1]/image.jpg'))
+        .rejects.toThrow('private');
     });
 
-    it('should reject invalid URLs', () => {
-      expect(() => validateImageUrl('not-a-url'))
-        .toThrow('Invalid URL');
+    it('should reject IPv6 unique local addresses', async () => {
+      await expect(validateImageUrl('https://[fc00::1]/image.jpg'))
+        .rejects.toThrow('private');
+      await expect(validateImageUrl('https://[fd00::1]/image.jpg'))
+        .rejects.toThrow('private');
     });
 
-    it('should return validated URL on success', () => {
+    it('should reject invalid URLs', async () => {
+      await expect(validateImageUrl('not-a-url'))
+        .rejects.toThrow('Invalid URL');
+    });
+
+    it('should return validated URL on success', async () => {
+      lookup.mockResolvedValue({ address: '8.8.8.8', family: 4 });
       const url = 'https://example.com/image.jpg';
-      const result = validateImageUrl(url);
-      expect(result).toBe(url);
+      await expect(validateImageUrl(url)).resolves.toBe(url);
+    });
+
+    // DNS Rebinding Prevention Tests
+    it('should reject domains resolving to localhost (DNS rebinding prevention)', async () => {
+      lookup.mockResolvedValue({ address: '127.0.0.1', family: 4 });
+      await expect(validateImageUrl('https://evil.com/image.jpg'))
+        .rejects.toThrow('resolves to internal/private IP');
+    });
+
+    it('should reject domains resolving to private IPs (DNS rebinding prevention)', async () => {
+      lookup.mockResolvedValue({ address: '10.0.0.1', family: 4 });
+      await expect(validateImageUrl('https://evil.com/image.jpg'))
+        .rejects.toThrow('resolves to internal/private IP');
+
+      lookup.mockResolvedValue({ address: '192.168.1.1', family: 4 });
+      await expect(validateImageUrl('https://evil2.com/image.jpg'))
+        .rejects.toThrow('resolves to internal/private IP');
+
+      lookup.mockResolvedValue({ address: '172.16.0.1', family: 4 });
+      await expect(validateImageUrl('https://evil3.com/image.jpg'))
+        .rejects.toThrow('resolves to internal/private IP');
+    });
+
+    it('should reject domains resolving to cloud metadata IPs (DNS rebinding prevention)', async () => {
+      lookup.mockResolvedValue({ address: '169.254.169.254', family: 4 });
+      await expect(validateImageUrl('https://evil.com/image.jpg'))
+        .rejects.toThrow('resolves to internal/private IP');
+    });
+
+    it('should reject domains resolving to IPv6 loopback (DNS rebinding prevention)', async () => {
+      lookup.mockResolvedValue({ address: '::1', family: 6 });
+      await expect(validateImageUrl('https://evil.com/image.jpg'))
+        .rejects.toThrow('resolves to internal/private IP');
+    });
+
+    it('should reject domains resolving to IPv6 private addresses (DNS rebinding prevention)', async () => {
+      lookup.mockResolvedValue({ address: 'fe80::1', family: 6 });
+      await expect(validateImageUrl('https://evil.com/image.jpg'))
+        .rejects.toThrow('resolves to internal/private IP');
+
+      lookup.mockResolvedValue({ address: 'fc00::1', family: 6 });
+      await expect(validateImageUrl('https://evil2.com/image.jpg'))
+        .rejects.toThrow('resolves to internal/private IP');
+    });
+
+    it('should handle DNS lookup failures gracefully', async () => {
+      lookup.mockRejectedValue({ code: 'ENOTFOUND' });
+      await expect(validateImageUrl('https://nonexistent.domain.invalid/image.jpg'))
+        .rejects.toThrow('could not be resolved');
+    });
+
+    it('should handle DNS timeout errors gracefully', async () => {
+      lookup.mockRejectedValue(new Error('ETIMEDOUT'));
+      await expect(validateImageUrl('https://timeout.example.com/image.jpg'))
+        .rejects.toThrow('Failed to validate domain');
     });
   });
 
