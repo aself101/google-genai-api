@@ -10,8 +10,7 @@
 
 import { GoogleGenAI } from '@google/genai';
 import winston from 'winston';
-import { redactApiKey, MODELS, MODEL_CONSTRAINTS, detectGeminiMode } from './config.js';
-import { imageToInlineData } from './utils.js';
+import { redactApiKey, MODELS, detectGeminiMode } from './config.js';
 
 /**
  * Google GenAI API wrapper class.
@@ -316,5 +315,9 @@ export function extractImagenImages(response) {
 
   return images;
 }
+
+// Re-export GoogleGenAIVideoAPI for unified imports
+// Allows: import { GoogleGenAIAPI, GoogleGenAIVideoAPI } from 'google-genai-api';
+export { GoogleGenAIVideoAPI } from './video-api.js';
 
 /* END */

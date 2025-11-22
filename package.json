@@ -1,7 +1,7 @@
 {
   "name": "google-genai-api",
   "version": "1.0.3",
-  "description": "Node.js wrapper for Google GenAI API (Gemini 2.5 Flash Image & Imagen 4)",
+  "description": "Node.js wrapper for Google GenAI API (Gemini, Imagen 4, and Veo 3.1 for image and video generation)",
   "type": "module",
   "main": "api.js",
   "bin": {
@@ -10,11 +10,15 @@
   "exports": {
     ".": "./api.js",
     "./api": "./api.js",
+    "./video": "./video-api.js",
+    "./veo": "./veo-api.js",
     "./utils": "./utils.js",
     "./config": "./config.js"
   },
   "files": [
     "api.js",
+    "video-api.js",
+    "veo-api.js",
     "cli.js",
     "utils.js",
     "config.js",
@@ -31,6 +35,8 @@
     "google:examples": "node cli.js --examples",
     "google:gemini": "node cli.js --gemini",
     "google:imagen": "node cli.js --imagen",
+    "google:veo": "node cli.js --veo",
+    "google:veo:fast": "node cli.js --veo --veo-model veo-3.1-fast-generate-preview",
     "semantic-release": "semantic-release"
   },
   "keywords": [
@@ -38,10 +44,14 @@
     "genai",
     "gemini",
     "imagen",
+    "veo",
     "ai",
     "image-generation",
+    "video-generation",
     "text-to-image",
+    "text-to-video",
     "image-to-image",
+    "image-to-video",
     "semantic-masking"
   ],
   "author": "img-gen Contributors",
@@ -61,11 +71,11 @@
     "access": "public"
   },
   "dependencies": {
-    "@google/genai": "^0.3.0",
+    "@google/genai": "^1.30.0",
     "axios": "^1.6.2",
     "commander": "^11.1.0",
     "dotenv": "^16.3.1",
-    "google-genai-api": "^1.0.0",
+    "file-type": "^19.6.0",
     "winston": "^3.11.0"
   },
   "devDependencies": {

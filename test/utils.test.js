@@ -21,10 +21,14 @@ import {
   saveMetadata,
   pause,
   createSpinner,
-  setLogLevel
+  setLogLevel,
+  validateVideoPath,
+  formatTimeOffset,
+  extractVideoMetadata
 } from '../utils.js';
 import { writeFileSync, unlinkSync, mkdirSync, rmSync, existsSync, readFileSync } from 'fs';
 import { join } from 'path';
+import { VIDEO_SIZE_LIMITS } from '../config.js';
 
 // Test directory for file operations
 const TEST_DIR = join(process.cwd(), 'test-temp');
@@ -490,6 +494,317 @@ describe('Logger Functions', () => {
       expect(() => setLogLevel('info')).not.toThrow();
       expect(() => setLogLevel('warn')).not.toThrow();
       expect(() => setLogLevel('error')).not.toThrow();
+    });
+  });
+});
+
+// ============================================================================
+// VIDEO UTILITY TESTS
+// ============================================================================
+
+describe('Video Utilities', () => {
+
+  describe('validateVideoPath', () => {
+    it('should reject non-existent file', async () => {
+      await expect(validateVideoPath('/nonexistent/video.mp4'))
+        .rejects.toThrow('Video file not found');
+    });
+
+    it('should reject empty file', async () => {
+      const emptyFile = join(TEST_DIR, 'empty.mp4');
+      writeFileSync(emptyFile, '');
+
+      await expect(validateVideoPath(emptyFile))
+        .rejects.toThrow('Video file is empty');
+
+      unlinkSync(emptyFile);
+    });
+
+    it('should reject non-video file (wrong MIME type)', async () => {
+      // Create a valid PNG file (not a video) with enough bytes for file-type detection
+      const pngFile = join(TEST_DIR, 'image.mp4');
+      // PNG header: 8 bytes signature + minimal IHDR chunk (25 bytes total minimum)
+      const pngBuffer = Buffer.alloc(33);
+      // PNG signature
+      Buffer.from([0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A]).copy(pngBuffer, 0);
+      // IHDR chunk length (13 bytes)
+      pngBuffer.writeUInt32BE(13, 8);
+      // IHDR chunk type
+      Buffer.from('IHDR').copy(pngBuffer, 12);
+      // Minimal IHDR data (width, height, bit depth, color type, compression, filter, interlace)
+      pngBuffer.writeUInt32BE(1, 16);  // width
+      pngBuffer.writeUInt32BE(1, 20);  // height
+      pngBuffer[24] = 8;  // bit depth
+      pngBuffer[25] = 0;  // color type
+      pngBuffer[26] = 0;  // compression
+      pngBuffer[27] = 0;  // filter
+      pngBuffer[28] = 0;  // interlace
+      writeFileSync(pngFile, pngBuffer);
+
+      await expect(validateVideoPath(pngFile))
+        .rejects.toThrow('Invalid video format');
+
+      unlinkSync(pngFile);
+    });
+
+    it('should reject file with no detectable type', async () => {
+      const randomFile = join(TEST_DIR, 'random.mp4');
+      writeFileSync(randomFile, Buffer.from([0x00, 0x01, 0x02, 0x03]));
+
+      await expect(validateVideoPath(randomFile))
+        .rejects.toThrow('Could not determine file type');
+
+      unlinkSync(randomFile);
+    });
+
+    it('should accept valid MP4 file', async () => {
+      // Create a minimal valid MP4 file (ftyp box)
+      const mp4File = join(TEST_DIR, 'valid.mp4');
+      // MP4 ftyp box: size (4) + 'ftyp' (4) + brand (4) + version (4)
+      const mp4Header = Buffer.alloc(20);
+      mp4Header.writeUInt32BE(20, 0);  // Box size
+      mp4Header.write('ftyp', 4);       // Box type
+      mp4Header.write('isom', 8);       // Major brand
+      mp4Header.writeUInt32BE(0, 12);   // Minor version
+      mp4Header.write('isom', 16);      // Compatible brand
+      writeFileSync(mp4File, mp4Header);
+
+      const result = await validateVideoPath(mp4File);
+
+      expect(result.valid).toBe(true);
+      expect(result.mimeType).toBe('video/mp4');
+      expect(result.size).toBeGreaterThan(0);
+
+      unlinkSync(mp4File);
+    });
+
+    it('should return correct object structure', async () => {
+      const mp4File = join(TEST_DIR, 'struct.mp4');
+      const mp4Header = Buffer.alloc(20);
+      mp4Header.writeUInt32BE(20, 0);
+      mp4Header.write('ftyp', 4);
+      mp4Header.write('isom', 8);
+      mp4Header.writeUInt32BE(0, 12);
+      mp4Header.write('isom', 16);
+      writeFileSync(mp4File, mp4Header);
+
+      const result = await validateVideoPath(mp4File);
+
+      expect(result).toHaveProperty('valid', true);
+      expect(result).toHaveProperty('mimeType');
+      expect(result).toHaveProperty('size');
+      expect(typeof result.mimeType).toBe('string');
+      expect(typeof result.size).toBe('number');
+
+      unlinkSync(mp4File);
+    });
+
+    it('should reject file exceeding 200MB size limit', async () => {
+      // Reset modules to get fresh import with mock
+      vi.resetModules();
+
+      const oversizedBytes = VIDEO_SIZE_LIMITS.MAX_FILE_SIZE + 1024; // 200MB + 1KB
+
+      // Use vi.doMock for non-hoisted mocking
+      const mockFs = {
+        stat: vi.fn().mockResolvedValue({
+          size: oversizedBytes,
+          isFile: () => true
+        }),
+        writeFile: vi.fn(),
+        readFile: vi.fn(),
+        mkdir: vi.fn(),
+        access: vi.fn()
+      };
+      vi.doMock('fs/promises', () => ({
+        default: mockFs,
+        ...mockFs
+      }));
+
+      // Create a small valid MP4 file (needed for file-type detection)
+      const mp4File = join(TEST_DIR, 'oversized.mp4');
+      const mp4Header = Buffer.alloc(20);
+      mp4Header.writeUInt32BE(20, 0);
+      mp4Header.write('ftyp', 4);
+      mp4Header.write('isom', 8);
+      mp4Header.writeUInt32BE(0, 12);
+      mp4Header.write('isom', 16);
+      writeFileSync(mp4File, mp4Header);
+
+      // Import after mock is set up
+      const { validateVideoPath: validateVideoPathMocked } = await import('../utils.js');
+
+      try {
+        await expect(validateVideoPathMocked(mp4File))
+          .rejects.toThrow('exceeds maximum of 200MB');
+      } finally {
+        unlinkSync(mp4File);
+        vi.doUnmock('fs/promises');
+        vi.resetModules();
+      }
+    });
+  });
+
+  describe('formatTimeOffset', () => {
+    it('should format 90 seconds to "90s"', () => {
+      expect(formatTimeOffset(90)).toBe('90s');
+    });
+
+    it('should format 0 seconds to "0s"', () => {
+      expect(formatTimeOffset(0)).toBe('0s');
+    });
+
+    it('should format 3600 seconds to "3600s"', () => {
+      expect(formatTimeOffset(3600)).toBe('3600s');
+    });
+
+    it('should handle large values correctly', () => {
+      expect(formatTimeOffset(86400)).toBe('86400s');
+    });
+
+    it('should floor decimal values', () => {
+      expect(formatTimeOffset(90.7)).toBe('90s');
+    });
+
+    it('should throw for non-number input', () => {
+      expect(() => formatTimeOffset('90')).toThrow('requires a valid number');
+    });
+
+    it('should throw for NaN', () => {
+      expect(() => formatTimeOffset(NaN)).toThrow('requires a valid number');
+    });
+
+    it('should throw for negative values', () => {
+      expect(() => formatTimeOffset(-10)).toThrow('cannot be negative');
+    });
+  });
+
+  describe('extractVideoMetadata', () => {
+    it('should extract text from response', () => {
+      const response = {
+        candidates: [{
+          content: {
+            parts: [{ text: 'The video shows a cat playing.' }]
+          }
+        }]
+      };
+
+      const result = extractVideoMetadata(response);
+
+      expect(result.text).toBe('The video shows a cat playing.');
+    });
+
+    it('should find single timestamp in text', () => {
+      const response = {
+        candidates: [{
+          content: {
+            parts: [{ text: 'At 01:30 the cat jumps onto the table.' }]
+          }
+        }]
+      };
+
+      const result = extractVideoMetadata(response);
+
+      expect(result.frames.length).toBe(1);
+      expect(result.frames[0].timestamp).toBe('01:30');
+    });
+
+    it('should find multiple timestamps', () => {
+      const response = {
+        candidates: [{
+          content: {
+            parts: [{ text: 'At 0:30 the video starts, at 1:15 the cat appears, and at 2:00 it ends.' }]
+          }
+        }]
+      };
+
+      const result = extractVideoMetadata(response);
+
+      expect(result.frames.length).toBe(3);
+      expect(result.frames.map(f => f.timestamp)).toEqual(['0:30', '1:15', '2:00']);
+    });
+
+    it('should handle HH:MM:SS format', () => {
+      const response = {
+        candidates: [{
+          content: {
+            parts: [{ text: 'At 1:15:30 something happens.' }]
+          }
+        }]
+      };
+
+      const result = extractVideoMetadata(response);
+
+      expect(result.frames.length).toBe(1);
+      expect(result.frames[0].timestamp).toBe('1:15:30');
+    });
+
+    it('should extract context around timestamps', () => {
+      const response = {
+        candidates: [{
+          content: {
+            parts: [{ text: 'The cat at 01:30 jumps high.' }]
+          }
+        }]
+      };
+
+      const result = extractVideoMetadata(response);
+
+      expect(result.frames[0].description).toContain('cat');
+      expect(result.frames[0].description).toContain('01:30');
+    });
+
+    it('should handle response without timestamps', () => {
+      const response = {
+        candidates: [{
+          content: {
+            parts: [{ text: 'This video shows a beautiful sunset.' }]
+          }
+        }]
+      };
+
+      const result = extractVideoMetadata(response);
+
+      expect(result.text).toBe('This video shows a beautiful sunset.');
+      expect(result.frames).toEqual([]);
+    });
+
+    it('should handle empty response', () => {
+      const result = extractVideoMetadata({});
+
+      expect(result.text).toBe('');
+      expect(result.frames).toEqual([]);
+    });
+
+    it('should handle null response', () => {
+      const result = extractVideoMetadata(null);
+
+      expect(result.text).toBe('');
+      expect(result.frames).toEqual([]);
+    });
+
+    it('should handle response with missing candidates', () => {
+      const result = extractVideoMetadata({ candidates: [] });
+
+      expect(result.text).toBe('');
+      expect(result.frames).toEqual([]);
+    });
+
+    it('should concatenate multiple text parts', () => {
+      const response = {
+        candidates: [{
+          content: {
+            parts: [
+              { text: 'First part. ' },
+              { text: 'Second part.' }
+            ]
+          }
+        }]
+      };
+
+      const result = extractVideoMetadata(response);
+
+      expect(result.text).toBe('First part. Second part.');
     });
   });
 });

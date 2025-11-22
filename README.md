@@ -3,7 +3,7 @@
 [![npm version](https://img.shields.io/npm/v/google-genai-api.svg)](https://www.npmjs.com/package/google-genai-api)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Node.js Version](https://img.shields.io/node/v/google-genai-api)](https://nodejs.org)
-[![Tests](https://img.shields.io/badge/tests-118%20passing-brightgreen)](test/)
+[![Tests](https://img.shields.io/badge/tests-354%20passing-brightgreen)](test/)
 
 A Node.js wrapper for the [Google GenAI API](https://ai.google.dev/gemini-api/docs) that provides easy access to Gemini 2.5 Flash Image and Imagen 4 models. Generate stunning AI images with advanced editing capabilities through a simple command-line interface.
 
@@ -61,8 +61,9 @@ const parts = extractGeminiParts(response);
 
 The Google GenAI API provides access to cutting-edge image generation and editing models. This Node.js service implements:
 
-- **2 Generation Models** - Gemini 2.5 Flash Image, Imagen 4
+- **3 Models** - Gemini 2.5 Flash Image, Imagen 4, Gemini 2.5 Flash (Video)
 - **3 Generation Modes** - Text-to-image, image-to-image, semantic masking
+- **Video Understanding** - Upload and analyze videos with natural language prompts
 - **Multiple Outputs** - Generate 1-4 images per request with Imagen
 - **SynthID Watermarking** - All images include built-in watermarking
 - **Production Security** - API key redaction, error sanitization, HTTPS enforcement, comprehensive SSRF protection (including IPv4-mapped IPv6 bypass prevention)
@@ -74,7 +75,7 @@ The Google GenAI API provides access to cutting-edge image generation and editin
 - **Image Input Support** - Convert local files or URLs to inlineData format with validation
 - **Organized Storage** - Structured directories with timestamped files and metadata
 - **CLI Orchestration** - Command-line tool for easy batch generation
-- **Comprehensive Testing** - 118 tests with Vitest for reliability
+- **Comprehensive Testing** - 354 tests with Vitest for reliability
 
 ## Public API
 
@@ -84,10 +85,22 @@ When installed via npm, import from the package name:
 
 ```javascript
 import {
-  GoogleGenAIAPI,      // Main API class
+  GoogleGenAIAPI,       // Main API class for image generation
+  GoogleGenAIVideoAPI,  // Video understanding API class
   extractGeminiParts,   // Extract parts from Gemini response
   extractImagenImages   // Extract images from Imagen response
 } from 'google-genai-api';
+```
+
+### Veo Exports (`google-genai-api/veo`)
+
+```javascript
+import {
+  GoogleGenAIVeoAPI,    // Veo video generation API class
+  VEO_MODELS,           // Veo model names (3.1, 3.0, 2.0)
+  VEO_MODES,            // Generation modes (text-to-video, image-to-video, etc.)
+  VEO_TIMEOUTS          // Timeout configuration
+} from 'google-genai-api/veo';
 ```
 
 ### Utility Exports (`google-genai-api/utils`)
@@ -97,6 +110,7 @@ import {
   imageToInlineData,    // Convert local file/URL to inlineData format
   validateImageUrl,     // Validate and sanitize image URLs (SSRF protection)
   validateImagePath,    // Validate local image files (magic byte checking)
+  validateVideoPath,    // Validate video files (format, size, magic bytes)
   saveBase64Image,      // Save base64 image data to file
   generateFilename,     // Generate timestamped filenames
   saveMetadata,         // Save generation metadata as JSON
@@ -104,7 +118,15 @@ import {
   pause,                // Async delay helper
   createSpinner,        // Create CLI spinner for progress
   setLogLevel,          // Set logging level
-  logger                // Winston logger instance
+  logger,               // Winston logger instance
+  formatTimeOffset,     // Format seconds to human-readable time
+  extractVideoMetadata, // Extract metadata from video file
+  // Veo-specific utilities
+  imageToVeoInput,      // Convert image to Veo input format
+  generateVeoOutputPath,// Generate output path for Veo videos
+  saveVeoMetadata,      // Save Veo generation metadata
+  createVeoSpinner,     // Create spinner for Veo operations
+  parseVeoMetadata      // Parse Veo metadata from file
 } from 'google-genai-api/utils';
 ```
 
@@ -112,12 +134,32 @@ import {
 
 ```javascript
 import {
-  getApiKey,            // Get API key from environment/config
+  getGoogleGenAIApiKey, // Get API key from environment/config
+  validateApiKeyFormat, // Validate API key format (starts with AIzaSy)
   redactApiKey,         // Redact API key for logging (shows last 4 chars)
   MODELS,               // Model endpoint definitions
   MODEL_CONSTRAINTS,    // Model parameter constraints
+  ASPECT_RATIOS,        // Valid aspect ratios array
+  GEMINI_MODES,         // Generation mode constants
+  DEFAULT_OUTPUT_DIR,   // Default output directory
   detectGeminiMode,     // Detect Gemini generation mode
-  validateModelParams   // Validate parameters before API calls
+  validateModelParams,  // Validate parameters before API calls
+  // Video understanding exports
+  VIDEO_MIME_TYPES,     // Supported video formats (mp4, webm, etc.)
+  VIDEO_SIZE_LIMITS,    // File size limits (200MB max)
+  VIDEO_TIMEOUTS,       // Upload/processing timeouts
+  parseTimeOffset,      // Parse time offsets ("1:30", "90s", "1m30s")
+  validateVideoParams,  // Validate video clipping parameters
+  // Veo video generation exports
+  VEO_MODELS,           // Veo model names
+  VEO_ASPECT_RATIOS,    // Supported aspect ratios (16:9, 9:16)
+  VEO_RESOLUTIONS,      // Supported resolutions (720p, 1080p)
+  VEO_DURATIONS,        // Supported durations per model
+  VEO_PERSON_GENERATION,// Person generation options
+  VEO_TIMEOUTS,         // Veo timeout configuration
+  VEO_MODES,            // Generation mode constants
+  VEO_MODEL_CONSTRAINTS,// Model-specific constraints
+  validateVeoParams     // Validate Veo parameters before API calls
 } from 'google-genai-api/config';
 ```
 
@@ -180,6 +222,77 @@ High-quality photorealistic image generation with multiple outputs.
 **Example:**
 ```bash
 google-genai --imagen --prompt "Professional product photography" --number-of-images 4
+```
+
+### Gemini 2.5 Flash (Video Understanding)
+
+Video analysis and understanding using Gemini's multimodal capabilities.
+
+**Best for:** Video content analysis, timestamp identification, summarization, Q&A about video content
+
+**Features:**
+- Upload videos via Files API (up to 200MB)
+- Natural language video analysis
+- Video clipping (analyze specific time ranges)
+- Timestamp analysis
+- Batch processing (multiple prompts per video)
+
+**Supported Formats:**
+- MP4, WebM, MOV, AVI, MPEG, FLV, MPG, WMV, 3GPP
+
+**Parameters:**
+- `prompt` - Analysis prompt (required)
+- `fileUri` - Uploaded file URI (from uploadVideoFile)
+- `mimeType` - Video MIME type
+- `videoMetadata` - Optional clipping: `{ startOffset: "30s", endOffset: "1:30" }`
+
+**Time Offset Formats:**
+- Seconds: `"90s"` or `"90"`
+- Minutes+seconds: `"1m30s"`
+- MM:SS: `"1:30"`
+- HH:MM:SS: `"1:15:30"`
+
+**CLI Examples:**
+```bash
+# Basic video analysis
+google-genai --video --input-video video.mp4 --prompt "What happens in this video?"
+
+# Analyze specific time range
+google-genai --video --input-video video.mp4 --prompt "Describe this scene" \
+  --video-start "30s" --video-end "1:30"
+
+# Multiple analysis prompts (single upload)
+google-genai --video --input-video video.mp4 \
+  --prompt "Summarize this video" \
+  --prompt "List key moments with timestamps"
+```
+
+**Programmatic Example:**
+```javascript
+import { GoogleGenAIVideoAPI } from 'google-genai-api';
+
+const api = new GoogleGenAIVideoAPI('your-api-key');
+
+// Upload video (happens once)
+const file = await api.uploadVideoFile('./video.mp4');
+
+// Analyze video
+const result = await api.generateFromVideo({
+  prompt: 'What happens in this video?',
+  fileUri: file.uri,
+  mimeType: file.mimeType
+});
+
+// Analyze specific time range
+const clip = await api.generateFromVideo({
+  prompt: 'Describe this scene',
+  fileUri: file.uri,
+  mimeType: file.mimeType,
+  videoMetadata: { startOffset: '30s', endOffset: '60s' }
+});
+
+// Clean up (best-effort)
+await api.deleteVideoFile(file.uri);
 ```
 
 ## Authentication Setup
@@ -871,7 +984,7 @@ node cli.js --gemini \
 
 ### Testing Commands
 ```bash
-npm test                 # Run all tests with Vitest (118 tests)
+npm test                 # Run all tests with Vitest (354 tests)
 npm run test:watch       # Watch mode for development
 npm run test:ui          # Interactive UI in browser
 npm run test:coverage    # Generate coverage report
@@ -904,9 +1017,12 @@ Check your quota at: https://console.cloud.google.com/apis/dashboard
 
 ## Related Packages
 
-- [`bfl-api`](https://github.com/aself101/bfl-api) – Black Forest Labs FLUX & Kontext models
-- [`stability-ai-api`](https://github.com/aself101/stability-ai-api) – Stable Diffusion 3.5 + upscalers
-- [`openai-image-api`](https://github.com/aself101/openai-image-api) – DALL·E & GPT Image 1
+This package is part of the img-gen ecosystem. Check out these other AI generation services:
+
+- [`ideogram-api`](https://github.com/aself101/ideogram-api) - Ideogram API wrapper for image generation, editing, remixing, and manipulation
+- [`bfl-api`](https://github.com/aself101/bfl-api) - Black Forest Labs API wrapper for FLUX and Kontext models
+- [`stability-ai-api`](https://github.com/aself101/stability-ai-api) - Stability AI API wrapper for Stable Diffusion 3.5 and image upscaling
+- [`openai-api`](https://github.com/aself101/openai-api) - OpenAI API wrapper for DALL-E and GPT Image generation
 
 ---
 
@@ -914,7 +1030,7 @@ Check your quota at: https://console.cloud.google.com/apis/dashboard
 
 ## License
 
-This project is licensed under the MIT License - see the [LICENSE](../LICENSE) file for details.
+This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
 
 By using this software, you agree to generate at least one image of a dog performing a backflip (optional but encouraged).
 

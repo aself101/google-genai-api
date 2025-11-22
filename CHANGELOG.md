@@ -1,9 +1,23 @@
-## [1.0.3](https://github.com/aself101/google-genai-api/compare/v1.0.2...v1.0.3) (2025-11-20)
+## [1.0.3](https://github.com/aself101/google-genai-api/compare/v1.0.2...v1.0.3) (2025-11-21)
+
+
+### Features
+
+* **veo:** add Veo 3.1 video generation API with text-to-video, image-to-video, and video extension
+* **video:** add video understanding/analysis API for analyzing video content
+* **cli:** add markdown output format for video analysis results
 
 
 ### Bug Fixes
 
+* **veo-api:** fix durationSeconds type from String to Number for Veo API compatibility
+* **video-api:** update files.get() API call for @google/genai SDK v1.30.0
 * update CLI version to 1.0.3 ([61e4b63](https://github.com/aself101/google-genai-api/commit/61e4b635674e182fdadbabcaa0429e2ff4fab4b9))
+
+
+### Dependencies
+
+* upgrade @google/genai SDK from v0.3.1 to v1.30.0
 
 ## [1.0.2](https://github.com/aself101/google-genai-api/compare/v1.0.1...v1.0.2) (2025-11-20)
 

@@ -16,7 +16,7 @@ export default defineConfig({
         '*.config.js',
         'cli.js' // Exclude CLI from coverage (hard to test interactively)
       ],
-      include: ['api.js', 'utils.js', 'config.js'],
+      include: ['api.js', 'video-api.js', 'veo-api.js', 'utils.js', 'config.js'],
       thresholds: {
         lines: 70,
         functions: 70,
