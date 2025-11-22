@@ -1,3 +1,10 @@
+## [1.1.2](https://github.com/aself101/google-genai-api/compare/v1.1.1...v1.1.2) (2025-11-22)
+
+
+### Bug Fixes
+
+* **docs:** improve README with video docs and API method table ([ae85a2c](https://github.com/aself101/google-genai-api/commit/ae85a2cef53d5a7ee1ef0b051880d6c1e1b4f6f7))
+
 ## [1.1.1](https://github.com/aself101/google-genai-api/compare/v1.1.0...v1.1.1) (2025-11-22)
 
 

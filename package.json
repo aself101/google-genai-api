@@ -1,6 +1,6 @@
 {
   "name": "google-genai-api",
-  "version": "1.1.1",
+  "version": "1.1.2",
   "description": "Node.js wrapper for Google GenAI API (Gemini, Imagen 4, and Veo 3.1 for image and video generation)",
   "type": "module",
   "main": "api.js",
