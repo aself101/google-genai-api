@@ -1,3 +1,10 @@
+## [1.1.1](https://github.com/aself101/google-genai-api/compare/v1.1.0...v1.1.1) (2025-11-22)
+
+
+### Bug Fixes
+
+* **docs:** add video generation to title and quickstart examples ([84299d2](https://github.com/aself101/google-genai-api/commit/84299d2844fefbdd0555d8995b77f7403eb5b61d))
+
 # [1.1.0](https://github.com/aself101/google-genai-api/compare/v1.0.3...v1.1.0) (2025-11-22)
 
 
