@@ -68,10 +68,11 @@ const video = await veo.generateVideo({
 
 ## Overview
 
-The Google GenAI API provides access to cutting-edge image generation and editing models. This Node.js service implements:
+The Google GenAI API provides access to cutting-edge image and video generation models. This Node.js service implements:
 
-- **3 Models** - Gemini 2.5 Flash Image, Imagen 4, Gemini 2.5 Flash (Video)
-- **3 Generation Modes** - Text-to-image, image-to-image, semantic masking
+- **4 APIs** - Gemini 2.5 Flash (images), Imagen 4 (images), Veo 3.1 (video generation), Video Understanding (analysis)
+- **Image Generation** - Text-to-image, image-to-image, semantic masking with Gemini/Imagen
+- **Video Generation** - Text-to-video, image-to-video, video extension with Veo 3.1
 - **Video Understanding** - Upload and analyze videos with natural language prompts
 - **Multiple Outputs** - Generate 1-4 images per request with Imagen
 - **SynthID Watermarking** - All images include built-in watermarking
@@ -171,6 +172,17 @@ import {
   validateVeoParams     // Validate Veo parameters before API calls
 } from 'google-genai-api/config';
 ```
+
+### API Method Summary
+
+| Class | Method | Description |
+|-------|--------|-------------|
+| `GoogleGenAIAPI` | `generateWithGemini(options)` | Text-to-image, image-to-image, semantic masking |
+| `GoogleGenAIAPI` | `generateWithImagen(options)` | Text-to-image (1-4 outputs) |
+| `GoogleGenAIVeoAPI` | `generateVideo(options)` | Text-to-video generation |
+| `GoogleGenAIVeoAPI` | `generateFromImage(options)` | Image-to-video generation |
+| `GoogleGenAIVeoAPI` | `extendVideo(options)` | Extend existing video |
+| `GoogleGenAIVideoAPI` | `analyzeVideo(options)` | Analyze video with natural language prompts |
 
 **Note:** When running from source (development), use local path imports (`'./api.js'`, `'./utils.js'`, `'./config.js'`) as shown in the examples below.
 
@@ -720,9 +732,78 @@ for (const part of parts) {
 }
 ```
 
+### Example 11: Video Generation (Veo CLI)
+
+```bash
+# Text-to-video
+google-genai veo --prompt "a cat playing piano in a jazz club" --duration 8
+
+# Image-to-video (animate an image)
+google-genai veo --prompt "make the bird fly away" --input-image ./bird.jpg
+
+# Higher resolution
+google-genai veo --prompt "ocean waves crashing" --resolution 1080p --duration 6
+```
+
+### Example 12: Video Generation (Programmatic)
+
+```javascript
+import { GoogleGenAIVeoAPI } from 'google-genai-api/veo';
+
+const veo = new GoogleGenAIVeoAPI('your-api-key');
+
+// Text-to-video
+const result = await veo.generateVideo({
+  prompt: 'a butterfly landing on a flower in slow motion',
+  aspectRatio: '16:9',
+  durationSeconds: 8
+});
+
+// Access the generated video
+const videoFile = result.generatedVideos[0].video;
+console.log('Video generated:', videoFile.uri);
+```
+
+### Example 13: Video Understanding (CLI)
+
+```bash
+# Analyze what's happening in a video
+google-genai video-analysis --input-video ./my-video.mp4 --prompt "What is happening in this video?"
+
+# Get a technical analysis
+google-genai video-analysis --input-video ./clip.mp4 --prompt "Describe the camera movements and lighting"
+
+# Analyze a specific time range
+google-genai video-analysis --input-video ./long-video.mp4 --prompt "Summarize the content" --start-time 30 --end-time 60
+```
+
+### Example 14: Video Understanding (Programmatic)
+
+```javascript
+import { GoogleGenAIVideoAPI } from 'google-genai-api';
+
+const videoApi = new GoogleGenAIVideoAPI('your-api-key');
+
+// Analyze a video file
+const analysis = await videoApi.analyzeVideo({
+  videoPath: './my-video.mp4',
+  prompt: 'What objects and actions are visible in this video?'
+});
+
+console.log('Analysis:', analysis.text);
+
+// With time clipping (analyze only seconds 10-30)
+const clipped = await videoApi.analyzeVideo({
+  videoPath: './long-video.mp4',
+  prompt: 'Summarize this segment',
+  startTime: 10,
+  endTime: 30
+});
+```
+
 ## Data Organization
 
-Generated images and metadata are organized by model:
+Generated images, videos, and metadata are organized by model:
 
 ```
 datasets/
@@ -731,10 +812,19 @@ datasets/
     │   ├── 20251119_021155_a-red-sports-car.png
     │   ├── 20251119_021155_a-red-sports-car.json
     │   └── ...
-    └── imagen-4.0-generate-001/
-        ├── 20251119_022305_futuristic-cityscape-1.png
-        ├── 20251119_022305_futuristic-cityscape-2.png
-        ├── 20251119_022305_futuristic-cityscape.json
+    ├── imagen-4.0-generate-001/
+    │   ├── 20251119_022305_futuristic-cityscape-1.png
+    │   ├── 20251119_022305_futuristic-cityscape-2.png
+    │   ├── 20251119_022305_futuristic-cityscape.json
+    │   └── ...
+    ├── veo/
+    │   └── veo-3.1-generate-preview/
+    │       ├── 20251121_021111_a-cat-playing-piano.mp4
+    │       ├── 20251121_021111_a-cat-playing-piano.json
+    │       └── ...
+    └── video-analysis/
+        ├── 20251121_022910_what-is-happening.md
+        ├── 20251121_022910_what-is-happening.json
         └── ...
 ```
 
