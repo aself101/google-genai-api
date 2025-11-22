@@ -1,3 +1,10 @@
+# [1.1.0](https://github.com/aself101/google-genai-api/compare/v1.0.3...v1.1.0) (2025-11-22)
+
+
+### Features
+
+* **veo:** add Veo 3.1 video generation and video understanding APIs ([80a4ea0](https://github.com/aself101/google-genai-api/commit/80a4ea0456674b273e88e817e0c0551a112770af))
+
 ## [1.0.3](https://github.com/aself101/google-genai-api/compare/v1.0.2...v1.0.3) (2025-11-21)
 
 
