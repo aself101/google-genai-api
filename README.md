@@ -1,11 +1,11 @@
-# Google GenAI Image Generation Service
+# Google GenAI Image & Video Generation Service
 
 [![npm version](https://img.shields.io/npm/v/google-genai-api.svg)](https://www.npmjs.com/package/google-genai-api)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Node.js Version](https://img.shields.io/node/v/google-genai-api)](https://nodejs.org)
 [![Tests](https://img.shields.io/badge/tests-354%20passing-brightgreen)](test/)
 
-A Node.js wrapper for the [Google GenAI API](https://ai.google.dev/gemini-api/docs) that provides easy access to Gemini 2.5 Flash Image and Imagen 4 models. Generate stunning AI images with advanced editing capabilities through a simple command-line interface.
+A Node.js wrapper for the [Google GenAI API](https://ai.google.dev/gemini-api/docs) that provides easy access to Gemini 2.5 Flash Image, Imagen 4, and Veo 3.1 models. Generate stunning AI images and videos with advanced editing capabilities through a simple command-line interface.
 
 This service follows the data-collection architecture pattern with organized data storage, comprehensive logging, and CLI orchestration.
 
@@ -18,18 +18,23 @@ npm install -g google-genai-api
 
 export GOOGLE_GENAI_API_KEY="your-api-key"
 
-# Generate with Gemini
+# Generate images with Gemini
 google-genai --gemini --prompt "a serene mountain landscape"
 
-# Generate with Imagen
+# Generate images with Imagen
 google-genai --imagen --prompt "futuristic cityscape" --number-of-images 4
+
+# Generate videos with Veo 3.1
+google-genai veo --prompt "a cat playing piano" --duration 8
 ```
 
 ### Programmatic Usage
 ```javascript
 import { GoogleGenAIAPI } from 'google-genai-api';
+import { GoogleGenAIVeoAPI } from 'google-genai-api/veo';
 
 const api = new GoogleGenAIAPI('your-api-key');
+const veo = new GoogleGenAIVeoAPI('your-api-key');
 
 // Text-to-image with Gemini
 const response = await api.generateWithGemini({
@@ -37,9 +42,13 @@ const response = await api.generateWithGemini({
   aspectRatio: '16:9'
 });
 
-// Extract and save images
-const parts = extractGeminiParts(response);
-// parts[0] contains image data
+// Text-to-video with Veo 3.1
+const video = await veo.generateVideo({
+  prompt: 'a cat playing piano in a jazz club',
+  aspectRatio: '16:9',
+  durationSeconds: 8
+});
+// video.generatedVideos[0].video contains the video file
 ```
 
 ## Table of Contents
