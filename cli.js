@@ -57,6 +57,17 @@ import {
 } from './utils.js';
 import path from 'path';
 import fs from 'fs/promises';
+import { readFileSync } from 'fs';
+import { fileURLToPath } from 'url';
+
+// Get __dirname equivalent for ES modules
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+
+// Read version from package.json dynamically
+const { version } = JSON.parse(
+  readFileSync(path.join(__dirname, 'package.json'), 'utf8')
+);
 
 /**
  * Display usage examples.
@@ -264,7 +275,7 @@ const program = new Command();
 program
   .name('google-genai')
   .description('Google GenAI API - Gemini 2.5 Flash Image & Imagen 4')
-  .version('1.0.3');
+  .version(version);
 
 // Model selection flags
 program
