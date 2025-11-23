@@ -1,3 +1,10 @@
+## [1.2.2](https://github.com/aself101/google-genai-api/compare/v1.2.1...v1.2.2) (2025-11-23)
+
+
+### Bug Fixes
+
+* **cli:** unique filenames for multi-image Imagen generation ([bbdcab6](https://github.com/aself101/google-genai-api/commit/bbdcab6370e4bec8b06dcbc2ada6db931a2c1cec))
+
 ## [1.2.1](https://github.com/aself101/google-genai-api/compare/v1.2.0...v1.2.1) (2025-11-23)
 
 
