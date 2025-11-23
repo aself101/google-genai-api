@@ -791,11 +791,15 @@ async function main() {
         if (part.type === 'image') {
           imageCount++;
 
-          // Generate filename
+          // Generate filename with unique suffix for multiple images
+          const totalImages = parts.filter(p => p.type === 'image').length;
           let filename;
-          if (parts.filter(p => p.type === 'image').length > 1) {
-            // Multiple images: add index
-            filename = generateFilename(`${prompt}-${imageCount}`);
+          if (totalImages > 1) {
+            // Multiple images: add index suffix to ensure unique filenames
+            const baseFilename = generateFilename(prompt);
+            const ext = baseFilename.split('.').pop();
+            const nameWithoutExt = baseFilename.slice(0, -(ext.length + 1));
+            filename = `${nameWithoutExt}_${imageCount}.${ext}`;
           } else {
             // Single image: no index
             filename = generateFilename(prompt);

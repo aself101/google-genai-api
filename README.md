@@ -182,7 +182,7 @@ import {
 | `GoogleGenAIVeoAPI` | `generateVideo(options)` | Text-to-video generation |
 | `GoogleGenAIVeoAPI` | `generateFromImage(options)` | Image-to-video generation |
 | `GoogleGenAIVeoAPI` | `extendVideo(options)` | Extend existing video |
-| `GoogleGenAIVideoAPI` | `analyzeVideo(options)` | Analyze video with natural language prompts |
+| `GoogleGenAIVideoAPI` | `generateFromVideo(options)` | Analyze video with natural language prompts |
 
 **Note:** When running from source (development), use local path imports (`'./api.js'`, `'./utils.js'`, `'./config.js'`) as shown in the examples below.
 
@@ -804,36 +804,43 @@ console.log('Video generated:', videoFile.uri);
 
 ```bash
 # Analyze what's happening in a video
-google-genai video-analysis --input-video ./my-video.mp4 --prompt "What is happening in this video?"
+google-genai --video --input-video ./my-video.mp4 --prompt "What is happening in this video?"
 
 # Get a technical analysis
-google-genai video-analysis --input-video ./clip.mp4 --prompt "Describe the camera movements and lighting"
+google-genai --video --input-video ./clip.mp4 --prompt "Describe the camera movements and lighting"
 
 # Analyze a specific time range
-google-genai video-analysis --input-video ./long-video.mp4 --prompt "Summarize the content" --start-time 30 --end-time 60
+google-genai --video --input-video ./long-video.mp4 --prompt "Summarize the content" --video-start "30s" --video-end "60s"
 ```
 
 ### Example 14: Video Understanding (Programmatic)
 
 ```javascript
 import { GoogleGenAIVideoAPI } from 'google-genai-api';
+import { formatTimeOffset, extractVideoMetadata } from 'google-genai-api/utils.js';
 
 const videoApi = new GoogleGenAIVideoAPI('your-api-key');
 
-// Analyze a video file
-const analysis = await videoApi.analyzeVideo({
-  videoPath: './my-video.mp4',
-  prompt: 'What objects and actions are visible in this video?'
+// Upload and analyze a video file
+const uploadedFile = await videoApi.uploadVideoFile('./my-video.mp4');
+const response = await videoApi.generateFromVideo({
+  prompt: 'What objects and actions are visible in this video?',
+  fileUri: uploadedFile.uri,
+  mimeType: uploadedFile.mimeType
 });
 
-console.log('Analysis:', analysis.text);
+const { text } = extractVideoMetadata(response);
+console.log('Analysis:', text);
 
 // With time clipping (analyze only seconds 10-30)
-const clipped = await videoApi.analyzeVideo({
-  videoPath: './long-video.mp4',
+const clippedResponse = await videoApi.generateFromVideo({
   prompt: 'Summarize this segment',
-  startTime: 10,
-  endTime: 30
+  fileUri: uploadedFile.uri,
+  mimeType: uploadedFile.mimeType,
+  videoMetadata: {
+    startOffset: formatTimeOffset(10),
+    endOffset: formatTimeOffset(30)
+  }
 });
 ```
 
@@ -1119,7 +1126,7 @@ node cli.js --gemini \
 
 ### Testing Commands
 ```bash
-npm test                 # Run all tests with Vitest (354 tests)
+npm test                 # Run all tests with Vitest (358 tests)
 npm run test:watch       # Watch mode for development
 npm run test:ui          # Interactive UI in browser
 npm run test:coverage    # Generate coverage report
@@ -1171,4 +1178,4 @@ By using this software, you agree to generate at least one image of a dog perfor
 
 ---
 
-**Note:** This service implements the official `@google/genai` SDK (v0.3.0) with comprehensive security features and testing.
+**Note:** This service implements the official `@google/genai` SDK (v1.30.0) with comprehensive security features and testing.
