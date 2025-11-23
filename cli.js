@@ -90,34 +90,46 @@ GEMINI 2.5 FLASH IMAGE
        --prompt "Portrait of a futuristic character" \\
        --aspect-ratio "3:4"
 
+GEMINI 3 PRO IMAGE PREVIEW
+
+5. Text-to-image with Gemini 3 Pro
+   $ google-genai --gemini-3-pro \\
+       --prompt "A hyper-realistic photograph of a mountain lake" \\
+       --aspect-ratio "16:9"
+
+6. Image-to-image with Gemini 3 Pro
+   $ google-genai --gemini-3-pro \\
+       --prompt "Add dramatic storm clouds" \\
+       --input-image ./landscape.jpg
+
 IMAGEN 4
 
-5. Generate single image
+7. Generate single image
    $ google-genai --imagen \\
        --prompt "Futuristic cityscape at night" \\
        --aspect-ratio "16:9"
 
-6. Generate multiple images (1-4)
+8. Generate multiple images (1-4)
    $ google-genai --imagen \\
        --prompt "Character design concepts" \\
        --number-of-images 4 \\
        --aspect-ratio "1:1"
 
-7. Photorealistic generation
+9. Photorealistic generation
    $ google-genai --imagen \\
        --prompt "Professional product photography of a watch" \\
        --aspect-ratio "4:3"
 
 BATCH PROCESSING
 
-8. Multiple prompts with Gemini
+10. Multiple prompts with Gemini
    $ google-genai --gemini \\
        --prompt "a red apple" \\
        --prompt "a green apple" \\
        --prompt "a yellow apple" \\
        --aspect-ratio "1:1"
 
-9. Multiple prompts with Imagen
+11. Multiple prompts with Imagen
    $ google-genai --imagen \\
        --prompt "logo design concept 1" \\
        --prompt "logo design concept 2" \\
@@ -125,12 +137,12 @@ BATCH PROCESSING
 
 ADVANCED OPTIONS
 
-10. Custom output directory
+12. Custom output directory
     $ google-genai --gemini \\
         --prompt "test generation" \\
         --output-dir ./my-outputs
 
-11. Debug logging
+13. Debug logging
     $ google-genai --imagen \\
         --prompt "debug test" \\
         --log-level debug
@@ -156,24 +168,24 @@ Get your API key at: https://aistudio.google.com/apikey
 
 VIDEO UNDERSTANDING (Gemini 2.5 Flash)
 
-12. Basic video analysis
+14. Basic video analysis
     $ google-genai --video \\
         --input-video ./video.mp4 \\
         --prompt "Describe what happens in this video"
 
-13. Video clipping (analyze specific segment)
+15. Video clipping (analyze specific segment)
     $ google-genai --video \\
         --input-video ./video.mp4 \\
         --prompt "What actions occur in this segment?" \\
         --video-start "30s" \\
         --video-end "1:30"
 
-14. Ask about timestamps
+16. Ask about timestamps
     $ google-genai --video \\
         --input-video ./video.mp4 \\
         --prompt "List the key moments with timestamps"
 
-15. Multiple analysis prompts (single upload)
+17. Multiple analysis prompts (single upload)
     $ google-genai --video \\
         --input-video ./video.mp4 \\
         --prompt "Summarize this video" \\
@@ -193,30 +205,30 @@ ASPECT RATIOS (Image): ${ASPECT_RATIOS.join(', ')}
 
 VEO VIDEO GENERATION (Veo 3.1)
 
-16. Text-to-video generation
+18. Text-to-video generation
     $ google-genai --veo \\
         --prompt "A majestic lion walking through the savannah" \\
         --veo-aspect-ratio "16:9" \\
         --veo-duration 8
 
-17. Image-to-video (animate an image)
+19. Image-to-video (animate an image)
     $ google-genai --veo \\
         --prompt "The cat wakes up and stretches" \\
         --veo-image ./cat.png \\
         --veo-duration 8
 
-18. High resolution video (1080p)
+20. High resolution video (1080p)
     $ google-genai --veo \\
         --prompt "Cinematic sunset over the ocean" \\
         --veo-resolution "1080p" \\
         --veo-duration 8
 
-19. Fast generation mode
+21. Fast generation mode
     $ google-genai --veo \\
         --prompt "A butterfly landing on a flower" \\
         --veo-model "veo-3.1-fast-generate-preview"
 
-20. Negative prompts (avoid certain content)
+22. Negative prompts (avoid certain content)
     $ google-genai --veo \\
         --prompt "A beautiful landscape" \\
         --veo-negative-prompt "blurry, low quality, cartoon"
@@ -257,6 +269,7 @@ program
 // Model selection flags
 program
   .option('--gemini', 'Use Gemini 2.5 Flash Image model')
+  .option('--gemini-3-pro', 'Use Gemini 3 Pro Image Preview model')
   .option('--imagen', 'Use Imagen 4 model')
   .option('--video', 'Analyze video content (requires --input-video)')
   .option('--veo', 'Generate video with Veo 3.1 models');
@@ -309,24 +322,24 @@ if (!process.argv.slice(2).length) {
 }
 
 // Show help if no model selected
-if (!options.gemini && !options.imagen && !options.video && !options.veo) {
+if (!options.gemini && !options.gemini3Pro && !options.imagen && !options.video && !options.veo) {
   program.outputHelp();
   process.exit(1);
 }
 
 // Count modes selected
-const modesSelected = [options.gemini, options.imagen, options.video, options.veo].filter(Boolean).length;
+const modesSelected = [options.gemini, options.gemini3Pro, options.imagen, options.video, options.veo].filter(Boolean).length;
 
 // Ensure only one mode is selected
 if (modesSelected > 1) {
-  if (options.video && (options.gemini || options.imagen || options.veo)) {
-    console.error('Error: --video cannot be used with --gemini, --imagen, or --veo.');
+  if (options.video && (options.gemini || options.gemini3Pro || options.imagen || options.veo)) {
+    console.error('Error: --video cannot be used with --gemini, --gemini-3-pro, --imagen, or --veo.');
     console.error('Video analysis uses Gemini 2.5 Flash automatically.\n');
-  } else if (options.veo && (options.gemini || options.imagen)) {
-    console.error('Error: --veo cannot be used with --gemini or --imagen.');
-    console.error('Veo is for video generation. Use --gemini or --imagen for images.\n');
+  } else if (options.veo && (options.gemini || options.gemini3Pro || options.imagen)) {
+    console.error('Error: --veo cannot be used with --gemini, --gemini-3-pro, or --imagen.');
+    console.error('Veo is for video generation. Use --gemini, --gemini-3-pro, or --imagen for images.\n');
   } else {
-    console.error('Error: Cannot use multiple model modes. Please choose one: --gemini, --imagen, --video, or --veo.\n');
+    console.error('Error: Cannot use multiple model modes. Please choose one: --gemini, --gemini-3-pro, --imagen, --video, or --veo.\n');
   }
   process.exit(1);
 }
@@ -665,7 +678,14 @@ async function main() {
     const api = new GoogleGenAIAPI(apiKey, options.logLevel);
 
     // Determine model
-    const model = options.gemini ? MODELS.GEMINI : MODELS.IMAGEN;
+    let model;
+    if (options.gemini3Pro) {
+      model = MODELS.GEMINI_3_PRO;
+    } else if (options.gemini) {
+      model = MODELS.GEMINI;
+    } else {
+      model = MODELS.IMAGEN;
+    }
     const modelDir = model; // Use model name as directory
 
     logger.info(`Processing ${prompts.length} prompt(s) with ${model}`);
@@ -714,7 +734,7 @@ async function main() {
         }
 
       } else {
-        // Gemini generation
+        // Gemini generation (gemini-2.5-flash-image or gemini-3-pro-image-preview)
         // Convert input images to inlineData format if provided
         const inputImages = [];
         if (options.inputImage) {
@@ -723,17 +743,19 @@ async function main() {
           inputImages.push(inlineData);
         }
 
-        logger.info(`Generating with Gemini (inputImages: ${inputImages.length})`);
+        logger.info(`Generating with ${model} (inputImages: ${inputImages.length})`);
 
         const mode = inputImages.length > 0 ? 'image-to-image' : 'text-to-image';
-        const spinner = createSpinner(`Generating image with Gemini (${mode})...`);
+        const modelName = options.gemini3Pro ? 'Gemini 3 Pro' : 'Gemini';
+        const spinner = createSpinner(`Generating image with ${modelName} (${mode})...`);
         spinner.start();
 
         try {
           response = await api.generateWithGemini({
             prompt,
             inputImages,
-            aspectRatio: options.aspectRatio
+            aspectRatio: options.aspectRatio,
+            model
           });
 
           spinner.stop('✓ Generation complete\n');

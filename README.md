@@ -3,9 +3,9 @@
 [![npm version](https://img.shields.io/npm/v/google-genai-api.svg)](https://www.npmjs.com/package/google-genai-api)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Node.js Version](https://img.shields.io/node/v/google-genai-api)](https://nodejs.org)
-[![Tests](https://img.shields.io/badge/tests-354%20passing-brightgreen)](test/)
+[![Tests](https://img.shields.io/badge/tests-358%20passing-brightgreen)](test/)
 
-A Node.js wrapper for the [Google GenAI API](https://ai.google.dev/gemini-api/docs) that provides easy access to Gemini 2.5 Flash Image, Imagen 4, and Veo 3.1 models. Generate stunning AI images and videos with advanced editing capabilities through a simple command-line interface.
+A Node.js wrapper for the [Google GenAI API](https://ai.google.dev/gemini-api/docs) that provides easy access to Gemini 2.5 Flash Image, Gemini 3 Pro Image Preview, Imagen 4, and Veo 3.1 models. Generate stunning AI images and videos with advanced editing capabilities through a simple command-line interface.
 
 This service follows the data-collection architecture pattern with organized data storage, comprehensive logging, and CLI orchestration.
 
@@ -70,7 +70,7 @@ const video = await veo.generateVideo({
 
 The Google GenAI API provides access to cutting-edge image and video generation models. This Node.js service implements:
 
-- **4 APIs** - Gemini 2.5 Flash (images), Imagen 4 (images), Veo 3.1 (video generation), Video Understanding (analysis)
+- **5 APIs** - Gemini 2.5 Flash (images), Gemini 3 Pro (images), Imagen 4 (images), Veo 3.1 (video generation), Video Understanding (analysis)
 - **Image Generation** - Text-to-image, image-to-image, semantic masking with Gemini/Imagen
 - **Video Generation** - Text-to-video, image-to-video, video extension with Veo 3.1
 - **Video Understanding** - Upload and analyze videos with natural language prompts
@@ -85,7 +85,7 @@ The Google GenAI API provides access to cutting-edge image and video generation 
 - **Image Input Support** - Convert local files or URLs to inlineData format with validation
 - **Organized Storage** - Structured directories with timestamped files and metadata
 - **CLI Orchestration** - Command-line tool for easy batch generation
-- **Comprehensive Testing** - 354 tests with Vitest for reliability
+- **Comprehensive Testing** - 358 tests with Vitest for reliability
 
 ## Public API
 
@@ -222,6 +222,41 @@ Advanced image generation model with three powerful modes.
    ```bash
    google-genai --gemini --prompt "Change the car to red" --input-image street_scene.jpg
    ```
+
+### Gemini 3 Pro Image Preview
+
+Latest Gemini image generation model with enhanced quality and capabilities.
+
+**Best for:** High-quality image generation, advanced editing, preview access to latest features
+
+**Features:**
+- Text-to-image generation
+- Image-to-image transformation
+- Semantic masking (natural language editing)
+- Enhanced output quality
+
+**Parameters:**
+- `prompt` - Generation or editing prompt (required)
+- `aspectRatio` - Image proportions: 1:1, 3:4, 4:3, 9:16, 16:9 (default: 1:1)
+- `inputImages` - Array of inlineData objects for editing (optional)
+
+**CLI Examples:**
+```bash
+# Text-to-image with Gemini 3 Pro
+google-genai --gemini-3-pro --prompt "A hyper-realistic photograph of a sunset" --aspect-ratio "16:9"
+
+# Image-to-image transformation
+google-genai --gemini-3-pro --prompt "Transform into oil painting style" --input-image photo.jpg
+```
+
+**Programmatic Usage:**
+```javascript
+const response = await api.generateWithGemini({
+  prompt: 'A serene mountain landscape at golden hour',
+  aspectRatio: '16:9',
+  model: 'gemini-3-pro-image-preview'
+});
+```
 
 ### Imagen 4
 
@@ -427,6 +462,7 @@ Choose one model:
 
 ```bash
 --gemini         # Gemini 2.5 Flash Image
+--gemini-3-pro   # Gemini 3 Pro Image Preview
 --imagen         # Imagen 4
 ```
 

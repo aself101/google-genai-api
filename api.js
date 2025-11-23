@@ -97,7 +97,7 @@ export class GoogleGenAIAPI {
   }
 
   /**
-   * Generate image with Gemini 2.5 Flash Image model.
+   * Generate image with Gemini models.
    * Supports text-to-image, image-to-image, and semantic masking.
    *
    * Mode is automatically detected:
@@ -108,6 +108,7 @@ export class GoogleGenAIAPI {
    * @param {string} params.prompt - Generation or editing prompt
    * @param {Array<Object>} [params.inputImages=[]] - Array of inlineData objects for editing
    * @param {string} [params.aspectRatio='1:1'] - Aspect ratio (1:1, 3:4, 4:3, 9:16, 16:9)
+   * @param {string} [params.model] - Model to use (defaults to gemini-2.5-flash-image)
    * @param {string} [params.mode] - Override auto-detection (text-to-image, image-to-image, semantic-masking)
    * @returns {Promise<Object>} Response object with parts array
    * @throws {Error} If generation fails
@@ -125,6 +126,12 @@ export class GoogleGenAIAPI {
    *   prompt: 'Make it sunset',
    *   inputImages: [inputImage]
    * });
+   *
+   * // Using Gemini 3 Pro
+   * const response = await api.generateWithGemini({
+   *   prompt: 'A futuristic cityscape',
+   *   model: 'gemini-3-pro-image-preview'
+   * });
    */
   async generateWithGemini(params) {
     this._verifyApiKey();
@@ -133,13 +140,14 @@ export class GoogleGenAIAPI {
       prompt,
       inputImages = [],
       aspectRatio = '1:1',
+      model = MODELS.GEMINI,
       mode
     } = params;
 
     // Detect or use provided mode
     const detectedMode = mode || detectGeminiMode(inputImages);
 
-    this.logger.info(`Generating with Gemini (mode: ${detectedMode}, aspectRatio: ${aspectRatio})`);
+    this.logger.info(`Generating with ${model} (mode: ${detectedMode}, aspectRatio: ${aspectRatio})`);
     this.logger.debug(`Prompt: "${prompt}"`);
     this.logger.debug(`Input images: ${inputImages.length}`);
 
@@ -151,7 +159,7 @@ export class GoogleGenAIAPI {
 
       // Call Gemini API
       const response = await this.client.models.generateContent({
-        model: MODELS.GEMINI,
+        model,
         contents,
         config: { aspectRatio }
       });

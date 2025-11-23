@@ -38,6 +38,11 @@ describe('Configuration Constants', () => {
       expect(MODELS.GEMINI).toBe('gemini-2.5-flash-image');
     });
 
+    it('should have GEMINI_3_PRO model defined', () => {
+      expect(MODELS.GEMINI_3_PRO).toBeDefined();
+      expect(MODELS.GEMINI_3_PRO).toBe('gemini-3-pro-image-preview');
+    });
+
     it('should have IMAGEN model defined', () => {
       expect(MODELS.IMAGEN).toBeDefined();
       expect(MODELS.IMAGEN).toBe('imagen-4.0-generate-001');
@@ -75,6 +80,18 @@ describe('Configuration Constants', () => {
       expect(gemini.features.imageToImage).toBe(true);
       expect(gemini.features.semanticMasking).toBe(true);
       expect(gemini.responseFormat).toBe('parts');
+    });
+
+    it('should have constraints for Gemini 3 Pro model', () => {
+      const gemini3Pro = MODEL_CONSTRAINTS[MODELS.GEMINI_3_PRO];
+      expect(gemini3Pro).toBeDefined();
+      expect(gemini3Pro.aspectRatios).toEqual(ASPECT_RATIOS);
+      expect(gemini3Pro.promptMaxLength).toBe(10000);
+      expect(gemini3Pro.inputImagesMax).toBe(1);
+      expect(gemini3Pro.features.textToImage).toBe(true);
+      expect(gemini3Pro.features.imageToImage).toBe(true);
+      expect(gemini3Pro.features.semanticMasking).toBe(true);
+      expect(gemini3Pro.responseFormat).toBe('parts');
     });
 
     it('should have constraints for Imagen model', () => {

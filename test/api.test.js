@@ -227,6 +227,47 @@ describe('GoogleGenAIAPI Class', () => {
 
       expect(mockClient.models.generateContent).toHaveBeenCalledTimes(2);
     });
+
+    it('should use custom model when provided', async () => {
+      const mockResponse = {
+        candidates: [{
+          content: {
+            parts: [
+              { inlineData: { mimeType: 'image/png', data: 'base64imagedata' } }
+            ]
+          }
+        }]
+      };
+      mockClient.models.generateContent.mockResolvedValue(mockResponse);
+
+      await api.generateWithGemini({
+        prompt: 'A futuristic cityscape',
+        aspectRatio: '16:9',
+        model: MODELS.GEMINI_3_PRO
+      });
+
+      expect(mockClient.models.generateContent).toHaveBeenCalledWith({
+        model: MODELS.GEMINI_3_PRO,
+        contents: 'A futuristic cityscape',
+        config: { aspectRatio: '16:9' }
+      });
+    });
+
+    it('should default to GEMINI model when model not specified', async () => {
+      const mockResponse = { candidates: [{ content: { parts: [] } }] };
+      mockClient.models.generateContent.mockResolvedValue(mockResponse);
+
+      await api.generateWithGemini({
+        prompt: 'Test prompt',
+        aspectRatio: '1:1'
+      });
+
+      expect(mockClient.models.generateContent).toHaveBeenCalledWith({
+        model: MODELS.GEMINI,
+        contents: 'Test prompt',
+        config: { aspectRatio: '1:1' }
+      });
+    });
   });
 
   describe('generateWithImagen', () => {

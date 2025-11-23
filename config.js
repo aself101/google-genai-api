@@ -33,6 +33,7 @@ if (existsSync(globalConfigPath)) {
 // Google GenAI API models
 export const MODELS = {
   GEMINI: 'gemini-2.5-flash-image',
+  GEMINI_3_PRO: 'gemini-3-pro-image-preview',
   IMAGEN: 'imagen-4.0-generate-001',
   GEMINI_VIDEO: 'gemini-2.5-flash'  // Video analysis uses standard Gemini model
 };
@@ -99,6 +100,20 @@ export const GEMINI_MODES = {
 // Model parameter constraints
 export const MODEL_CONSTRAINTS = {
   'gemini-2.5-flash-image': {
+    aspectRatios: ASPECT_RATIOS,
+    promptMaxLength: 10000,
+    inputImagesMax: 1, // Only one input image supported for editing/masking
+    supportedModes: Object.values(GEMINI_MODES),
+    features: {
+      textToImage: true,
+      imageToImage: true,
+      semanticMasking: true,
+      naturalLanguageEditing: true
+    },
+    // Note: Response format is { parts: [{ text }, { inlineData }] }
+    responseFormat: 'parts'
+  },
+  'gemini-3-pro-image-preview': {
     aspectRatios: ASPECT_RATIOS,
     promptMaxLength: 10000,
     inputImagesMax: 1, // Only one input image supported for editing/masking
