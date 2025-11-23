@@ -1,3 +1,10 @@
+## [1.2.1](https://github.com/aself101/google-genai-api/compare/v1.2.0...v1.2.1) (2025-11-23)
+
+
+### Bug Fixes
+
+* **cli:** read version dynamically from package.json ([d108900](https://github.com/aself101/google-genai-api/commit/d108900446787e942e06bcaee10423fa7471b682))
+
 # [1.2.0](https://github.com/aself101/google-genai-api/compare/v1.1.2...v1.2.0) (2025-11-23)
 
 
