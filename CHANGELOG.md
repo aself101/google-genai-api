@@ -1,3 +1,10 @@
+# [1.2.0](https://github.com/aself101/google-genai-api/compare/v1.1.2...v1.2.0) (2025-11-23)
+
+
+### Features
+
+* **gemini:** add Gemini 3 Pro Image Preview model support ([6aa43bd](https://github.com/aself101/google-genai-api/commit/6aa43bd55a4a25554edd106f26932f79b56dcd32))
+
 ## [1.1.2](https://github.com/aself101/google-genai-api/compare/v1.1.1...v1.1.2) (2025-11-22)
 
 
