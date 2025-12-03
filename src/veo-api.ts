@@ -24,8 +24,33 @@ import {
   VEO_MODEL_CONSTRAINTS,
   getGoogleGenAIApiKey,
   redactApiKey,
-  validateVeoParams
+  validateVeoParams,
 } from './config.js';
+import type {
+  ErrorClassification,
+  VeoDownloadResult,
+  VeoExtendParams,
+  VeoExtractedVideo,
+  VeoGenerateParams,
+  VeoImageToVideoParams,
+  VeoInterpolationParams,
+  VeoModel,
+  VeoModelInfo,
+  VeoOperation,
+  VeoReferenceParams,
+  VeoWaitOptions,
+} from './types/index.js';
+
+/**
+ * Extended error with additional properties.
+ */
+interface ExtendedError extends Error {
+  response?: { status?: number };
+  status?: number;
+  isTimeout?: boolean;
+  operationName?: string;
+  operationError?: { message?: string; code?: number };
+}
 
 /**
  * Google GenAI Veo Video Generation API client.
@@ -42,14 +67,19 @@ import {
  * await api.downloadVideo(operation, './output.mp4');
  */
 export class GoogleGenAIVeoAPI {
+  private apiKey: string;
+  private client: GoogleGenAI;
+  private defaultModel: VeoModel;
+  private logger: winston.Logger;
+
   /**
    * Create a new GoogleGenAIVeoAPI instance.
    *
-   * @param {string} apiKey - Google GenAI API key
-   * @param {string} [logLevel='info'] - Logging level (debug, info, warn, error)
-   * @throws {Error} If API key is not provided
+   * @param apiKey - Google GenAI API key
+   * @param logLevel - Logging level (debug, info, warn, error)
+   * @throws Error if API key is not provided
    */
-  constructor(apiKey, logLevel = 'info') {
+  constructor(apiKey: string, logLevel = 'info') {
     if (!apiKey) {
       throw new Error('API key is required');
     }
@@ -67,9 +97,7 @@ export class GoogleGenAIVeoAPI {
           return `${timestamp} - ${level.toUpperCase()} - [VeoAPI] ${message}`;
         })
       ),
-      transports: [
-        new winston.transports.Console()
-      ]
+      transports: [new winston.transports.Console()],
     });
 
     this.logger.debug(`GoogleGenAIVeoAPI initialized (key: ${redactApiKey(apiKey)})`);
@@ -78,9 +106,9 @@ export class GoogleGenAIVeoAPI {
   /**
    * Verify API key is set.
    * @private
-   * @throws {Error} If API key is missing
+   * @throws Error if API key is missing
    */
-  _verifyApiKey() {
+  private _verifyApiKey(): void {
     if (!this.apiKey) {
       throw new Error('API key is not set. Please provide a valid API key.');
     }
@@ -90,10 +118,10 @@ export class GoogleGenAIVeoAPI {
    * Classify error type for handling.
    *
    * @private
-   * @param {Error} error - Error to classify
-   * @returns {'TRANSIENT'|'PERMANENT'|'USER_ACTIONABLE'|'SAFETY_BLOCKED'|'AUDIO_BLOCKED'} Error classification
+   * @param error - Error to classify
+   * @returns Error classification
    */
-  _classifyError(error) {
+  private _classifyError(error: ExtendedError): ErrorClassification {
     const status = error.response?.status || error.status;
     const message = error.message?.toLowerCase() || '';
 
@@ -125,7 +153,11 @@ export class GoogleGenAIVeoAPI {
     if (status === 429 || status === 502 || status === 503) {
       return 'TRANSIENT';
     }
-    if (message.includes('network') || message.includes('timeout') || message.includes('econnreset')) {
+    if (
+      message.includes('network') ||
+      message.includes('timeout') ||
+      message.includes('econnreset')
+    ) {
       return 'TRANSIENT';
     }
 
@@ -136,10 +168,10 @@ export class GoogleGenAIVeoAPI {
    * Sanitize error messages for production mode.
    *
    * @private
-   * @param {Error} error - Error to sanitize
-   * @returns {Error} Sanitized error
+   * @param error - Error to sanitize
+   * @returns Sanitized error
    */
-  _sanitizeError(error) {
+  private _sanitizeError(error: ExtendedError): Error {
     if (process.env.NODE_ENV === 'production') {
       const classification = this._classifyError(error);
       switch (classification) {
@@ -161,17 +193,9 @@ export class GoogleGenAIVeoAPI {
   /**
    * Generate a video from text prompt (text-to-video).
    *
-   * @param {Object} params - Generation parameters
-   * @param {string} params.prompt - Text description of the video to generate
-   * @param {string} [params.negativePrompt] - What to avoid in the video
-   * @param {string} [params.aspectRatio='16:9'] - Aspect ratio (16:9 or 9:16)
-   * @param {string} [params.resolution='720p'] - Resolution (720p or 1080p)
-   * @param {string} [params.durationSeconds='8'] - Duration (4, 5, 6, or 8 seconds)
-   * @param {string} [params.personGeneration] - Person generation setting
-   * @param {number} [params.seed] - Seed for reproducibility (Veo 3 only)
-   * @param {string} [params.model] - Veo model to use
-   * @returns {Promise<Object>} Operation object to poll for completion
-   * @throws {Error} If validation fails or API call fails
+   * @param params - Generation parameters
+   * @returns Operation object to poll for completion
+   * @throws Error if validation fails or API call fails
    *
    * @example
    * const operation = await api.generateVideo({
@@ -180,10 +204,10 @@ export class GoogleGenAIVeoAPI {
    *   durationSeconds: '8'
    * });
    */
-  async generateVideo(params) {
+  async generateVideo(params: VeoGenerateParams): Promise<VeoOperation> {
     this._verifyApiKey();
 
-    const model = params.model || this.defaultModel;
+    const model = (params.model || this.defaultModel) as VeoModel;
 
     // Validate parameters
     validateVeoParams(model, params, VEO_MODES.TEXT_TO_VIDEO);
@@ -192,7 +216,7 @@ export class GoogleGenAIVeoAPI {
     this.logger.debug(`Prompt: "${params.prompt.substring(0, 100)}..."`);
 
     // Build config object
-    const config = {};
+    const config: Record<string, unknown> = {};
     if (params.negativePrompt) config.negativePrompt = params.negativePrompt;
     if (params.aspectRatio) config.aspectRatio = params.aspectRatio;
     if (params.resolution) config.resolution = params.resolution;
@@ -201,39 +225,30 @@ export class GoogleGenAIVeoAPI {
     if (params.seed !== undefined) config.seed = params.seed;
 
     try {
-      const operation = await this.client.models.generateVideos({
+      const operation = (await this.client.models.generateVideos({
         model,
         prompt: params.prompt,
-        config: Object.keys(config).length > 0 ? config : undefined
-      });
+        config: Object.keys(config).length > 0 ? config : undefined,
+      })) as unknown as VeoOperation;
 
       this.logger.info(`Video generation started (operation: ${operation.name})`);
       this.logger.debug(`Operation: ${JSON.stringify(operation, null, 2)}`);
 
       return operation;
     } catch (error) {
-      const errorType = this._classifyError(error);
-      this.logger.error(`Generation failed (${errorType}): ${error.message}`);
-      throw this._sanitizeError(error);
+      const err = error as ExtendedError;
+      const errorType = this._classifyError(err);
+      this.logger.error(`Generation failed (${errorType}): ${err.message}`);
+      throw this._sanitizeError(err);
     }
   }
 
   /**
    * Generate a video from an image (image-to-video).
    *
-   * @param {Object} params - Generation parameters
-   * @param {string} params.prompt - Text description of the video to generate
-   * @param {Object} params.image - Image to animate
-   * @param {string} params.image.imageBytes - Base64-encoded image data
-   * @param {string} params.image.mimeType - Image MIME type (image/png, image/jpeg, etc.)
-   * @param {string} [params.negativePrompt] - What to avoid in the video
-   * @param {string} [params.aspectRatio='16:9'] - Aspect ratio
-   * @param {string} [params.resolution='720p'] - Resolution
-   * @param {string} [params.durationSeconds='8'] - Duration
-   * @param {string} [params.personGeneration] - Person generation setting
-   * @param {string} [params.model] - Veo model to use
-   * @returns {Promise<Object>} Operation object to poll for completion
-   * @throws {Error} If validation fails or API call fails
+   * @param params - Generation parameters
+   * @returns Operation object to poll for completion
+   * @throws Error if validation fails or API call fails
    *
    * @example
    * const operation = await api.generateFromImage({
@@ -244,10 +259,10 @@ export class GoogleGenAIVeoAPI {
    *   }
    * });
    */
-  async generateFromImage(params) {
+  async generateFromImage(params: VeoImageToVideoParams): Promise<VeoOperation> {
     this._verifyApiKey();
 
-    const model = params.model || this.defaultModel;
+    const model = (params.model || this.defaultModel) as VeoModel;
 
     // Validate image object
     if (!params.image) {
@@ -267,7 +282,7 @@ export class GoogleGenAIVeoAPI {
     this.logger.debug(`Prompt: "${params.prompt.substring(0, 100)}..."`);
 
     // Build config object
-    const config = {};
+    const config: Record<string, unknown> = {};
     if (params.negativePrompt) config.negativePrompt = params.negativePrompt;
     if (params.aspectRatio) config.aspectRatio = params.aspectRatio;
     if (params.resolution) config.resolution = params.resolution;
@@ -275,36 +290,30 @@ export class GoogleGenAIVeoAPI {
     if (params.personGeneration) config.personGeneration = params.personGeneration;
 
     try {
-      const operation = await this.client.models.generateVideos({
+      const operation = (await this.client.models.generateVideos({
         model,
         prompt: params.prompt,
         image: params.image,
-        config: Object.keys(config).length > 0 ? config : undefined
-      });
+        config: Object.keys(config).length > 0 ? config : undefined,
+      })) as unknown as VeoOperation;
 
       this.logger.info(`Image-to-video generation started (operation: ${operation.name})`);
 
       return operation;
     } catch (error) {
-      const errorType = this._classifyError(error);
-      this.logger.error(`Generation failed (${errorType}): ${error.message}`);
-      throw this._sanitizeError(error);
+      const err = error as ExtendedError;
+      const errorType = this._classifyError(err);
+      this.logger.error(`Generation failed (${errorType}): ${err.message}`);
+      throw this._sanitizeError(err);
     }
   }
 
   /**
    * Generate a video using reference images for content guidance (Veo 3.1 only).
    *
-   * @param {Object} params - Generation parameters
-   * @param {string} params.prompt - Text description of the video
-   * @param {Array<Object>} params.referenceImages - 1-3 reference images
-   * @param {Object} params.referenceImages[].image - Image object with imageBytes and mimeType
-   * @param {string} params.referenceImages[].referenceType - Type: 'asset' for objects/styles
-   * @param {string} [params.negativePrompt] - What to avoid
-   * @param {string} [params.aspectRatio='16:9'] - Aspect ratio
-   * @param {string} [params.model] - Veo 3.1 model (required)
-   * @returns {Promise<Object>} Operation object to poll for completion
-   * @throws {Error} If validation fails or model doesn't support reference images
+   * @param params - Generation parameters
+   * @returns Operation object to poll for completion
+   * @throws Error if validation fails or model doesn't support reference images
    *
    * @example
    * const operation = await api.generateWithReferences({
@@ -315,62 +324,55 @@ export class GoogleGenAIVeoAPI {
    *   ]
    * });
    */
-  async generateWithReferences(params) {
+  async generateWithReferences(params: VeoReferenceParams): Promise<VeoOperation> {
     this._verifyApiKey();
 
-    const model = params.model || this.defaultModel;
+    const model = (params.model || this.defaultModel) as VeoModel;
 
     // Validate parameters
     validateVeoParams(model, params, VEO_MODES.REFERENCE_IMAGES);
 
-    this.logger.info(`Starting reference-images generation with ${model} (${params.referenceImages.length} references)`);
+    this.logger.info(
+      `Starting reference-images generation with ${model} (${params.referenceImages.length} references)`
+    );
     this.logger.debug(`Prompt: "${params.prompt.substring(0, 100)}..."`);
 
     // Build config with reference images
     // Duration must be 8 for reference images
-    const config = {
+    const config: Record<string, unknown> = {
       durationSeconds: 8,
-      referenceImages: params.referenceImages.map(ref => ({
+      referenceImages: params.referenceImages.map((ref) => ({
         image: ref.image,
-        referenceType: ref.referenceType
-      }))
+        referenceType: ref.referenceType,
+      })),
     };
     if (params.negativePrompt) config.negativePrompt = params.negativePrompt;
     if (params.aspectRatio) config.aspectRatio = params.aspectRatio;
 
     try {
-      const operation = await this.client.models.generateVideos({
+      const operation = (await this.client.models.generateVideos({
         model,
         prompt: params.prompt,
-        config
-      });
+        config,
+      })) as unknown as VeoOperation;
 
       this.logger.info(`Reference-images generation started (operation: ${operation.name})`);
 
       return operation;
     } catch (error) {
-      const errorType = this._classifyError(error);
-      this.logger.error(`Generation failed (${errorType}): ${error.message}`);
-      throw this._sanitizeError(error);
+      const err = error as ExtendedError;
+      const errorType = this._classifyError(err);
+      this.logger.error(`Generation failed (${errorType}): ${err.message}`);
+      throw this._sanitizeError(err);
     }
   }
 
   /**
    * Generate a video by interpolating between first and last frames (Veo 3.1 only).
    *
-   * @param {Object} params - Generation parameters
-   * @param {string} [params.prompt] - Text description (optional for interpolation)
-   * @param {Object} params.firstFrame - First frame image
-   * @param {string} params.firstFrame.imageBytes - Base64-encoded image data
-   * @param {string} params.firstFrame.mimeType - Image MIME type
-   * @param {Object} params.lastFrame - Last frame image
-   * @param {string} params.lastFrame.imageBytes - Base64-encoded image data
-   * @param {string} params.lastFrame.mimeType - Image MIME type
-   * @param {string} [params.negativePrompt] - What to avoid
-   * @param {string} [params.aspectRatio='16:9'] - Aspect ratio
-   * @param {string} [params.model] - Veo 3.1 model (required)
-   * @returns {Promise<Object>} Operation object to poll for completion
-   * @throws {Error} If validation fails or model doesn't support interpolation
+   * @param params - Generation parameters
+   * @returns Operation object to poll for completion
+   * @throws Error if validation fails or model doesn't support interpolation
    *
    * @example
    * const operation = await api.generateWithInterpolation({
@@ -379,10 +381,10 @@ export class GoogleGenAIVeoAPI {
    *   lastFrame: { imageBytes: endImage, mimeType: 'image/png' }
    * });
    */
-  async generateWithInterpolation(params) {
+  async generateWithInterpolation(params: VeoInterpolationParams): Promise<VeoOperation> {
     this._verifyApiKey();
 
-    const model = params.model || this.defaultModel;
+    const model = (params.model || this.defaultModel) as VeoModel;
 
     // Validate frame images
     if (!params.firstFrame || !params.firstFrame.imageBytes || !params.firstFrame.mimeType) {
@@ -393,7 +395,7 @@ export class GoogleGenAIVeoAPI {
     }
 
     // Validate parameters
-    validateVeoParams(model, params, VEO_MODES.INTERPOLATION);
+    validateVeoParams(model, params as unknown as VeoGenerateParams, VEO_MODES.INTERPOLATION);
 
     this.logger.info(`Starting interpolation generation with ${model}`);
     if (params.prompt) {
@@ -402,28 +404,29 @@ export class GoogleGenAIVeoAPI {
 
     // Build config with last frame
     // Duration must be 8 for interpolation
-    const config = {
+    const config: Record<string, unknown> = {
       durationSeconds: 8,
-      lastFrame: params.lastFrame
+      lastFrame: params.lastFrame,
     };
     if (params.negativePrompt) config.negativePrompt = params.negativePrompt;
     if (params.aspectRatio) config.aspectRatio = params.aspectRatio;
 
     try {
-      const operation = await this.client.models.generateVideos({
+      const operation = (await this.client.models.generateVideos({
         model,
         prompt: params.prompt || '',
         image: params.firstFrame,
-        config
-      });
+        config,
+      })) as unknown as VeoOperation;
 
       this.logger.info(`Interpolation generation started (operation: ${operation.name})`);
 
       return operation;
     } catch (error) {
-      const errorType = this._classifyError(error);
-      this.logger.error(`Generation failed (${errorType}): ${error.message}`);
-      throw this._sanitizeError(error);
+      const err = error as ExtendedError;
+      const errorType = this._classifyError(err);
+      this.logger.error(`Generation failed (${errorType}): ${err.message}`);
+      throw this._sanitizeError(err);
     }
   }
 
@@ -431,13 +434,9 @@ export class GoogleGenAIVeoAPI {
    * Extend a previously generated Veo video (Veo 3.1 only).
    * Each extension adds approximately 7 seconds, up to 20 extensions.
    *
-   * @param {Object} params - Extension parameters
-   * @param {string} params.prompt - Text description for the extension
-   * @param {Object} params.video - Video object from a previous generation
-   * @param {string} [params.negativePrompt] - What to avoid
-   * @param {string} [params.model] - Veo 3.1 model (required)
-   * @returns {Promise<Object>} Operation object to poll for completion
-   * @throws {Error} If validation fails or model doesn't support extension
+   * @param params - Extension parameters
+   * @returns Operation object to poll for completion
+   * @throws Error if validation fails or model doesn't support extension
    *
    * @example
    * // First, generate initial video
@@ -450,10 +449,10 @@ export class GoogleGenAIVeoAPI {
    *   video: operation.response.generatedVideos[0].video
    * });
    */
-  async extendVideo(params) {
+  async extendVideo(params: VeoExtendParams): Promise<VeoOperation> {
     this._verifyApiKey();
 
-    const model = params.model || this.defaultModel;
+    const model = (params.model || this.defaultModel) as VeoModel;
 
     // Validate video object
     if (!params.video) {
@@ -468,27 +467,28 @@ export class GoogleGenAIVeoAPI {
 
     // Build config for extension
     // Resolution must be 720p, numberOfVideos is 1
-    const config = {
+    const config: Record<string, unknown> = {
       numberOfVideos: 1,
-      resolution: '720p'
+      resolution: '720p',
     };
     if (params.negativePrompt) config.negativePrompt = params.negativePrompt;
 
     try {
-      const operation = await this.client.models.generateVideos({
+      const operation = (await this.client.models.generateVideos({
         model,
         prompt: params.prompt,
         video: params.video,
-        config
-      });
+        config,
+      })) as unknown as VeoOperation;
 
       this.logger.info(`Video extension started (operation: ${operation.name})`);
 
       return operation;
     } catch (error) {
-      const errorType = this._classifyError(error);
-      this.logger.error(`Extension failed (${errorType}): ${error.message}`);
-      throw this._sanitizeError(error);
+      const err = error as ExtendedError;
+      const errorType = this._classifyError(err);
+      this.logger.error(`Extension failed (${errorType}): ${err.message}`);
+      throw this._sanitizeError(err);
     }
   }
 
@@ -496,13 +496,10 @@ export class GoogleGenAIVeoAPI {
    * Wait for a video generation operation to complete.
    * Polls the operation status until done or timeout.
    *
-   * @param {Object} operation - Operation object from generation methods
-   * @param {Object} [options] - Polling options
-   * @param {number} [options.maxAttempts] - Maximum polling attempts (default: VEO_TIMEOUTS.POLL_MAX_ATTEMPTS)
-   * @param {number} [options.intervalMs] - Polling interval in ms (default: VEO_TIMEOUTS.POLL_INTERVAL)
-   * @param {Function} [options.onProgress] - Callback for progress updates: (operation, elapsedMs) => void
-   * @returns {Promise<Object>} Completed operation with response
-   * @throws {Error} If operation fails or times out
+   * @param operation - Operation object from generation methods
+   * @param options - Polling options
+   * @returns Completed operation with response
+   * @throws Error if operation fails or times out
    *
    * @example
    * const operation = await api.generateVideo({ prompt: '...' });
@@ -510,11 +507,14 @@ export class GoogleGenAIVeoAPI {
    *   onProgress: (op, elapsed) => console.log(`Waiting... ${elapsed/1000}s`)
    * });
    */
-  async waitForCompletion(operation, options = {}) {
+  async waitForCompletion(
+    operation: VeoOperation,
+    options: VeoWaitOptions = {}
+  ): Promise<VeoOperation> {
     const {
       maxAttempts = VEO_TIMEOUTS.POLL_MAX_ATTEMPTS,
       intervalMs = VEO_TIMEOUTS.POLL_INTERVAL,
-      onProgress
+      onProgress,
     } = options;
 
     // Return immediately if already done
@@ -533,15 +533,18 @@ export class GoogleGenAIVeoAPI {
       const elapsedMs = Date.now() - startTime;
 
       // Wait before checking
-      await new Promise(resolve => setTimeout(resolve, intervalMs));
+      await new Promise((resolve) => setTimeout(resolve, intervalMs));
 
       try {
         // Refresh operation status
-        operation = await this.client.operations.getVideosOperation({
-          operation
-        });
+        // SDK types differ from our simplified VeoOperation interface
+        operation = (await this.client.operations.getVideosOperation({
+          operation: operation as unknown as Parameters<typeof this.client.operations.getVideosOperation>[0]['operation'],
+        })) as unknown as VeoOperation;
 
-        this.logger.debug(`Poll attempt ${attempts}/${maxAttempts} (${(elapsedMs / 1000).toFixed(0)}s elapsed)`);
+        this.logger.debug(
+          `Poll attempt ${attempts}/${maxAttempts} (${(elapsedMs / 1000).toFixed(0)}s elapsed)`
+        );
 
         // Call progress callback if provided
         if (onProgress) {
@@ -555,7 +558,9 @@ export class GoogleGenAIVeoAPI {
 
           // Check for error in response
           if (operation.error) {
-            const error = new Error(operation.error.message || 'Video generation failed');
+            const error = new Error(
+              operation.error.message || 'Video generation failed'
+            ) as ExtendedError;
             error.operationError = operation.error;
             throw error;
           }
@@ -563,13 +568,14 @@ export class GoogleGenAIVeoAPI {
           return operation;
         }
       } catch (error) {
+        const err = error as ExtendedError;
         // Handle transient errors with retry
-        const errorType = this._classifyError(error);
+        const errorType = this._classifyError(err);
         if (errorType === 'TRANSIENT' && attempts < maxAttempts) {
-          this.logger.warn(`Transient error, retrying: ${error.message}`);
+          this.logger.warn(`Transient error, retrying: ${err.message}`);
           continue;
         }
-        throw this._sanitizeError(error);
+        throw this._sanitizeError(err);
       }
     }
 
@@ -577,8 +583,8 @@ export class GoogleGenAIVeoAPI {
     const totalTime = (Date.now() - startTime) / 1000;
     const error = new Error(
       `Video generation timed out after ${totalTime.toFixed(0)}s (${maxAttempts} attempts). ` +
-      `The operation may still be processing. Operation: ${operation.name}`
-    );
+        `The operation may still be processing. Operation: ${operation.name}`
+    ) as ExtendedError;
     error.isTimeout = true;
     error.operationName = operation.name;
     throw error;
@@ -587,20 +593,22 @@ export class GoogleGenAIVeoAPI {
   /**
    * Download a generated video to a file.
    *
-   * @param {Object} operation - Completed operation object
-   * @param {string} outputPath - Path to save the video file
-   * @returns {Promise<{path: string, video: Object}>} Download result
-   * @throws {Error} If operation is not complete or download fails
+   * @param operation - Completed operation object
+   * @param outputPath - Path to save the video file
+   * @returns Download result
+   * @throws Error if operation is not complete or download fails
    *
    * @example
    * const completed = await api.waitForCompletion(operation);
    * const result = await api.downloadVideo(completed, './output.mp4');
    * console.log(`Video saved to: ${result.path}`);
    */
-  async downloadVideo(operation, outputPath) {
+  async downloadVideo(operation: VeoOperation, outputPath: string): Promise<VeoDownloadResult> {
     // Validate operation is complete
     if (!operation.done) {
-      throw new Error('Cannot download video: operation is not complete. Call waitForCompletion() first.');
+      throw new Error(
+        'Cannot download video: operation is not complete. Call waitForCompletion() first.'
+      );
     }
 
     // Validate response has video
@@ -620,18 +628,19 @@ export class GoogleGenAIVeoAPI {
       // Download video using client
       await this.client.files.download({
         file: video,
-        downloadPath: outputPath
+        downloadPath: outputPath,
       });
 
       this.logger.info(`Video downloaded successfully: ${outputPath}`);
 
       return {
         path: outputPath,
-        video
+        video,
       };
     } catch (error) {
-      this.logger.error(`Download failed: ${error.message}`);
-      throw this._sanitizeError(error);
+      const err = error as ExtendedError;
+      this.logger.error(`Download failed: ${err.message}`);
+      throw this._sanitizeError(err);
     }
   }
 
@@ -639,9 +648,9 @@ export class GoogleGenAIVeoAPI {
    * Extract the video object from a completed operation.
    * Useful for video extension.
    *
-   * @param {Object} operation - Completed operation object
-   * @returns {{video: Object, hasAudio: boolean}} Extracted video info
-   * @throws {Error} If operation is not complete or has no video
+   * @param operation - Completed operation object
+   * @returns Extracted video info
+   * @throws Error if operation is not complete or has no video
    *
    * @example
    * const completed = await api.waitForCompletion(operation);
@@ -649,7 +658,7 @@ export class GoogleGenAIVeoAPI {
    * // Use video for extension
    * await api.extendVideo({ prompt: '...', video });
    */
-  extractVideo(operation) {
+  extractVideo(operation: VeoOperation): VeoExtractedVideo {
     if (!operation.done) {
       throw new Error('Cannot extract video: operation is not complete');
     }
@@ -659,33 +668,33 @@ export class GoogleGenAIVeoAPI {
     }
 
     const generatedVideo = operation.response.generatedVideos[0];
-    const model = operation.metadata?.model || this.defaultModel;
+    const model = (operation.metadata?.model as VeoModel) || this.defaultModel;
     const constraints = VEO_MODEL_CONSTRAINTS[model];
     const hasAudio = constraints?.features?.nativeAudio ?? true;
 
     return {
       video: generatedVideo.video,
-      hasAudio
+      hasAudio,
     };
   }
 
   /**
    * Set the logging level.
    *
-   * @param {string} level - Log level (debug, info, warn, error)
+   * @param level - Log level (debug, info, warn, error)
    */
-  setLogLevel(level) {
+  setLogLevel(level: string): void {
     this.logger.level = level.toLowerCase();
   }
 
   /**
    * Get model information and constraints.
    *
-   * @param {string} [model] - Model name (defaults to current default model)
-   * @returns {Object} Model constraints and features
+   * @param model - Model name (defaults to current default model)
+   * @returns Model constraints and features
    */
-  getModelInfo(model) {
-    const modelId = model || this.defaultModel;
+  getModelInfo(model?: string): VeoModelInfo {
+    const modelId = (model || this.defaultModel) as VeoModel;
     const constraints = VEO_MODEL_CONSTRAINTS[modelId];
 
     if (!constraints) {
@@ -694,7 +703,7 @@ export class GoogleGenAIVeoAPI {
 
     return {
       model: modelId,
-      ...constraints
+      ...constraints,
     };
   }
 }

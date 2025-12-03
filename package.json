@@ -3,40 +3,57 @@
   "version": "1.2.2",
   "description": "Node.js wrapper for Google GenAI API (Gemini, Imagen 4, and Veo 3.1 for image and video generation)",
   "type": "module",
-  "main": "api.js",
+  "main": "dist/api.js",
+  "types": "dist/api.d.ts",
   "bin": {
-    "google-genai": "./cli.js"
+    "google-genai": "./dist/cli.js"
   },
   "exports": {
-    ".": "./api.js",
-    "./api": "./api.js",
-    "./video": "./video-api.js",
-    "./veo": "./veo-api.js",
-    "./utils": "./utils.js",
-    "./config": "./config.js"
+    ".": {
+      "import": "./dist/api.js",
+      "types": "./dist/api.d.ts"
+    },
+    "./api": {
+      "import": "./dist/api.js",
+      "types": "./dist/api.d.ts"
+    },
+    "./video": {
+      "import": "./dist/video-api.js",
+      "types": "./dist/video-api.d.ts"
+    },
+    "./veo": {
+      "import": "./dist/veo-api.js",
+      "types": "./dist/veo-api.d.ts"
+    },
+    "./utils": {
+      "import": "./dist/utils.js",
+      "types": "./dist/utils.d.ts"
+    },
+    "./config": {
+      "import": "./dist/config.js",
+      "types": "./dist/config.d.ts"
+    }
   },
   "files": [
-    "api.js",
-    "video-api.js",
-    "veo-api.js",
-    "cli.js",
-    "utils.js",
-    "config.js",
+    "dist",
     "README.md",
     "LICENSE"
   ],
   "scripts": {
+    "build": "tsc",
+    "dev": "tsx src/cli.ts",
     "test": "vitest run",
     "test:watch": "vitest",
     "test:ui": "vitest --ui",
     "test:coverage": "vitest run --coverage",
-    "google": "node cli.js",
-    "google:help": "node cli.js --help",
-    "google:examples": "node cli.js --examples",
-    "google:gemini": "node cli.js --gemini",
-    "google:imagen": "node cli.js --imagen",
-    "google:veo": "node cli.js --veo",
-    "google:veo:fast": "node cli.js --veo --veo-model veo-3.1-fast-generate-preview",
+    "google": "tsx src/cli.ts",
+    "google:help": "tsx src/cli.ts --help",
+    "google:examples": "tsx src/cli.ts --examples",
+    "google:gemini": "tsx src/cli.ts --gemini",
+    "google:imagen": "tsx src/cli.ts --imagen",
+    "google:veo": "tsx src/cli.ts --veo",
+    "google:veo:fast": "tsx src/cli.ts --veo --veo-model veo-3.1-fast-generate-preview",
+    "prepublishOnly": "npm run build",
     "semantic-release": "semantic-release"
   },
   "keywords": [
@@ -85,9 +102,12 @@
     "@semantic-release/github": "^11.0.6",
     "@semantic-release/npm": "^12.0.2",
     "@semantic-release/release-notes-generator": "^14.1.0",
-    "@vitest/coverage-v8": "^1.1.0",
-    "@vitest/ui": "^1.1.0",
+    "@types/node": "^22.10.2",
+    "@vitest/coverage-v8": "^3.2.4",
+    "@vitest/ui": "^3.2.4",
     "semantic-release": "^24.2.9",
-    "vitest": "^1.1.0"
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.2",
+    "vitest": "^3.2.4"
   }
 }

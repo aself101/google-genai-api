@@ -1,0 +1,27 @@
+{
+  "model": "imagen-4.0-generate-001",
+  "timestamp": "2025-12-03T23:44:50.674Z",
+  "prompt": "watercolor painting of ocean waves",
+  "parameters": {
+    "aspectRatio": "16:9",
+    "numberOfImages": 4
+  },
+  "outputs": [
+    {
+      "type": "image",
+      "filename": "20251203_234450_watercolor-painting-of-ocean-waves.png"
+    },
+    {
+      "type": "image",
+      "filename": "20251203_234450_watercolor-painting-of-ocean-waves.png"
+    },
+    {
+      "type": "image",
+      "filename": "20251203_234450_watercolor-painting-of-ocean-waves.png"
+    },
+    {
+      "type": "image",
+      "filename": "20251203_234450_watercolor-painting-of-ocean-waves.png"
+    }
+  ]
+}

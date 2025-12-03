@@ -3,11 +3,13 @@
 [![npm version](https://img.shields.io/npm/v/google-genai-api.svg)](https://www.npmjs.com/package/google-genai-api)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Node.js Version](https://img.shields.io/node/v/google-genai-api)](https://nodejs.org)
+[![TypeScript](https://img.shields.io/badge/TypeScript-5.0+-blue.svg)](https://www.typescriptlang.org/)
 [![Tests](https://img.shields.io/badge/tests-358%20passing-brightgreen)](test/)
+[![Coverage](https://img.shields.io/badge/coverage-88.47%25-brightgreen)](test/)
 
-A Node.js wrapper for the [Google GenAI API](https://ai.google.dev/gemini-api/docs) that provides easy access to Gemini 2.5 Flash Image, Gemini 3 Pro Image Preview, Imagen 4, and Veo 3.1 models. Generate stunning AI images and videos with advanced editing capabilities through a simple command-line interface.
+A TypeScript/Node.js wrapper for the [Google GenAI API](https://ai.google.dev/gemini-api/docs) that provides easy access to Gemini 2.5 Flash Image, Gemini 3 Pro Image Preview, Imagen 4, and Veo 3.1 models. Generate stunning AI images and videos with advanced editing capabilities through a simple command-line interface.
 
-This service follows the data-collection architecture pattern with organized data storage, comprehensive logging, and CLI orchestration.
+This service follows the data-collection architecture pattern with organized data storage, comprehensive logging, CLI orchestration, and full TypeScript support.
 
 ## Quick Start
 
@@ -29,7 +31,7 @@ google-genai veo --prompt "a cat playing piano" --duration 8
 ```
 
 ### Programmatic Usage
-```javascript
+```typescript
 import { GoogleGenAIAPI } from 'google-genai-api';
 import { GoogleGenAIVeoAPI } from 'google-genai-api/veo';
 
@@ -51,6 +53,8 @@ const video = await veo.generateVideo({
 // video.generatedVideos[0].video contains the video file
 ```
 
+Full TypeScript support with exported types for all parameters and responses.
+
 ## Table of Contents
 
 - [Overview](#overview)
@@ -58,6 +62,7 @@ const video = await veo.generateVideo({
 - [Models](#models)
 - [Authentication Setup](#authentication-setup)
 - [Installation](#installation)
+- [TypeScript Support](#typescript-support)
 - [CLI Usage](#cli-usage)
 - [API Methods](#api-methods)
 - [Examples](#examples)
@@ -85,7 +90,8 @@ The Google GenAI API provides access to cutting-edge image and video generation 
 - **Image Input Support** - Convert local files or URLs to inlineData format with validation
 - **Organized Storage** - Structured directories with timestamped files and metadata
 - **CLI Orchestration** - Command-line tool for easy batch generation
-- **Comprehensive Testing** - 358 tests with Vitest for reliability
+- **Full TypeScript Support** - Complete type definitions for all API methods, parameters, and responses
+- **Comprehensive Testing** - 358 tests with 88.47% coverage (api.ts: 100%, config.ts: 95.74%, utils.ts: 69.11%, veo-api.ts: 94.32%, video-api.ts: 93.05%)
 
 ## Public API
 
@@ -93,7 +99,7 @@ When installed via npm, import from the package name:
 
 ### Main Exports (`google-genai-api`)
 
-```javascript
+```typescript
 import {
   GoogleGenAIAPI,       // Main API class for image generation
   GoogleGenAIVideoAPI,  // Video understanding API class
@@ -104,7 +110,7 @@ import {
 
 ### Veo Exports (`google-genai-api/veo`)
 
-```javascript
+```typescript
 import {
   GoogleGenAIVeoAPI,    // Veo video generation API class
   VEO_MODELS,           // Veo model names (3.1, 3.0, 2.0)
@@ -115,7 +121,7 @@ import {
 
 ### Utility Exports (`google-genai-api/utils`)
 
-```javascript
+```typescript
 import {
   imageToInlineData,    // Convert local file/URL to inlineData format
   validateImageUrl,     // Validate and sanitize image URLs (SSRF protection)
@@ -142,7 +148,7 @@ import {
 
 ### Config Exports (`google-genai-api/config`)
 
-```javascript
+```typescript
 import {
   getGoogleGenAIApiKey, // Get API key from environment/config
   validateApiKeyFormat, // Validate API key format (starts with AIzaSy)
@@ -250,7 +256,7 @@ google-genai --gemini-3-pro --prompt "Transform into oil painting style" --input
 ```
 
 **Programmatic Usage:**
-```javascript
+```typescript
 const response = await api.generateWithGemini({
   prompt: 'A serene mountain landscape at golden hour',
   aspectRatio: '16:9',
@@ -324,7 +330,7 @@ google-genai --video --input-video video.mp4 \
 ```
 
 **Programmatic Example:**
-```javascript
+```typescript
 import { GoogleGenAIVideoAPI } from 'google-genai-api';
 
 const api = new GoogleGenAIVideoAPI('your-api-key');
@@ -441,6 +447,126 @@ Dependencies:
 - `dotenv` - Environment variable management
 - `winston` - Logging framework
 
+## TypeScript Support
+
+This package is written in TypeScript and includes full type definitions. All API methods, parameters, and responses are fully typed.
+
+### Exported Types
+
+```typescript
+import {
+  // API Classes
+  GoogleGenAIAPI,
+  GoogleGenAIVideoAPI,
+  GoogleGenAIVeoAPI,
+
+  // Response extractors
+  extractGeminiParts,
+  extractImagenImages,
+
+  // Parameter types
+  GeminiGenerateParams,
+  ImagenGenerateParams,
+  VeoGenerateParams,
+  VeoImageToVideoParams,
+  VeoExtendParams,
+  VideoGenerateParams,
+
+  // Response types
+  GeminiResponse,
+  GeminiPart,
+  ImagenResponse,
+  VeoOperation,
+  VeoGeneratedVideo,
+
+  // Model types
+  GeminiModel,
+  ImagenModel,
+  VeoModel,
+  AspectRatio,
+  VeoAspectRatio,
+  VeoResolution,
+  VeoDuration,
+
+  // Config types
+  GoogleGenAIApiOptions,
+  GoogleGenAIVeoApiOptions
+} from 'google-genai-api';
+
+// Types are automatically inferred
+const api = new GoogleGenAIAPI('your-api-key');
+const response = await api.generateWithGemini({
+  prompt: 'a cat',  // TypeScript will validate all parameters
+  aspectRatio: '16:9'
+});
+```
+
+### Type-Safe Parameters
+
+All generation methods have strict parameter typing:
+
+```typescript
+// TypeScript will catch invalid parameters at compile time
+const response = await api.generateWithGemini({
+  prompt: 'a landscape',
+  aspectRatio: '16:9',     // '1:1' | '3:4' | '4:3' | '9:16' | '16:9'
+  inputImages: [inlineData] // Optional array of InlineData
+});
+
+// Imagen generation
+const images = await api.generateWithImagen({
+  prompt: 'professional photo',
+  numberOfImages: 4,       // 1-4
+  aspectRatio: '1:1'
+});
+
+// Veo video generation
+const video = await veo.generateVideo({
+  prompt: 'a serene scene',
+  aspectRatio: '16:9',     // '16:9' | '9:16'
+  durationSeconds: 8,      // 4 | 5 | 6 | 8
+  resolution: '1080p'      // '720p' | '1080p'
+});
+```
+
+### Utility Types
+
+```typescript
+import {
+  // Data types
+  InlineData,           // { mimeType: string, data: string }
+  VeoImage,             // Veo image input format
+  VeoReferenceImage,    // Reference image with optional timing
+  FileData,             // Uploaded file data
+
+  // Response parts
+  GeminiPart,           // { type: 'text' | 'image', ... }
+  GeminiResponsePart,   // Raw response part
+
+  // Video types
+  VideoClipMetadata,    // Video clipping parameters
+  VideoValidationResult,// Video file validation result
+  VideoFrame,           // Extracted video frame
+  VideoAnalysisResult   // Video analysis output
+} from 'google-genai-api';
+```
+
+### Building from Source
+
+```bash
+# Install dependencies
+npm install
+
+# Build TypeScript to JavaScript
+npm run build
+
+# Output is in dist/
+ls dist/
+# api.js, api.d.ts, cli.js, cli.d.ts, config.js, config.d.ts,
+# utils.js, utils.d.ts, video-api.js, video-api.d.ts,
+# veo-api.js, veo-api.d.ts, types/index.js, types/index.d.ts
+```
+
 ## CLI Usage
 
 ### Basic Command Structure
@@ -452,8 +578,8 @@ google-genai [model] [options]
 # Local install (use npx)
 npx google-genai [model] [options]
 
-# From source (development)
-node cli.js [model] [options]
+# From source (development) - build first with npm run build
+node dist/cli.js [model] [options]
 ```
 
 ### Model Selection (Required)
@@ -510,7 +636,7 @@ Choose one model:
 Generate or edit images using Gemini 2.5 Flash Image.
 
 **Text-to-Image:**
-```javascript
+```typescript
 const response = await api.generateWithGemini({
   prompt: 'a serene mountain landscape',
   aspectRatio: '16:9'
@@ -521,7 +647,7 @@ const parts = extractGeminiParts(response);
 ```
 
 **Image-to-Image:**
-```javascript
+```typescript
 import { imageToInlineData } from 'google-genai-api/utils';
 
 const inputImage = await imageToInlineData('./photo.jpg');
@@ -534,7 +660,7 @@ const response = await api.generateWithGemini({
 ```
 
 **Semantic Masking:**
-```javascript
+```typescript
 import { imageToInlineData } from 'google-genai-api/utils';
 
 const inputImage = await imageToInlineData('./street_scene.jpg');
@@ -557,7 +683,7 @@ const response = await api.generateWithGemini({
 
 Generate high-quality images using Imagen 4.
 
-```javascript
+```typescript
 const response = await api.generateWithImagen({
   prompt: 'Professional product photography of a watch',
   numberOfImages: 4,
@@ -582,7 +708,7 @@ const images = extractImagenImages(response);
 
 Extract parts from Gemini response.
 
-```javascript
+```typescript
 import { extractGeminiParts } from 'google-genai-api';
 
 const parts = extractGeminiParts(response);
@@ -602,7 +728,7 @@ parts.forEach(part => {
 
 Extract images from Imagen response.
 
-```javascript
+```typescript
 import { extractImagenImages } from 'google-genai-api';
 
 const images = extractImagenImages(response);
@@ -618,7 +744,7 @@ images.forEach((img, idx) => {
 
 Convert local file or URL to inlineData format.
 
-```javascript
+```typescript
 import { imageToInlineData } from 'google-genai-api/utils';
 
 // From local file
@@ -636,13 +762,13 @@ const data2 = await imageToInlineData('https://example.com/image.png');
 
 Change logger verbosity.
 
-```javascript
+```typescript
 api.setLogLevel('debug');  // debug, info, warn, error
 ```
 
 ## Examples
 
-**Note:** Examples use `google-genai` command (global install). For local install, use `npx google-genai` instead. For development from source, use `node cli.js`.
+**Note:** Examples use `google-genai` command (global install). For local install, use `npx google-genai` instead. For development from source, build first with `npm run build`, then use `node dist/cli.js`.
 
 ### Example 1: Basic Text-to-Image (Gemini)
 
@@ -714,7 +840,7 @@ google-genai --imagen \
 
 ### Example 9: Using API Class in Code
 
-```javascript
+```typescript
 // If installed via npm
 import { GoogleGenAIAPI, extractGeminiParts } from 'google-genai-api';
 import { imageToInlineData, saveBase64Image } from 'google-genai-api/utils';
@@ -743,7 +869,7 @@ for (const part of parts) {
 
 ### Example 10: Image-to-Image with Code
 
-```javascript
+```typescript
 import { GoogleGenAIAPI, extractGeminiParts } from './api.js';
 import { imageToInlineData, saveBase64Image } from './utils.js';
 
@@ -783,7 +909,7 @@ google-genai veo --prompt "ocean waves crashing" --resolution 1080p --duration 6
 
 ### Example 12: Video Generation (Programmatic)
 
-```javascript
+```typescript
 import { GoogleGenAIVeoAPI } from 'google-genai-api/veo';
 
 const veo = new GoogleGenAIVeoAPI('your-api-key');
@@ -815,7 +941,7 @@ google-genai --video --input-video ./long-video.mp4 --prompt "Summarize the cont
 
 ### Example 14: Video Understanding (Programmatic)
 
-```javascript
+```typescript
 import { GoogleGenAIVideoAPI } from 'google-genai-api';
 import { formatTimeOffset, extractVideoMetadata } from 'google-genai-api/utils.js';
 
@@ -995,7 +1121,7 @@ Error: inputImages parameter is only supported by Gemini model
 
 In production (`NODE_ENV=production`), errors are sanitized:
 
-```javascript
+```typescript
 // Development mode
 throw new Error('SDK API error: Invalid authentication credentials');
 
@@ -1109,16 +1235,20 @@ If you're using the installed package, use `google-genai` (global) or `npx googl
 
 ### For Source Development
 ```bash
-node cli.js --help                     # Show help
-node cli.js --examples                 # Show examples
-node cli.js --gemini --prompt "test"   # Generate with Gemini
-node cli.js --imagen --prompt "test"   # Generate with Imagen
+# Build TypeScript first
+npm run build
+
+# Then use the CLI
+node dist/cli.js --help                     # Show help
+node dist/cli.js --examples                 # Show examples
+node dist/cli.js --gemini --prompt "test"   # Generate with Gemini
+node dist/cli.js --imagen --prompt "test"   # Generate with Imagen
 ```
 
 Pass additional flags as needed:
 
 ```bash
-node cli.js --gemini \
+node dist/cli.js --gemini \
   --prompt "a serene landscape" \
   --aspect-ratio "16:9" \
   --log-level debug
@@ -1126,17 +1256,35 @@ node cli.js --gemini \
 
 ### Testing Commands
 ```bash
-npm test                 # Run all tests with Vitest (358 tests)
+npm test                 # Run all 358 tests with Vitest
 npm run test:watch       # Watch mode for development
 npm run test:ui          # Interactive UI in browser
-npm run test:coverage    # Generate coverage report
+npm run test:coverage    # Generate coverage report (88.47% overall)
 ```
+
+**Test Coverage:**
+- Overall: 88.47% lines, 89.18% branches, 90.76% functions
+- api.ts: 100% lines (all generation methods)
+- config.ts: 95.74% lines (parameter validation, configuration)
+- utils.ts: 69.11% lines (file I/O, image conversion, validation)
+- veo-api.ts: 94.32% lines (video generation, polling)
+- video-api.ts: 93.05% lines (video upload, analysis)
+
+Tests validate actual behavior including:
+- All generation methods (Gemini, Imagen, Veo) with proper request/response handling
+- Video upload and analysis with time clipping
+- Image conversion pipeline (file → inlineData, URL → inlineData)
+- File I/O operations (read, write, directories)
+- Security features (SSRF protection, API key redaction, error sanitization)
+- Parameter validation (pre-flight checks to save API credits)
 
 ### Running Individual Tests
 ```bash
-npx vitest run test/api.test.js        # Run API tests
-npx vitest run test/config.test.js     # Run config tests
-npx vitest run test/utils.test.js      # Run utils tests
+npx vitest run test/api.test.ts        # Run API tests
+npx vitest run test/config.test.ts     # Run config tests
+npx vitest run test/utils.test.ts      # Run utils tests
+npx vitest run test/veo-api.test.ts    # Run Veo API tests
+npx vitest run test/video-api.test.ts  # Run Video API tests
 npx vitest run -t "Gemini"             # Run tests matching "Gemini"
 ```
 
@@ -1178,4 +1326,4 @@ By using this software, you agree to generate at least one image of a dog perfor
 
 ---
 
-**Note:** This service implements the official `@google/genai` SDK (v1.30.0) with comprehensive security features and testing.
+**Note:** This TypeScript service implements the official `@google/genai` SDK (v1.30.0) with full type definitions, comprehensive security features, and 358 tests with 88.47% coverage.

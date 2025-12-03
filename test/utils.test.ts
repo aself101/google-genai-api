@@ -3,11 +3,11 @@
  * Tests for file I/O, image conversion, filename generation, and security utilities
  */
 
-import { describe, it, expect, beforeAll, afterAll, beforeEach, vi } from 'vitest';
+import { describe, it, expect, beforeAll, afterAll, beforeEach, vi, type Mock } from 'vitest';
 
 // Mock DNS module before importing utils
 vi.mock('dns/promises', () => ({
-  lookup: vi.fn()
+  lookup: vi.fn(),
 }));
 
 import { lookup } from 'dns/promises';
@@ -24,14 +24,18 @@ import {
   setLogLevel,
   validateVideoPath,
   formatTimeOffset,
-  extractVideoMetadata
-} from '../utils.js';
+  extractVideoMetadata,
+} from '../src/utils.js';
 import { writeFileSync, unlinkSync, mkdirSync, rmSync, existsSync, readFileSync } from 'fs';
 import { join } from 'path';
-import { VIDEO_SIZE_LIMITS } from '../config.js';
+import { VIDEO_SIZE_LIMITS } from '../src/config.js';
+import type { GeminiResponse } from '../src/types/index.js';
 
 // Test directory for file operations
 const TEST_DIR = join(process.cwd(), 'test-temp');
+
+// Cast lookup to Mock for type safety
+const mockLookup = lookup as Mock;
 
 // Setup and teardown for all tests
 beforeAll(() => {
@@ -48,7 +52,6 @@ afterAll(() => {
 });
 
 describe('Utility Functions', () => {
-
   describe('generateFilename', () => {
     it('should generate filename with timestamp and sanitized prompt', () => {
       const filename = generateFilename('A beautiful sunset');
@@ -95,7 +98,7 @@ describe('Utility Functions', () => {
 
     it('should handle different extensions', () => {
       const extensions = ['jpg', 'png', 'webp'];
-      extensions.forEach(ext => {
+      extensions.forEach((ext) => {
         const filename = generateFilename('test', ext);
         expect(filename).toMatch(new RegExp(`\\.${ext}$`));
       });
@@ -140,145 +143,141 @@ describe('Image Validation (Security)', () => {
     });
 
     it('should accept valid HTTPS URLs with public IPs', async () => {
-      lookup.mockResolvedValue({ address: '8.8.8.8', family: 4 });
-      await expect(validateImageUrl('https://example.com/image.jpg')).resolves.toBe('https://example.com/image.jpg');
+      mockLookup.mockResolvedValue({ address: '8.8.8.8', family: 4 });
+      await expect(validateImageUrl('https://example.com/image.jpg')).resolves.toBe(
+        'https://example.com/image.jpg'
+      );
 
-      lookup.mockResolvedValue({ address: '1.1.1.1', family: 4 });
-      await expect(validateImageUrl('https://cdn.example.com/path/to/image.png')).resolves.toBe('https://cdn.example.com/path/to/image.png');
+      mockLookup.mockResolvedValue({ address: '1.1.1.1', family: 4 });
+      await expect(validateImageUrl('https://cdn.example.com/path/to/image.png')).resolves.toBe(
+        'https://cdn.example.com/path/to/image.png'
+      );
     });
 
     it('should reject HTTP URLs', async () => {
-      await expect(validateImageUrl('http://example.com/image.jpg'))
-        .rejects.toThrow('HTTPS');
+      await expect(validateImageUrl('http://example.com/image.jpg')).rejects.toThrow('HTTPS');
     });
 
     it('should reject localhost', async () => {
-      await expect(validateImageUrl('https://localhost/image.jpg'))
-        .rejects.toThrow('metadata');
-      await expect(validateImageUrl('https://127.0.0.1/image.jpg'))
-        .rejects.toThrow('private');
+      await expect(validateImageUrl('https://localhost/image.jpg')).rejects.toThrow('metadata');
+      await expect(validateImageUrl('https://127.0.0.1/image.jpg')).rejects.toThrow('private');
     });
 
     it('should reject IPv6 localhost', async () => {
-      await expect(validateImageUrl('https://[::1]/image.jpg'))
-        .rejects.toThrow('private');
+      await expect(validateImageUrl('https://[::1]/image.jpg')).rejects.toThrow('private');
     });
 
     it('should reject private IP addresses', async () => {
-      await expect(validateImageUrl('https://10.0.0.1/image.jpg'))
-        .rejects.toThrow('private');
-      await expect(validateImageUrl('https://192.168.1.1/image.jpg'))
-        .rejects.toThrow('private');
-      await expect(validateImageUrl('https://172.16.0.1/image.jpg'))
-        .rejects.toThrow('private');
-      await expect(validateImageUrl('https://172.20.0.1/image.jpg'))
-        .rejects.toThrow('private');
-      await expect(validateImageUrl('https://172.31.255.255/image.jpg'))
-        .rejects.toThrow('private');
+      await expect(validateImageUrl('https://10.0.0.1/image.jpg')).rejects.toThrow('private');
+      await expect(validateImageUrl('https://192.168.1.1/image.jpg')).rejects.toThrow('private');
+      await expect(validateImageUrl('https://172.16.0.1/image.jpg')).rejects.toThrow('private');
+      await expect(validateImageUrl('https://172.20.0.1/image.jpg')).rejects.toThrow('private');
+      await expect(validateImageUrl('https://172.31.255.255/image.jpg')).rejects.toThrow('private');
     });
 
     it('should reject link-local addresses', async () => {
-      await expect(validateImageUrl('https://169.254.169.254/image.jpg'))
-        .rejects.toThrow('private');
+      await expect(validateImageUrl('https://169.254.169.254/image.jpg')).rejects.toThrow('private');
     });
 
     it('should reject cloud metadata endpoints', async () => {
-      await expect(validateImageUrl('https://metadata.google.internal/computeMetadata'))
-        .rejects.toThrow('metadata');
-      await expect(validateImageUrl('https://169.254.169.254/latest/meta-data'))
-        .rejects.toThrow('private');
+      await expect(validateImageUrl('https://metadata.google.internal/computeMetadata')).rejects.toThrow(
+        'metadata'
+      );
+      await expect(validateImageUrl('https://169.254.169.254/latest/meta-data')).rejects.toThrow('private');
     });
 
     it('should reject IPv4-mapped IPv6 localhost (SSRF bypass prevention)', async () => {
-      await expect(validateImageUrl('https://[::ffff:127.0.0.1]/image.jpg'))
-        .rejects.toThrow('localhost');
+      await expect(validateImageUrl('https://[::ffff:127.0.0.1]/image.jpg')).rejects.toThrow('localhost');
     });
 
     it('should reject IPv4-mapped IPv6 private IPs (SSRF bypass prevention)', async () => {
-      await expect(validateImageUrl('https://[::ffff:10.0.0.1]/image.jpg'))
-        .rejects.toThrow('private');
-      await expect(validateImageUrl('https://[::ffff:192.168.1.1]/image.jpg'))
-        .rejects.toThrow('private');
-      await expect(validateImageUrl('https://[::ffff:169.254.169.254]/image.jpg'))
-        .rejects.toThrow('private');
+      await expect(validateImageUrl('https://[::ffff:10.0.0.1]/image.jpg')).rejects.toThrow('private');
+      await expect(validateImageUrl('https://[::ffff:192.168.1.1]/image.jpg')).rejects.toThrow('private');
+      await expect(validateImageUrl('https://[::ffff:169.254.169.254]/image.jpg')).rejects.toThrow('private');
     });
 
     it('should reject IPv6 link-local addresses', async () => {
-      await expect(validateImageUrl('https://[fe80::1]/image.jpg'))
-        .rejects.toThrow('private');
+      await expect(validateImageUrl('https://[fe80::1]/image.jpg')).rejects.toThrow('private');
     });
 
     it('should reject IPv6 unique local addresses', async () => {
-      await expect(validateImageUrl('https://[fc00::1]/image.jpg'))
-        .rejects.toThrow('private');
-      await expect(validateImageUrl('https://[fd00::1]/image.jpg'))
-        .rejects.toThrow('private');
+      await expect(validateImageUrl('https://[fc00::1]/image.jpg')).rejects.toThrow('private');
+      await expect(validateImageUrl('https://[fd00::1]/image.jpg')).rejects.toThrow('private');
     });
 
     it('should reject invalid URLs', async () => {
-      await expect(validateImageUrl('not-a-url'))
-        .rejects.toThrow('Invalid URL');
+      await expect(validateImageUrl('not-a-url')).rejects.toThrow('Invalid URL');
     });
 
     it('should return validated URL on success', async () => {
-      lookup.mockResolvedValue({ address: '8.8.8.8', family: 4 });
+      mockLookup.mockResolvedValue({ address: '8.8.8.8', family: 4 });
       const url = 'https://example.com/image.jpg';
       await expect(validateImageUrl(url)).resolves.toBe(url);
     });
 
     // DNS Rebinding Prevention Tests
     it('should reject domains resolving to localhost (DNS rebinding prevention)', async () => {
-      lookup.mockResolvedValue({ address: '127.0.0.1', family: 4 });
-      await expect(validateImageUrl('https://evil.com/image.jpg'))
-        .rejects.toThrow('resolves to internal/private IP');
+      mockLookup.mockResolvedValue({ address: '127.0.0.1', family: 4 });
+      await expect(validateImageUrl('https://evil.com/image.jpg')).rejects.toThrow(
+        'resolves to internal/private IP'
+      );
     });
 
     it('should reject domains resolving to private IPs (DNS rebinding prevention)', async () => {
-      lookup.mockResolvedValue({ address: '10.0.0.1', family: 4 });
-      await expect(validateImageUrl('https://evil.com/image.jpg'))
-        .rejects.toThrow('resolves to internal/private IP');
+      mockLookup.mockResolvedValue({ address: '10.0.0.1', family: 4 });
+      await expect(validateImageUrl('https://evil.com/image.jpg')).rejects.toThrow(
+        'resolves to internal/private IP'
+      );
 
-      lookup.mockResolvedValue({ address: '192.168.1.1', family: 4 });
-      await expect(validateImageUrl('https://evil2.com/image.jpg'))
-        .rejects.toThrow('resolves to internal/private IP');
+      mockLookup.mockResolvedValue({ address: '192.168.1.1', family: 4 });
+      await expect(validateImageUrl('https://evil2.com/image.jpg')).rejects.toThrow(
+        'resolves to internal/private IP'
+      );
 
-      lookup.mockResolvedValue({ address: '172.16.0.1', family: 4 });
-      await expect(validateImageUrl('https://evil3.com/image.jpg'))
-        .rejects.toThrow('resolves to internal/private IP');
+      mockLookup.mockResolvedValue({ address: '172.16.0.1', family: 4 });
+      await expect(validateImageUrl('https://evil3.com/image.jpg')).rejects.toThrow(
+        'resolves to internal/private IP'
+      );
     });
 
     it('should reject domains resolving to cloud metadata IPs (DNS rebinding prevention)', async () => {
-      lookup.mockResolvedValue({ address: '169.254.169.254', family: 4 });
-      await expect(validateImageUrl('https://evil.com/image.jpg'))
-        .rejects.toThrow('resolves to internal/private IP');
+      mockLookup.mockResolvedValue({ address: '169.254.169.254', family: 4 });
+      await expect(validateImageUrl('https://evil.com/image.jpg')).rejects.toThrow(
+        'resolves to internal/private IP'
+      );
     });
 
     it('should reject domains resolving to IPv6 loopback (DNS rebinding prevention)', async () => {
-      lookup.mockResolvedValue({ address: '::1', family: 6 });
-      await expect(validateImageUrl('https://evil.com/image.jpg'))
-        .rejects.toThrow('resolves to internal/private IP');
+      mockLookup.mockResolvedValue({ address: '::1', family: 6 });
+      await expect(validateImageUrl('https://evil.com/image.jpg')).rejects.toThrow(
+        'resolves to internal/private IP'
+      );
     });
 
     it('should reject domains resolving to IPv6 private addresses (DNS rebinding prevention)', async () => {
-      lookup.mockResolvedValue({ address: 'fe80::1', family: 6 });
-      await expect(validateImageUrl('https://evil.com/image.jpg'))
-        .rejects.toThrow('resolves to internal/private IP');
+      mockLookup.mockResolvedValue({ address: 'fe80::1', family: 6 });
+      await expect(validateImageUrl('https://evil.com/image.jpg')).rejects.toThrow(
+        'resolves to internal/private IP'
+      );
 
-      lookup.mockResolvedValue({ address: 'fc00::1', family: 6 });
-      await expect(validateImageUrl('https://evil2.com/image.jpg'))
-        .rejects.toThrow('resolves to internal/private IP');
+      mockLookup.mockResolvedValue({ address: 'fc00::1', family: 6 });
+      await expect(validateImageUrl('https://evil2.com/image.jpg')).rejects.toThrow(
+        'resolves to internal/private IP'
+      );
     });
 
     it('should handle DNS lookup failures gracefully', async () => {
-      lookup.mockRejectedValue({ code: 'ENOTFOUND' });
-      await expect(validateImageUrl('https://nonexistent.domain.invalid/image.jpg'))
-        .rejects.toThrow('could not be resolved');
+      mockLookup.mockRejectedValue({ code: 'ENOTFOUND' });
+      await expect(validateImageUrl('https://nonexistent.domain.invalid/image.jpg')).rejects.toThrow(
+        'could not be resolved'
+      );
     });
 
     it('should handle DNS timeout errors gracefully', async () => {
-      lookup.mockRejectedValue(new Error('ETIMEDOUT'));
-      await expect(validateImageUrl('https://timeout.example.com/image.jpg'))
-        .rejects.toThrow('Failed to validate domain');
+      mockLookup.mockRejectedValue(new Error('ETIMEDOUT'));
+      await expect(validateImageUrl('https://timeout.example.com/image.jpg')).rejects.toThrow(
+        'Failed to validate domain'
+      );
     });
   });
 
@@ -286,15 +285,13 @@ describe('Image Validation (Security)', () => {
     it('should accept valid PNG file', async () => {
       // Create a minimal valid PNG file (1x1 red pixel)
       const pngData = Buffer.from([
-        0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, // PNG signature
-        0x00, 0x00, 0x00, 0x0D, 0x49, 0x48, 0x44, 0x52, // IHDR chunk
-        0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x01,
-        0x08, 0x02, 0x00, 0x00, 0x00, 0x90, 0x77, 0x53,
-        0xDE, 0x00, 0x00, 0x00, 0x0C, 0x49, 0x44, 0x41, // IDAT chunk
-        0x54, 0x08, 0xD7, 0x63, 0xF8, 0xCF, 0xC0, 0x00,
-        0x00, 0x00, 0x03, 0x00, 0x01, 0x8F, 0x0D, 0x32,
-        0x4E, 0x00, 0x00, 0x00, 0x00, 0x49, 0x45, 0x4E, // IEND chunk
-        0x44, 0xAE, 0x42, 0x60, 0x82
+        0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, // PNG signature
+        0x00, 0x00, 0x00, 0x0d, 0x49, 0x48, 0x44, 0x52, // IHDR chunk
+        0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x01, 0x08, 0x02, 0x00, 0x00, 0x00, 0x90, 0x77, 0x53,
+        0xde, 0x00, 0x00, 0x00, 0x0c, 0x49, 0x44, 0x41, // IDAT chunk
+        0x54, 0x08, 0xd7, 0x63, 0xf8, 0xcf, 0xc0, 0x00, 0x00, 0x00, 0x03, 0x00, 0x01, 0x8f, 0x0d, 0x32,
+        0x4e, 0x00, 0x00, 0x00, 0x00, 0x49, 0x45, 0x4e, // IEND chunk
+        0x44, 0xae, 0x42, 0x60, 0x82,
       ]);
 
       const testFile = join(TEST_DIR, 'test.png');
@@ -309,8 +306,7 @@ describe('Image Validation (Security)', () => {
     it('should accept valid JPEG file', async () => {
       // Minimal JPEG header (not a complete valid JPEG, but has correct magic bytes)
       const jpegData = Buffer.from([
-        0xFF, 0xD8, 0xFF, 0xE0, 0x00, 0x10, 0x4A, 0x46,
-        0x49, 0x46, 0x00, 0x01, 0x01, 0x00, 0x00, 0x01
+        0xff, 0xd8, 0xff, 0xe0, 0x00, 0x10, 0x4a, 0x46, 0x49, 0x46, 0x00, 0x01, 0x01, 0x00, 0x00, 0x01,
       ]);
 
       const testFile = join(TEST_DIR, 'test.jpg');
@@ -323,16 +319,14 @@ describe('Image Validation (Security)', () => {
     });
 
     it('should reject non-existent file', async () => {
-      await expect(validateImagePath('/nonexistent/file.png'))
-        .rejects.toThrow('not found');
+      await expect(validateImagePath('/nonexistent/file.png')).rejects.toThrow('not found');
     });
 
     it('should reject empty file', async () => {
       const emptyFile = join(TEST_DIR, 'empty.png');
       writeFileSync(emptyFile, '');
 
-      await expect(validateImagePath(emptyFile))
-        .rejects.toThrow('empty');
+      await expect(validateImagePath(emptyFile)).rejects.toThrow('empty');
 
       unlinkSync(emptyFile);
     });
@@ -341,8 +335,7 @@ describe('Image Validation (Security)', () => {
       const textFile = join(TEST_DIR, 'test.txt');
       writeFileSync(textFile, 'This is not an image');
 
-      await expect(validateImagePath(textFile))
-        .rejects.toThrow('not appear to be a valid image');
+      await expect(validateImagePath(textFile)).rejects.toThrow('not appear to be a valid image');
 
       unlinkSync(textFile);
     });
@@ -412,7 +405,7 @@ describe('File Operations', () => {
       const metadata = {
         model: 'gemini-2.5-flash-image',
         prompt: 'test prompt',
-        timestamp: '2025-01-18T14:30:00Z'
+        timestamp: '2025-01-18T14:30:00Z',
       };
       const metadataPath = join(TEST_DIR, 'metadata.json');
 
@@ -440,8 +433,7 @@ describe('File Operations', () => {
     it('should convert local PNG file to inlineData format', async () => {
       // Create test PNG
       const pngData = Buffer.from([
-        0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A,
-        0x00, 0x00, 0x00, 0x0D, 0x49, 0x48, 0x44, 0x52
+        0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00, 0x00, 0x00, 0x0d, 0x49, 0x48, 0x44, 0x52,
       ]);
       const testFile = join(TEST_DIR, 'test-inline.png');
       writeFileSync(testFile, pngData);
@@ -457,9 +449,7 @@ describe('File Operations', () => {
     });
 
     it('should detect JPEG MIME type from extension', async () => {
-      const jpegData = Buffer.from([
-        0xFF, 0xD8, 0xFF, 0xE0, 0x00, 0x10
-      ]);
+      const jpegData = Buffer.from([0xff, 0xd8, 0xff, 0xe0, 0x00, 0x10]);
       const testFile = join(TEST_DIR, 'test.jpg');
       writeFileSync(testFile, jpegData);
 
@@ -471,16 +461,14 @@ describe('File Operations', () => {
     });
 
     it('should throw error for non-existent file', async () => {
-      await expect(imageToInlineData('/nonexistent/file.png'))
-        .rejects.toThrow('not found');
+      await expect(imageToInlineData('/nonexistent/file.png')).rejects.toThrow('not found');
     });
 
     it('should throw error for invalid image file', async () => {
       const textFile = join(TEST_DIR, 'invalid.png');
       writeFileSync(textFile, 'not an image');
 
-      await expect(imageToInlineData(textFile))
-        .rejects.toThrow('not appear to be a valid image');
+      await expect(imageToInlineData(textFile)).rejects.toThrow('not appear to be a valid image');
 
       unlinkSync(textFile);
     });
@@ -503,19 +491,16 @@ describe('Logger Functions', () => {
 // ============================================================================
 
 describe('Video Utilities', () => {
-
   describe('validateVideoPath', () => {
     it('should reject non-existent file', async () => {
-      await expect(validateVideoPath('/nonexistent/video.mp4'))
-        .rejects.toThrow('Video file not found');
+      await expect(validateVideoPath('/nonexistent/video.mp4')).rejects.toThrow('Video file not found');
     });
 
     it('should reject empty file', async () => {
       const emptyFile = join(TEST_DIR, 'empty.mp4');
       writeFileSync(emptyFile, '');
 
-      await expect(validateVideoPath(emptyFile))
-        .rejects.toThrow('Video file is empty');
+      await expect(validateVideoPath(emptyFile)).rejects.toThrow('Video file is empty');
 
       unlinkSync(emptyFile);
     });
@@ -526,23 +511,22 @@ describe('Video Utilities', () => {
       // PNG header: 8 bytes signature + minimal IHDR chunk (25 bytes total minimum)
       const pngBuffer = Buffer.alloc(33);
       // PNG signature
-      Buffer.from([0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A]).copy(pngBuffer, 0);
+      Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]).copy(pngBuffer, 0);
       // IHDR chunk length (13 bytes)
       pngBuffer.writeUInt32BE(13, 8);
       // IHDR chunk type
       Buffer.from('IHDR').copy(pngBuffer, 12);
       // Minimal IHDR data (width, height, bit depth, color type, compression, filter, interlace)
-      pngBuffer.writeUInt32BE(1, 16);  // width
-      pngBuffer.writeUInt32BE(1, 20);  // height
-      pngBuffer[24] = 8;  // bit depth
-      pngBuffer[25] = 0;  // color type
-      pngBuffer[26] = 0;  // compression
-      pngBuffer[27] = 0;  // filter
-      pngBuffer[28] = 0;  // interlace
+      pngBuffer.writeUInt32BE(1, 16); // width
+      pngBuffer.writeUInt32BE(1, 20); // height
+      pngBuffer[24] = 8; // bit depth
+      pngBuffer[25] = 0; // color type
+      pngBuffer[26] = 0; // compression
+      pngBuffer[27] = 0; // filter
+      pngBuffer[28] = 0; // interlace
       writeFileSync(pngFile, pngBuffer);
 
-      await expect(validateVideoPath(pngFile))
-        .rejects.toThrow('Invalid video format');
+      await expect(validateVideoPath(pngFile)).rejects.toThrow('Invalid video format');
 
       unlinkSync(pngFile);
     });
@@ -551,8 +535,7 @@ describe('Video Utilities', () => {
       const randomFile = join(TEST_DIR, 'random.mp4');
       writeFileSync(randomFile, Buffer.from([0x00, 0x01, 0x02, 0x03]));
 
-      await expect(validateVideoPath(randomFile))
-        .rejects.toThrow('Could not determine file type');
+      await expect(validateVideoPath(randomFile)).rejects.toThrow('Could not determine file type');
 
       unlinkSync(randomFile);
     });
@@ -562,11 +545,11 @@ describe('Video Utilities', () => {
       const mp4File = join(TEST_DIR, 'valid.mp4');
       // MP4 ftyp box: size (4) + 'ftyp' (4) + brand (4) + version (4)
       const mp4Header = Buffer.alloc(20);
-      mp4Header.writeUInt32BE(20, 0);  // Box size
-      mp4Header.write('ftyp', 4);       // Box type
-      mp4Header.write('isom', 8);       // Major brand
-      mp4Header.writeUInt32BE(0, 12);   // Minor version
-      mp4Header.write('isom', 16);      // Compatible brand
+      mp4Header.writeUInt32BE(20, 0); // Box size
+      mp4Header.write('ftyp', 4); // Box type
+      mp4Header.write('isom', 8); // Major brand
+      mp4Header.writeUInt32BE(0, 12); // Minor version
+      mp4Header.write('isom', 16); // Compatible brand
       writeFileSync(mp4File, mp4Header);
 
       const result = await validateVideoPath(mp4File);
@@ -609,16 +592,16 @@ describe('Video Utilities', () => {
       const mockFs = {
         stat: vi.fn().mockResolvedValue({
           size: oversizedBytes,
-          isFile: () => true
+          isFile: () => true,
         }),
         writeFile: vi.fn(),
         readFile: vi.fn(),
         mkdir: vi.fn(),
-        access: vi.fn()
+        access: vi.fn(),
       };
       vi.doMock('fs/promises', () => ({
         default: mockFs,
-        ...mockFs
+        ...mockFs,
       }));
 
       // Create a small valid MP4 file (needed for file-type detection)
@@ -632,11 +615,10 @@ describe('Video Utilities', () => {
       writeFileSync(mp4File, mp4Header);
 
       // Import after mock is set up
-      const { validateVideoPath: validateVideoPathMocked } = await import('../utils.js');
+      const { validateVideoPath: validateVideoPathMocked } = await import('../src/utils.js');
 
       try {
-        await expect(validateVideoPathMocked(mp4File))
-          .rejects.toThrow('exceeds maximum of 200MB');
+        await expect(validateVideoPathMocked(mp4File)).rejects.toThrow('exceeds maximum of 200MB');
       } finally {
         unlinkSync(mp4File);
         vi.doUnmock('fs/promises');
@@ -667,7 +649,7 @@ describe('Video Utilities', () => {
     });
 
     it('should throw for non-number input', () => {
-      expect(() => formatTimeOffset('90')).toThrow('requires a valid number');
+      expect(() => formatTimeOffset('90' as unknown as number)).toThrow('requires a valid number');
     });
 
     it('should throw for NaN', () => {
@@ -681,12 +663,14 @@ describe('Video Utilities', () => {
 
   describe('extractVideoMetadata', () => {
     it('should extract text from response', () => {
-      const response = {
-        candidates: [{
-          content: {
-            parts: [{ text: 'The video shows a cat playing.' }]
-          }
-        }]
+      const response: GeminiResponse = {
+        candidates: [
+          {
+            content: {
+              parts: [{ text: 'The video shows a cat playing.' }],
+            },
+          },
+        ],
       };
 
       const result = extractVideoMetadata(response);
@@ -695,12 +679,14 @@ describe('Video Utilities', () => {
     });
 
     it('should find single timestamp in text', () => {
-      const response = {
-        candidates: [{
-          content: {
-            parts: [{ text: 'At 01:30 the cat jumps onto the table.' }]
-          }
-        }]
+      const response: GeminiResponse = {
+        candidates: [
+          {
+            content: {
+              parts: [{ text: 'At 01:30 the cat jumps onto the table.' }],
+            },
+          },
+        ],
       };
 
       const result = extractVideoMetadata(response);
@@ -710,27 +696,31 @@ describe('Video Utilities', () => {
     });
 
     it('should find multiple timestamps', () => {
-      const response = {
-        candidates: [{
-          content: {
-            parts: [{ text: 'At 0:30 the video starts, at 1:15 the cat appears, and at 2:00 it ends.' }]
-          }
-        }]
+      const response: GeminiResponse = {
+        candidates: [
+          {
+            content: {
+              parts: [{ text: 'At 0:30 the video starts, at 1:15 the cat appears, and at 2:00 it ends.' }],
+            },
+          },
+        ],
       };
 
       const result = extractVideoMetadata(response);
 
       expect(result.frames.length).toBe(3);
-      expect(result.frames.map(f => f.timestamp)).toEqual(['0:30', '1:15', '2:00']);
+      expect(result.frames.map((f) => f.timestamp)).toEqual(['0:30', '1:15', '2:00']);
     });
 
     it('should handle HH:MM:SS format', () => {
-      const response = {
-        candidates: [{
-          content: {
-            parts: [{ text: 'At 1:15:30 something happens.' }]
-          }
-        }]
+      const response: GeminiResponse = {
+        candidates: [
+          {
+            content: {
+              parts: [{ text: 'At 1:15:30 something happens.' }],
+            },
+          },
+        ],
       };
 
       const result = extractVideoMetadata(response);
@@ -740,12 +730,14 @@ describe('Video Utilities', () => {
     });
 
     it('should extract context around timestamps', () => {
-      const response = {
-        candidates: [{
-          content: {
-            parts: [{ text: 'The cat at 01:30 jumps high.' }]
-          }
-        }]
+      const response: GeminiResponse = {
+        candidates: [
+          {
+            content: {
+              parts: [{ text: 'The cat at 01:30 jumps high.' }],
+            },
+          },
+        ],
       };
 
       const result = extractVideoMetadata(response);
@@ -755,12 +747,14 @@ describe('Video Utilities', () => {
     });
 
     it('should handle response without timestamps', () => {
-      const response = {
-        candidates: [{
-          content: {
-            parts: [{ text: 'This video shows a beautiful sunset.' }]
-          }
-        }]
+      const response: GeminiResponse = {
+        candidates: [
+          {
+            content: {
+              parts: [{ text: 'This video shows a beautiful sunset.' }],
+            },
+          },
+        ],
       };
 
       const result = extractVideoMetadata(response);
@@ -770,14 +764,14 @@ describe('Video Utilities', () => {
     });
 
     it('should handle empty response', () => {
-      const result = extractVideoMetadata({});
+      const result = extractVideoMetadata({} as GeminiResponse);
 
       expect(result.text).toBe('');
       expect(result.frames).toEqual([]);
     });
 
     it('should handle null response', () => {
-      const result = extractVideoMetadata(null);
+      const result = extractVideoMetadata(null as unknown as GeminiResponse);
 
       expect(result.text).toBe('');
       expect(result.frames).toEqual([]);
@@ -791,15 +785,14 @@ describe('Video Utilities', () => {
     });
 
     it('should concatenate multiple text parts', () => {
-      const response = {
-        candidates: [{
-          content: {
-            parts: [
-              { text: 'First part. ' },
-              { text: 'Second part.' }
-            ]
-          }
-        }]
+      const response: GeminiResponse = {
+        candidates: [
+          {
+            content: {
+              parts: [{ text: 'First part. ' }, { text: 'Second part.' }],
+            },
+          },
+        ],
       };
 
       const result = extractVideoMetadata(response);

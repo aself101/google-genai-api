@@ -16,13 +16,26 @@
 import { GoogleGenAI } from '@google/genai';
 import winston from 'winston';
 import axios from 'axios';
-import {
-  MODELS,
-  VIDEO_TIMEOUTS,
-  getGoogleGenAIApiKey,
-  redactApiKey
-} from './config.js';
+import { MODELS, VIDEO_TIMEOUTS, getGoogleGenAIApiKey, redactApiKey } from './config.js';
 import { validateVideoPath, pause } from './utils.js';
+import type {
+  ErrorClassification,
+  FileInfo,
+  GeminiResponse,
+  VideoClipMetadata,
+  VideoGenerateParams,
+  VideoUploadResult,
+} from './types/index.js';
+
+/**
+ * Extended error with additional properties.
+ */
+interface ExtendedError extends Error {
+  response?: { status?: number };
+  status?: number;
+  fileState?: string;
+  isTimeout?: boolean;
+}
 
 /**
  * Google GenAI Video API client.
@@ -40,14 +53,19 @@ import { validateVideoPath, pause } from './utils.js';
  * });
  */
 export class GoogleGenAIVideoAPI {
+  private apiKey: string;
+  private client: GoogleGenAI;
+  private model: string;
+  private logger: winston.Logger;
+
   /**
    * Create a new GoogleGenAIVideoAPI instance.
    *
-   * @param {string} apiKey - Google GenAI API key
-   * @param {string} [logLevel='info'] - Logging level (debug, info, warn, error)
-   * @throws {Error} If API key is not provided
+   * @param apiKey - Google GenAI API key
+   * @param logLevel - Logging level (debug, info, warn, error)
+   * @throws Error if API key is not provided
    */
-  constructor(apiKey, logLevel = 'info') {
+  constructor(apiKey: string, logLevel = 'info') {
     if (!apiKey) {
       throw new Error('API key is required');
     }
@@ -65,9 +83,7 @@ export class GoogleGenAIVideoAPI {
           return `${timestamp} - ${level.toUpperCase()} - [VideoAPI] ${message}`;
         })
       ),
-      transports: [
-        new winston.transports.Console()
-      ]
+      transports: [new winston.transports.Console()],
     });
 
     this.logger.debug(`GoogleGenAIVideoAPI initialized (key: ${redactApiKey(apiKey)})`);
@@ -76,9 +92,9 @@ export class GoogleGenAIVideoAPI {
   /**
    * Verify API key is set.
    * @private
-   * @throws {Error} If API key is missing
+   * @throws Error if API key is missing
    */
-  _verifyApiKey() {
+  private _verifyApiKey(): void {
     if (!this.apiKey) {
       throw new Error('API key is not set. Please provide a valid API key.');
     }
@@ -88,14 +104,14 @@ export class GoogleGenAIVideoAPI {
    * Classify error type for retry logic.
    *
    * @private
-   * @param {Error} error - Error to classify
-   * @returns {'TRANSIENT'|'PERMANENT'|'USER_ACTIONABLE'} Error classification
+   * @param error - Error to classify
+   * @returns Error classification
    *
    * @example
    * const type = this._classifyError(error);
    * if (type === 'TRANSIENT') { // retry }
    */
-  _classifyError(error) {
+  private _classifyError(error: ExtendedError): ErrorClassification {
     const status = error.response?.status || error.status;
     const message = error.message?.toLowerCase() || '';
 
@@ -122,7 +138,11 @@ export class GoogleGenAIVideoAPI {
     if (status === 429 || status === 502 || status === 503) {
       return 'TRANSIENT';
     }
-    if (message.includes('network') || message.includes('timeout') || message.includes('econnreset')) {
+    if (
+      message.includes('network') ||
+      message.includes('timeout') ||
+      message.includes('econnreset')
+    ) {
       return 'TRANSIENT';
     }
     if (message.includes('processing')) {
@@ -137,10 +157,10 @@ export class GoogleGenAIVideoAPI {
    * Sanitize error messages for production mode.
    *
    * @private
-   * @param {Error} error - Error to sanitize
-   * @returns {Error} Sanitized error
+   * @param error - Error to sanitize
+   * @returns Sanitized error
    */
-  _sanitizeError(error) {
+  private _sanitizeError(error: ExtendedError): Error {
     if (process.env.NODE_ENV === 'production') {
       const classification = this._classifyError(error);
       if (classification === 'TRANSIENT') {
@@ -157,23 +177,28 @@ export class GoogleGenAIVideoAPI {
    * Upload a video file to Google GenAI Files API.
    * Validates the file before upload and polls for processing completion.
    *
-   * @param {string} videoPath - Path to the video file
-   * @param {string} [displayName=null] - Optional display name for the file
-   * @returns {Promise<{uri: string, name: string, mimeType: string, state: string, sizeBytes: number}>}
-   * @throws {Error} If upload fails or file is invalid
+   * @param videoPath - Path to the video file
+   * @param displayName - Optional display name for the file
+   * @returns Upload result with file info
+   * @throws Error if upload fails or file is invalid
    *
    * @example
    * const file = await api.uploadVideoFile('./video.mp4');
    * console.log(file.uri); // 'files/abc123'
    */
-  async uploadVideoFile(videoPath, displayName = null) {
+  async uploadVideoFile(
+    videoPath: string,
+    displayName: string | null = null
+  ): Promise<VideoUploadResult> {
     this._verifyApiKey();
 
     // Validate video file
     this.logger.debug(`Validating video file: ${videoPath}`);
     const validation = await validateVideoPath(videoPath);
 
-    this.logger.info(`Uploading video: ${videoPath} (${(validation.size / 1024 / 1024).toFixed(1)}MB, ${validation.mimeType})`);
+    this.logger.info(
+      `Uploading video: ${videoPath} (${(validation.size / 1024 / 1024).toFixed(1)}MB, ${validation.mimeType})`
+    );
 
     try {
       // Upload to Files API
@@ -181,15 +206,15 @@ export class GoogleGenAIVideoAPI {
         file: videoPath,
         config: {
           mimeType: validation.mimeType,
-          displayName: displayName || videoPath.split('/').pop()
-        }
+          displayName: displayName || videoPath.split('/').pop(),
+        },
       });
 
       this.logger.debug(`Upload complete, file name: ${uploadResult.name}`);
       this.logger.info('Video uploaded, waiting for processing...');
 
       // Poll for ACTIVE state
-      const file = await this._pollFileStatus(uploadResult.name);
+      const file = await this._pollFileStatus(uploadResult.name as string);
 
       this.logger.info(`Video processing complete: ${file.name} (state: ${file.state})`);
 
@@ -198,12 +223,13 @@ export class GoogleGenAIVideoAPI {
         name: file.name,
         mimeType: file.mimeType,
         state: file.state,
-        sizeBytes: file.sizeBytes
+        sizeBytes: file.sizeBytes,
       };
     } catch (error) {
-      const errorType = this._classifyError(error);
-      this.logger.error(`Upload failed (${errorType}): ${error.message}`);
-      throw this._sanitizeError(error);
+      const err = error as ExtendedError;
+      const errorType = this._classifyError(err);
+      this.logger.error(`Upload failed (${errorType}): ${err.message}`);
+      throw this._sanitizeError(err);
     }
   }
 
@@ -212,17 +238,17 @@ export class GoogleGenAIVideoAPI {
    * Uses adaptive backoff starting at 10s and capping at 30s.
    *
    * @private
-   * @param {string} fileName - File name (not URI) to poll
-   * @param {number} [maxAttempts] - Maximum polling attempts (default from VIDEO_TIMEOUTS)
-   * @param {number} [intervalMs] - Initial polling interval (default from VIDEO_TIMEOUTS)
-   * @returns {Promise<Object>} File object when ACTIVE
-   * @throws {Error} If file processing fails or times out
+   * @param fileName - File name (not URI) to poll
+   * @param maxAttempts - Maximum polling attempts (default from VIDEO_TIMEOUTS)
+   * @param intervalMs - Initial polling interval (default from VIDEO_TIMEOUTS)
+   * @returns File object when ACTIVE
+   * @throws Error if file processing fails or times out
    */
-  async _pollFileStatus(
-    fileName,
+  private async _pollFileStatus(
+    fileName: string,
     maxAttempts = VIDEO_TIMEOUTS.POLL_MAX_ATTEMPTS,
     intervalMs = VIDEO_TIMEOUTS.POLL_INTERVAL_START
-  ) {
+  ): Promise<FileInfo> {
     let attempts = 0;
     let backoffMs = intervalMs;
 
@@ -230,7 +256,7 @@ export class GoogleGenAIVideoAPI {
       attempts++;
 
       try {
-        const file = await this.client.files.get({ name: fileName });
+        const file = (await this.client.files.get({ name: fileName })) as unknown as FileInfo;
 
         if (file.state === 'ACTIVE') {
           this.logger.debug(`File is ACTIVE after ${attempts} attempts`);
@@ -238,7 +264,9 @@ export class GoogleGenAIVideoAPI {
         }
 
         if (file.state === 'FAILED') {
-          const error = new Error(`Video processing failed: ${file.error?.message || 'Unknown error'}`);
+          const error = new Error(
+            `Video processing failed: ${file.error?.message || 'Unknown error'}`
+          ) as ExtendedError;
           error.fileState = 'FAILED';
           throw error;
         }
@@ -251,19 +279,20 @@ export class GoogleGenAIVideoAPI {
 
         // Increase backoff (1.5x multiplier, capped at max)
         backoffMs = Math.min(backoffMs * 1.5, VIDEO_TIMEOUTS.POLL_INTERVAL_MAX);
-
       } catch (error) {
+        const err = error as ExtendedError;
+
         // Handle 429 rate limit with extended backoff
-        if (error.response?.status === 429 || error.status === 429) {
+        if (err.response?.status === 429 || err.status === 429) {
           this.logger.warn('Rate limited, waiting 60 seconds...');
           await pause(60000);
           continue;
         }
 
         // Handle transient network errors with retry
-        const errorType = this._classifyError(error);
+        const errorType = this._classifyError(err);
         if (errorType === 'TRANSIENT' && attempts < maxAttempts) {
-          this.logger.warn(`Transient error, retrying: ${error.message}`);
+          this.logger.warn(`Transient error, retrying: ${err.message}`);
           await pause(backoffMs);
           backoffMs = Math.min(backoffMs * 1.5, VIDEO_TIMEOUTS.POLL_INTERVAL_MAX);
           continue;
@@ -275,8 +304,8 @@ export class GoogleGenAIVideoAPI {
 
     const error = new Error(
       `Video processing timed out after ${maxAttempts} attempts. ` +
-      `The video may still be processing. Try again in a few minutes.`
-    );
+        `The video may still be processing. Try again in a few minutes.`
+    ) as ExtendedError;
     error.isTimeout = true;
     throw error;
   }
@@ -284,15 +313,9 @@ export class GoogleGenAIVideoAPI {
   /**
    * Generate content analysis from an uploaded video.
    *
-   * @param {Object} params - Generation parameters
-   * @param {string} params.prompt - Analysis prompt
-   * @param {string} params.fileUri - File URI from uploadVideoFile()
-   * @param {string} params.mimeType - Video MIME type
-   * @param {Object} [params.videoMetadata] - Optional video clipping metadata
-   * @param {string} [params.videoMetadata.startOffset] - Start offset (e.g., "30s")
-   * @param {string} [params.videoMetadata.endOffset] - End offset (e.g., "90s")
-   * @returns {Promise<Object>} Generation response with analysis text
-   * @throws {Error} If generation fails
+   * @param params - Generation parameters
+   * @returns Generation response with analysis text
+   * @throws Error if generation fails
    *
    * @example
    * const result = await api.generateFromVideo({
@@ -302,8 +325,10 @@ export class GoogleGenAIVideoAPI {
    *   videoMetadata: { startOffset: '0s', endOffset: '60s' }
    * });
    */
-  async generateFromVideo({ prompt, fileUri, mimeType, videoMetadata }) {
+  async generateFromVideo(params: VideoGenerateParams): Promise<GeminiResponse> {
     this._verifyApiKey();
+
+    const { prompt, fileUri, mimeType, videoMetadata } = params;
 
     if (!prompt || typeof prompt !== 'string') {
       throw new Error('Prompt is required and must be a string');
@@ -315,12 +340,20 @@ export class GoogleGenAIVideoAPI {
       throw new Error('MIME type is required');
     }
 
-    this.logger.debug(`Generating from video: ${redactApiKey(fileUri)} with prompt: "${prompt.substring(0, 50)}..."`);
+    this.logger.debug(
+      `Generating from video: ${redactApiKey(fileUri)} with prompt: "${prompt.substring(0, 50)}..."`
+    );
 
     // Build fileData object
-    const fileData = {
+    interface FileDataWithMetadata {
+      fileUri: string;
+      mimeType: string;
+      videoMetadata?: VideoClipMetadata;
+    }
+
+    const fileData: FileDataWithMetadata = {
       fileUri,
-      mimeType
+      mimeType,
     };
 
     // Add video metadata for clipping if provided
@@ -330,16 +363,13 @@ export class GoogleGenAIVideoAPI {
     }
 
     // Build contents array
-    const contents = [
-      { text: prompt },
-      { fileData }
-    ];
+    const contents = [{ text: prompt }, { fileData }];
 
     try {
-      const response = await this.client.models.generateContent({
+      const response = (await this.client.models.generateContent({
         model: this.model,
-        contents
-      });
+        contents,
+      })) as GeminiResponse;
 
       this.logger.info('Video analysis complete');
 
@@ -347,36 +377,42 @@ export class GoogleGenAIVideoAPI {
       if (!response?.candidates?.[0]?.content?.parts) {
         this.logger.warn('Empty response received from API');
         return {
-          candidates: [{
-            content: {
-              parts: [{ text: 'No analysis could be generated for this video.' }]
-            }
-          }]
+          candidates: [
+            {
+              content: {
+                parts: [{ text: 'No analysis could be generated for this video.' }],
+              },
+            },
+          ],
         };
       }
 
       return response;
-
     } catch (error) {
-      const errorType = this._classifyError(error);
+      const err = error as ExtendedError;
+      const errorType = this._classifyError(err);
 
       // Handle specific error cases
-      if (error.status === 404 || error.message?.includes('not found')) {
+      if (err.status === 404 || err.message?.includes('not found')) {
         const notFoundError = new Error(
           'Video file not found. The file may have expired (files expire after 48 hours) or was deleted.'
         );
-        throw this._sanitizeError(notFoundError);
+        throw this._sanitizeError(notFoundError as ExtendedError);
       }
 
-      if (error.status === 422 || error.message?.includes('safety') || error.message?.includes('policy')) {
+      if (
+        err.status === 422 ||
+        err.message?.includes('safety') ||
+        err.message?.includes('policy')
+      ) {
         const policyError = new Error(
           'Video content was blocked due to safety policies. Please try a different video.'
         );
-        throw this._sanitizeError(policyError);
+        throw this._sanitizeError(policyError as ExtendedError);
       }
 
-      this.logger.error(`Generation failed (${errorType}): ${error.message}`);
-      throw this._sanitizeError(error);
+      this.logger.error(`Generation failed (${errorType}): ${err.message}`);
+      throw this._sanitizeError(err);
     }
   }
 
@@ -387,13 +423,12 @@ export class GoogleGenAIVideoAPI {
    * Note: The @google/genai SDK v0.3.0 does not expose files.delete(),
    * so this uses a direct HTTP DELETE request via axios.
    *
-   * @param {string} fileUri - File URI to delete (e.g., 'files/abc123')
-   * @returns {Promise<void>}
+   * @param fileUri - File URI to delete (e.g., 'files/abc123')
    *
    * @example
    * await api.deleteVideoFile(file.uri);
    */
-  async deleteVideoFile(fileUri) {
+  async deleteVideoFile(fileUri: string): Promise<void> {
     this._verifyApiKey();
 
     if (!fileUri) {
@@ -412,18 +447,19 @@ export class GoogleGenAIVideoAPI {
 
       await axios.delete(url, {
         headers: {
-          'x-goog-api-key': this.apiKey
+          'x-goog-api-key': this.apiKey,
         },
-        timeout: 30000
+        timeout: 30000,
       });
 
       this.logger.info(`Deleted video file: ${fileName}`);
     } catch (error) {
+      const err = error as ExtendedError;
       // Best-effort cleanup - log but don't throw
-      if (error.response?.status === 404) {
+      if (err.response?.status === 404) {
         this.logger.warn(`File not found (may have already been deleted): ${fileName}`);
       } else {
-        this.logger.warn(`Failed to delete video file: ${error.message}`);
+        this.logger.warn(`Failed to delete video file: ${err.message}`);
       }
     }
   }
@@ -431,9 +467,9 @@ export class GoogleGenAIVideoAPI {
   /**
    * Set the logging level.
    *
-   * @param {string} level - Log level (debug, info, warn, error)
+   * @param level - Log level (debug, info, warn, error)
    */
-  setLogLevel(level) {
+  setLogLevel(level: string): void {
     this.logger.level = level.toLowerCase();
   }
 }

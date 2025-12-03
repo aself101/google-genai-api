@@ -13,6 +13,18 @@ import { lookup } from 'dns/promises';
 import { isIPv4, isIPv6 } from 'net';
 import { fileTypeFromFile } from 'file-type';
 import { VIDEO_MIME_TYPES, VIDEO_SIZE_LIMITS } from './config.js';
+import type {
+  InlineData,
+  SpinnerObject,
+  VeoSpinnerObject,
+  VideoValidationResult,
+  VideoFrame,
+  VideoAnalysisResult,
+  VeoImage,
+  VeoMetadataInput,
+  VeoSavedMetadata,
+  GeminiResponse,
+} from './types/index.js';
 
 // Configure module logger
 const logger = winston.createLogger({
@@ -23,18 +35,16 @@ const logger = winston.createLogger({
       return `${timestamp} - ${level.toUpperCase()} - ${message}`;
     })
   ),
-  transports: [
-    new winston.transports.Console()
-  ]
+  transports: [new winston.transports.Console()],
 });
 
 /**
  * Helper function to check if an IP address is blocked (private/internal).
  *
- * @param {string} ip - IP address to check (IPv4 or IPv6)
- * @returns {boolean} True if IP is blocked, false otherwise
+ * @param ip - IP address to check (IPv4 or IPv6)
+ * @returns True if IP is blocked, false otherwise
  */
-function isBlockedIP(ip) {
+function isBlockedIP(ip: string): boolean {
   // Remove IPv6 bracket notation
   const cleanIP = ip.replace(/^\[|\]$/g, '');
 
@@ -44,30 +54,26 @@ function isBlockedIP(ip) {
   }
 
   // Block cloud metadata endpoints
-  const blockedHosts = [
-    'metadata.google.internal',
-    'metadata',
-    '169.254.169.254',
-  ];
+  const blockedHosts = ['metadata.google.internal', 'metadata', '169.254.169.254'];
   if (blockedHosts.includes(cleanIP)) {
     return true;
   }
 
   // Block private IP ranges and special addresses
   const blockedPatterns = [
-    /^127\./,                    // Loopback
-    /^10\./,                     // Private Class A
+    /^127\./, // Loopback
+    /^10\./, // Private Class A
     /^172\.(1[6-9]|2[0-9]|3[0-1])\./, // Private Class B
-    /^192\.168\./,               // Private Class C
-    /^169\.254\./,               // Link-local (AWS metadata)
-    /^0\./,                      // Invalid range
-    /^::1$/,                     // IPv6 loopback
-    /^fe80:/,                    // IPv6 link-local
-    /^fc00:/,                    // IPv6 unique local
-    /^fd00:/,                    // IPv6 unique local
+    /^192\.168\./, // Private Class C
+    /^169\.254\./, // Link-local (AWS metadata)
+    /^0\./, // Invalid range
+    /^::1$/, // IPv6 loopback
+    /^fe80:/, // IPv6 link-local
+    /^fc00:/, // IPv6 unique local
+    /^fd00:/, // IPv6 unique local
   ];
 
-  return blockedPatterns.some(pattern => pattern.test(cleanIP));
+  return blockedPatterns.some((pattern) => pattern.test(cleanIP));
 }
 
 /**
@@ -77,11 +83,11 @@ function isBlockedIP(ip) {
  * DNS Resolution: This function performs DNS resolution to prevent DNS rebinding attacks,
  * where a domain might resolve to different IPs between validation time and request time.
  *
- * @param {string} url - URL to validate
- * @returns {Promise<string>} The validated URL
- * @throws {Error} If URL is invalid or insecure
+ * @param url - URL to validate
+ * @returns The validated URL
+ * @throws Error if URL is invalid or insecure
  */
-export async function validateImageUrl(url) {
+export async function validateImageUrl(url: string): Promise<string> {
   // First check for IPv4-mapped IPv6 in the original URL string (before URL parsing normalizes it)
   // This prevents SSRF bypass via https://[::ffff:127.0.0.1] or https://[::ffff:169.254.169.254]
   const ipv6MappedMatch = url.match(/\[::ffff:(\d+\.\d+\.\d+\.\d+)\]/i);
@@ -97,24 +103,24 @@ export async function validateImageUrl(url) {
 
     // Check against private IP patterns
     const privatePatterns = [
-      /^10\./,                     // Private Class A
+      /^10\./, // Private Class A
       /^172\.(1[6-9]|2[0-9]|3[0-1])\./, // Private Class B
-      /^192\.168\./,               // Private Class C
-      /^169\.254\./,               // Link-local (AWS metadata)
-      /^0\./,                      // Invalid range
+      /^192\.168\./, // Private Class C
+      /^169\.254\./, // Link-local (AWS metadata)
+      /^0\./, // Invalid range
     ];
 
-    if (privatePatterns.some(pattern => pattern.test(extractedIPv4))) {
+    if (privatePatterns.some((pattern) => pattern.test(extractedIPv4))) {
       logger.warn(`SECURITY: Blocked IPv4-mapped IPv6 private IP: ${url}`);
       throw new Error('Access to internal/private IP addresses is not allowed');
     }
   }
 
-  let parsed;
+  let parsed: URL;
 
   try {
     parsed = new URL(url);
-  } catch (error) {
+  } catch {
     throw new Error(`Invalid URL: ${url}`);
   }
 
@@ -153,15 +159,16 @@ export async function validateImageUrl(url) {
 
       logger.debug(`DNS validation passed for ${hostname} (resolved to ${address})`);
     } catch (error) {
-      if (error.code === 'ENOTFOUND') {
+      const err = error as NodeJS.ErrnoException & { message?: string };
+      if (err.code === 'ENOTFOUND') {
         logger.warn(`SECURITY: Domain ${hostname} could not be resolved`);
         throw new Error(`Domain ${hostname} could not be resolved`);
-      } else if (error.message && error.message.includes('resolves to internal')) {
+      } else if (err.message && err.message.includes('resolves to internal')) {
         // Re-throw our custom error about blocked IPs
         throw error;
       } else {
-        logger.warn(`SECURITY: DNS lookup failed for ${hostname}: ${error.message}`);
-        throw new Error(`Failed to validate domain ${hostname}: ${error.message}`);
+        logger.warn(`SECURITY: DNS lookup failed for ${hostname}: ${err.message}`);
+        throw new Error(`Failed to validate domain ${hostname}: ${err.message}`);
       }
     }
   }
@@ -173,11 +180,11 @@ export async function validateImageUrl(url) {
  * Validate image file path.
  * Checks file exists, is readable, and has valid image magic bytes.
  *
- * @param {string} filepath - Path to image file
- * @returns {Promise<string>} Validated filepath
- * @throws {Error} If file doesn't exist, isn't readable, or isn't a valid image
+ * @param filepath - Path to image file
+ * @returns Validated filepath
+ * @throws Error if file doesn't exist, isn't readable, or isn't a valid image
  */
-export async function validateImagePath(filepath) {
+export async function validateImagePath(filepath: string): Promise<string> {
   try {
     const buffer = await fs.readFile(filepath);
 
@@ -187,21 +194,28 @@ export async function validateImagePath(filepath) {
     }
 
     // Check magic bytes for common image formats
-    const magicBytes = buffer.slice(0, 4);
-    const isPNG = magicBytes[0] === 0x89 && magicBytes[1] === 0x50 && magicBytes[2] === 0x4E && magicBytes[3] === 0x47;
-    const isJPEG = magicBytes[0] === 0xFF && magicBytes[1] === 0xD8 && magicBytes[2] === 0xFF;
-    const isWebP = buffer.slice(8, 12).toString() === 'WEBP';
-    const isGIF = magicBytes.slice(0, 3).toString() === 'GIF';
+    const magicBytes = buffer.subarray(0, 4);
+    const isPNG =
+      magicBytes[0] === 0x89 &&
+      magicBytes[1] === 0x50 &&
+      magicBytes[2] === 0x4e &&
+      magicBytes[3] === 0x47;
+    const isJPEG = magicBytes[0] === 0xff && magicBytes[1] === 0xd8 && magicBytes[2] === 0xff;
+    const isWebP = buffer.subarray(8, 12).toString() === 'WEBP';
+    const isGIF = magicBytes.subarray(0, 3).toString() === 'GIF';
 
     if (!isPNG && !isJPEG && !isWebP && !isGIF) {
-      throw new Error(`File does not appear to be a valid image (PNG, JPEG, WebP, or GIF): ${filepath}`);
+      throw new Error(
+        `File does not appear to be a valid image (PNG, JPEG, WebP, or GIF): ${filepath}`
+      );
     }
 
     return filepath;
   } catch (error) {
-    if (error.code === 'ENOENT') {
+    const err = error as NodeJS.ErrnoException;
+    if (err.code === 'ENOENT') {
       throw new Error(`Image file not found: ${filepath}`);
-    } else if (error.code === 'EACCES') {
+    } else if (err.code === 'EACCES') {
       throw new Error(`Permission denied reading image file: ${filepath}`);
     }
     throw error;
@@ -212,17 +226,17 @@ export async function validateImagePath(filepath) {
  * Convert image (local file or URL) to inlineData format required by @google/genai SDK.
  * Returns object with { mimeType, data } where data is base64-encoded.
  *
- * @param {string} imagePathOrUrl - Path to local file or HTTPS URL
- * @returns {Promise<Object>} { mimeType: string, data: string } - inlineData format
- * @throws {Error} If image cannot be loaded or validated
+ * @param imagePathOrUrl - Path to local file or HTTPS URL
+ * @returns inlineData format { mimeType: string, data: string }
+ * @throws Error if image cannot be loaded or validated
  *
  * @example
  * const inlineData = await imageToInlineData('./photo.jpg');
  * // { mimeType: 'image/jpeg', data: '/9j/4AAQSkZJRg...' }
  */
-export async function imageToInlineData(imagePathOrUrl) {
-  let buffer;
-  let mimeType;
+export async function imageToInlineData(imagePathOrUrl: string): Promise<InlineData> {
+  let buffer: Buffer;
+  let mimeType: string;
 
   // Detect if input is URL or local path
   if (imagePathOrUrl.startsWith('http://') || imagePathOrUrl.startsWith('https://')) {
@@ -231,11 +245,11 @@ export async function imageToInlineData(imagePathOrUrl) {
 
     logger.debug(`Downloading image from URL: ${validatedUrl}`);
 
-    const response = await axios.get(validatedUrl, {
+    const response = await axios.get<ArrayBuffer>(validatedUrl, {
       responseType: 'arraybuffer',
       timeout: 60000, // 60 seconds
       maxContentLength: 50 * 1024 * 1024, // 50MB max
-      maxRedirects: 5
+      maxRedirects: 5,
     });
 
     buffer = Buffer.from(response.data);
@@ -245,11 +259,12 @@ export async function imageToInlineData(imagePathOrUrl) {
     const contentType = response.headers['content-type']?.split(';')[0].trim();
 
     if (!contentType || !allowedMimeTypes.includes(contentType)) {
-      throw new Error(`Invalid Content-Type: ${contentType}. Expected image/* (png, jpeg, webp, gif)`);
+      throw new Error(
+        `Invalid Content-Type: ${contentType}. Expected image/* (png, jpeg, webp, gif)`
+      );
     }
 
     mimeType = contentType;
-
   } else {
     // Local file: Read with validation
     await validateImagePath(imagePathOrUrl);
@@ -258,12 +273,12 @@ export async function imageToInlineData(imagePathOrUrl) {
 
     // Detect MIME type from file extension
     const ext = path.extname(imagePathOrUrl).toLowerCase();
-    const mimeMap = {
+    const mimeMap: Record<string, string> = {
       '.png': 'image/png',
       '.jpg': 'image/jpeg',
       '.jpeg': 'image/jpeg',
       '.webp': 'image/webp',
-      '.gif': 'image/gif'
+      '.gif': 'image/gif',
     };
     mimeType = mimeMap[ext] || 'image/png';
   }
@@ -279,7 +294,7 @@ export async function imageToInlineData(imagePathOrUrl) {
 
   return {
     mimeType,
-    data: base64Data
+    data: base64Data,
   };
 }
 
@@ -287,15 +302,19 @@ export async function imageToInlineData(imagePathOrUrl) {
  * Save base64-encoded image to file.
  * Creates output directory if it doesn't exist.
  *
- * @param {string} base64Data - Base64-encoded image data
- * @param {string} outputPath - Path to save file
- * @param {string} [mimeType='image/png'] - MIME type (determines extension if not in path)
- * @returns {Promise<string>} Path to saved file
+ * @param base64Data - Base64-encoded image data
+ * @param outputPath - Path to save file
+ * @param _mimeType - MIME type (determines extension if not in path) - unused but kept for API compatibility
+ * @returns Path to saved file
  *
  * @example
  * await saveBase64Image(base64String, 'output/image.png');
  */
-export async function saveBase64Image(base64Data, outputPath, mimeType = 'image/png') {
+export async function saveBase64Image(
+  base64Data: string,
+  outputPath: string,
+  _mimeType = 'image/png'
+): Promise<string> {
   // Ensure directory exists
   const dir = path.dirname(outputPath);
   await fs.mkdir(dir, { recursive: true });
@@ -315,22 +334,19 @@ export async function saveBase64Image(base64Data, outputPath, mimeType = 'image/
  * Generate a safe filename from a prompt and timestamp.
  * Removes special characters and limits length.
  *
- * @param {string} prompt - Generation prompt
- * @param {string} [extension='png'] - File extension
- * @param {number} [maxLength=50] - Maximum filename length (excluding extension)
- * @returns {string} Safe filename with timestamp
+ * @param prompt - Generation prompt
+ * @param extension - File extension
+ * @param maxLength - Maximum filename length (excluding extension)
+ * @returns Safe filename with timestamp
  *
  * @example
  * generateFilename('A beautiful sunset over mountains');
  * // '20250118_143022_beautiful-sunset-over-mountains.png'
  */
-export function generateFilename(prompt, extension = 'png', maxLength = 50) {
+export function generateFilename(prompt: string, extension = 'png', maxLength = 50): string {
   // Create timestamp prefix (YYYYMMDD_HHMMSS)
   const now = new Date();
-  const timestamp = now.toISOString()
-    .replace(/[-:]/g, '')
-    .replace('T', '_')
-    .split('.')[0];
+  const timestamp = now.toISOString().replace(/[-:]/g, '').replace('T', '_').split('.')[0];
 
   // Sanitize prompt: lowercase, remove special chars, replace spaces with hyphens
   const sanitized = prompt
@@ -347,13 +363,13 @@ export function generateFilename(prompt, extension = 'png', maxLength = 50) {
  * Ensure output directory exists.
  * Creates directory recursively if it doesn't exist.
  *
- * @param {string} dirPath - Directory path to create
- * @returns {Promise<string>} Created directory path
+ * @param dirPath - Directory path to create
+ * @returns Created directory path
  *
  * @example
  * await ensureDirectory('datasets/google/gemini-2.5-flash-image');
  */
-export async function ensureDirectory(dirPath) {
+export async function ensureDirectory(dirPath: string): Promise<string> {
   await fs.mkdir(dirPath, { recursive: true });
   return dirPath;
 }
@@ -361,14 +377,17 @@ export async function ensureDirectory(dirPath) {
 /**
  * Save metadata JSON file alongside image.
  *
- * @param {string} metadataPath - Path to save JSON metadata
- * @param {Object} metadata - Metadata object
- * @returns {Promise<string>} Path to saved metadata file
+ * @param metadataPath - Path to save JSON metadata
+ * @param metadata - Metadata object
+ * @returns Path to saved metadata file
  *
  * @example
  * await saveMetadata('output/image.json', { model: 'gemini', prompt: '...' });
  */
-export async function saveMetadata(metadataPath, metadata) {
+export async function saveMetadata(
+  metadataPath: string,
+  metadata: Record<string, unknown>
+): Promise<string> {
   const jsonContent = JSON.stringify(metadata, null, 2);
   await fs.writeFile(metadataPath, jsonContent, 'utf8');
   logger.debug(`Saved metadata to: ${metadataPath}`);
@@ -378,45 +397,46 @@ export async function saveMetadata(metadataPath, metadata) {
 /**
  * Pause execution for specified milliseconds.
  *
- * @param {number} ms - Milliseconds to pause
- * @returns {Promise<void>}
+ * @param ms - Milliseconds to pause
+ * @returns Promise that resolves after the delay
  *
  * @example
  * await pause(2000); // Wait 2 seconds
  */
-export function pause(ms) {
-  return new Promise(resolve => setTimeout(resolve, ms));
+export function pause(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 /**
  * Create a spinner for long-running operations.
  * Returns an object with start(), stop(), and update() methods.
  *
- * @param {string} message - Message to display with spinner
- * @returns {Object} Spinner object with start(), stop(), and update() methods
+ * @param message - Message to display with spinner
+ * @returns Spinner object with start(), stop(), and update() methods
  *
  * @example
  * const spinner = createSpinner('Generating image...');
  * spinner.start();
  * // ... do work ...
- * spinner.stop('✓ Complete!');
+ * spinner.stop('Complete!');
  */
-export function createSpinner(message) {
+export function createSpinner(message: string): SpinnerObject {
   const frames = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'];
   let frameIndex = 0;
-  let interval = null;
+  let interval: ReturnType<typeof setInterval> | null = null;
+  let currentMessage = message;
 
   return {
     start() {
       process.stdout.write('\n');
       interval = setInterval(() => {
         const frame = frames[frameIndex];
-        process.stdout.write(`\r${frame} ${message}`);
+        process.stdout.write(`\r${frame} ${currentMessage}`);
         frameIndex = (frameIndex + 1) % frames.length;
       }, 80);
     },
 
-    stop(finalMessage = null) {
+    stop(finalMessage: string | null = null) {
       if (interval) {
         clearInterval(interval);
         interval = null;
@@ -429,18 +449,18 @@ export function createSpinner(message) {
       }
     },
 
-    update(newMessage) {
-      message = newMessage;
-    }
+    update(newMessage: string) {
+      currentMessage = newMessage;
+    },
   };
 }
 
 /**
  * Set logger level.
  *
- * @param {string} level - Log level (debug, info, warn, error)
+ * @param level - Log level (debug, info, warn, error)
  */
-export function setLogLevel(level) {
+export function setLogLevel(level: string): void {
   logger.level = level.toLowerCase();
 }
 
@@ -454,32 +474,37 @@ export { logger };
  * Validate video file path.
  * Checks file exists, is readable, has valid video magic bytes using file-type library.
  *
- * @param {string} filepath - Path to video file
- * @returns {Promise<{valid: boolean, mimeType: string, size: number}>} Validation result
- * @throws {Error} If file doesn't exist, isn't readable, or isn't a valid video
+ * @param filepath - Path to video file
+ * @returns Validation result with mimeType and size
+ * @throws Error if file doesn't exist, isn't readable, or isn't a valid video
  *
  * @example
  * const result = await validateVideoPath('./video.mp4');
  * // { valid: true, mimeType: 'video/mp4', size: 15728640 }
  */
-export async function validateVideoPath(filepath) {
-  let stats;
+export async function validateVideoPath(filepath: string): Promise<VideoValidationResult> {
+  let stats: Awaited<ReturnType<typeof fs.stat>>;
 
   // Check file exists and get stats
   try {
     stats = await fs.stat(filepath);
   } catch (error) {
-    if (error.code === 'ENOENT') {
+    const err = error as NodeJS.ErrnoException;
+    if (err.code === 'ENOENT') {
       throw new Error(`Video file not found: ${filepath}. Please check the file path exists.`);
-    } else if (error.code === 'EACCES') {
-      throw new Error(`Permission denied reading video file: ${filepath}. Check file permissions.`);
+    } else if (err.code === 'EACCES') {
+      throw new Error(
+        `Permission denied reading video file: ${filepath}. Check file permissions.`
+      );
     }
     throw error;
   }
 
   // Check file is not empty
   if (stats.size === 0) {
-    throw new Error(`Video file is empty (0 bytes): ${filepath}. Please provide a valid video file.`);
+    throw new Error(
+      `Video file is empty (0 bytes): ${filepath}. Please provide a valid video file.`
+    );
   }
 
   // Check file size limit
@@ -488,7 +513,7 @@ export async function validateVideoPath(filepath) {
     const maxMB = (VIDEO_SIZE_LIMITS.MAX_FILE_SIZE / 1024 / 1024).toFixed(0);
     throw new Error(
       `Video file size (${sizeMB}MB) exceeds maximum of ${maxMB}MB. ` +
-      `Please compress or trim the video.`
+        `Please compress or trim the video.`
     );
   }
 
@@ -498,7 +523,7 @@ export async function validateVideoPath(filepath) {
   if (!fileTypeResult) {
     throw new Error(
       `Could not determine file type for: ${filepath}. ` +
-      `File may be corrupted or not a valid video format.`
+        `File may be corrupted or not a valid video format.`
     );
   }
 
@@ -506,22 +531,26 @@ export async function validateVideoPath(filepath) {
   if (!VIDEO_MIME_TYPES.includes(fileTypeResult.mime)) {
     throw new Error(
       `Invalid video format: ${fileTypeResult.mime}. ` +
-      `Supported formats: ${VIDEO_MIME_TYPES.join(', ')}`
+        `Supported formats: ${VIDEO_MIME_TYPES.join(', ')}`
     );
   }
 
   // Log warning if file is large
   if (stats.size > VIDEO_SIZE_LIMITS.RECOMMENDED_MAX) {
     const sizeMB = (stats.size / 1024 / 1024).toFixed(1);
-    logger.warn(`Video file size (${sizeMB}MB) exceeds recommended ${VIDEO_SIZE_LIMITS.RECOMMENDED_MAX / 1024 / 1024}MB. Processing may take longer.`);
+    logger.warn(
+      `Video file size (${sizeMB}MB) exceeds recommended ${VIDEO_SIZE_LIMITS.RECOMMENDED_MAX / 1024 / 1024}MB. Processing may take longer.`
+    );
   }
 
-  logger.debug(`Video file validated: ${filepath} (${fileTypeResult.mime}, ${(stats.size / 1024 / 1024).toFixed(1)}MB)`);
+  logger.debug(
+    `Video file validated: ${filepath} (${fileTypeResult.mime}, ${(stats.size / 1024 / 1024).toFixed(1)}MB)`
+  );
 
   return {
     valid: true,
     mimeType: fileTypeResult.mime,
-    size: stats.size
+    size: stats.size,
   };
 }
 
@@ -529,15 +558,15 @@ export async function validateVideoPath(filepath) {
  * Format time offset in seconds to API format.
  * Converts a number of seconds to the string format expected by Gemini API.
  *
- * @param {number} seconds - Number of seconds
- * @returns {string} Formatted time offset (e.g., "90s")
+ * @param seconds - Number of seconds
+ * @returns Formatted time offset (e.g., "90s")
  *
  * @example
  * formatTimeOffset(90);   // "90s"
  * formatTimeOffset(0);    // "0s"
  * formatTimeOffset(3600); // "3600s"
  */
-export function formatTimeOffset(seconds) {
+export function formatTimeOffset(seconds: number): string {
   if (typeof seconds !== 'number' || isNaN(seconds)) {
     throw new Error('formatTimeOffset requires a valid number');
   }
@@ -551,8 +580,8 @@ export function formatTimeOffset(seconds) {
  * Extract video metadata from Gemini API response.
  * Parses the response to extract analysis text and timestamp references.
  *
- * @param {Object} response - Gemini API response object
- * @returns {{text: string, frames: Array<{timestamp: string, description: string}>}}
+ * @param response - Gemini API response object
+ * @returns Object containing text and frames array
  *
  * @example
  * const metadata = extractVideoMetadata(response);
@@ -561,9 +590,9 @@ export function formatTimeOffset(seconds) {
  * //   frames: [{ timestamp: '01:30', description: 'a cat playing' }]
  * // }
  */
-export function extractVideoMetadata(response) {
+export function extractVideoMetadata(response: GeminiResponse): VideoAnalysisResult {
   let text = '';
-  const frames = [];
+  const frames: VideoFrame[] = [];
 
   // Handle empty or malformed responses
   if (!response?.candidates?.[0]?.content?.parts) {
@@ -581,7 +610,7 @@ export function extractVideoMetadata(response) {
   // Extract timestamp references using regex
   // Matches formats: 0:30, 01:30, 1:15:30, etc.
   const timestampRegex = /\b(\d{1,2}):(\d{2})(?::(\d{2}))?\b/g;
-  let match;
+  let match: RegExpExecArray | null;
 
   while ((match = timestampRegex.exec(text)) !== null) {
     const timestamp = match[0];
@@ -607,7 +636,7 @@ export function extractVideoMetadata(response) {
 
     frames.push({
       timestamp,
-      description: description.replace(/\s+/g, ' ').trim()
+      description: description.replace(/\s+/g, ' ').trim(),
     });
   }
 
@@ -622,15 +651,15 @@ export function extractVideoMetadata(response) {
  * Convert image file to Veo-compatible format.
  * Reads image file and returns object with imageBytes (base64) and mimeType.
  *
- * @param {string} imagePath - Path to image file (PNG, JPEG, WebP)
- * @returns {Promise<{imageBytes: string, mimeType: string}>} Veo-compatible image object
- * @throws {Error} If file doesn't exist or isn't a valid image
+ * @param imagePath - Path to image file (PNG, JPEG, WebP)
+ * @returns Veo-compatible image object
+ * @throws Error if file doesn't exist or isn't a valid image
  *
  * @example
  * const image = await imageToVeoInput('./photo.png');
  * // { imageBytes: 'iVBOR...', mimeType: 'image/png' }
  */
-export async function imageToVeoInput(imagePath) {
+export async function imageToVeoInput(imagePath: string): Promise<VeoImage> {
   // Validate file exists
   await validateImagePath(imagePath);
 
@@ -639,18 +668,17 @@ export async function imageToVeoInput(imagePath) {
 
   // Detect MIME type from extension
   const ext = path.extname(imagePath).toLowerCase();
-  const mimeMap = {
+  const mimeMap: Record<string, string> = {
     '.png': 'image/png',
     '.jpg': 'image/jpeg',
     '.jpeg': 'image/jpeg',
-    '.webp': 'image/webp'
+    '.webp': 'image/webp',
   };
 
   const mimeType = mimeMap[ext];
   if (!mimeType) {
     throw new Error(
-      `Unsupported image format: ${ext}. ` +
-      `Supported formats: PNG, JPEG, WebP`
+      `Unsupported image format: ${ext}. ` + `Supported formats: PNG, JPEG, WebP`
     );
   }
 
@@ -659,7 +687,7 @@ export async function imageToVeoInput(imagePath) {
 
   return {
     imageBytes,
-    mimeType
+    mimeType,
   };
 }
 
@@ -667,16 +695,20 @@ export async function imageToVeoInput(imagePath) {
  * Generate output path for Veo-generated video.
  * Creates path: datasets/google/veo/{model}/{timestamp}_{sanitized-prompt}.mp4
  *
- * @param {string} model - Veo model name
- * @param {string} prompt - Generation prompt
- * @param {string} [baseDir='datasets/google'] - Base output directory
- * @returns {string} Output file path
+ * @param model - Veo model name
+ * @param prompt - Generation prompt
+ * @param baseDir - Base output directory
+ * @returns Output file path
  *
  * @example
  * generateVeoOutputPath('veo-3.1-generate-preview', 'A cat playing');
  * // 'datasets/google/veo/veo-3.1-generate-preview/20250121_143022_a-cat-playing.mp4'
  */
-export function generateVeoOutputPath(model, prompt, baseDir = 'datasets/google') {
+export function generateVeoOutputPath(
+  model: string,
+  prompt: string,
+  baseDir = 'datasets/google'
+): string {
   // Clean model name for directory
   const modelDir = model.replace(/[^a-z0-9.-]/gi, '-');
 
@@ -689,14 +721,9 @@ export function generateVeoOutputPath(model, prompt, baseDir = 'datasets/google'
 /**
  * Save Veo generation metadata alongside video file.
  *
- * @param {string} videoPath - Path to the video file
- * @param {Object} metadata - Metadata to save
- * @param {string} metadata.operationName - Operation name/ID
- * @param {string} metadata.model - Veo model used
- * @param {string} metadata.mode - Generation mode (text-to-video, image-to-video, etc.)
- * @param {Object} metadata.parameters - Generation parameters
- * @param {string} [metadata.timestamp] - ISO timestamp (auto-generated if not provided)
- * @returns {Promise<string>} Path to saved metadata file
+ * @param videoPath - Path to the video file
+ * @param metadata - Metadata to save
+ * @returns Path to saved metadata file
  *
  * @example
  * await saveVeoMetadata('./output.mp4', {
@@ -706,10 +733,13 @@ export function generateVeoOutputPath(model, prompt, baseDir = 'datasets/google'
  *   parameters: { prompt: '...', aspectRatio: '16:9' }
  * });
  */
-export async function saveVeoMetadata(videoPath, metadata) {
+export async function saveVeoMetadata(
+  videoPath: string,
+  metadata: VeoMetadataInput
+): Promise<string> {
   const metadataPath = videoPath.replace(/\.mp4$/i, '.json');
 
-  const fullMetadata = {
+  const fullMetadata: VeoSavedMetadata = {
     operation_name: metadata.operationName,
     model: metadata.model,
     mode: metadata.mode,
@@ -717,11 +747,11 @@ export async function saveVeoMetadata(videoPath, metadata) {
     parameters: metadata.parameters,
     result: {
       video_path: videoPath,
-      status: 'completed'
-    }
+      status: 'completed',
+    },
   };
 
-  await saveMetadata(metadataPath, fullMetadata);
+  await saveMetadata(metadataPath, fullMetadata as unknown as Record<string, unknown>);
 
   return metadataPath;
 }
@@ -730,20 +760,20 @@ export async function saveVeoMetadata(videoPath, metadata) {
  * Create a progress spinner for Veo video generation.
  * Shows elapsed time and estimated remaining time.
  *
- * @param {string} initialMessage - Initial message to display
- * @returns {Object} Spinner with start(), stop(), updateElapsed() methods
+ * @param initialMessage - Initial message to display
+ * @returns Spinner with start(), stop(), updateElapsed() methods
  *
  * @example
  * const spinner = createVeoSpinner('Generating video...');
  * spinner.start();
  * // ... poll operation ...
  * spinner.updateElapsed(30000); // 30 seconds elapsed
- * spinner.stop('✓ Video generated!');
+ * spinner.stop('Video generated!');
  */
-export function createVeoSpinner(initialMessage) {
+export function createVeoSpinner(initialMessage: string): VeoSpinnerObject {
   const frames = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'];
   let frameIndex = 0;
-  let interval = null;
+  let interval: ReturnType<typeof setInterval> | null = null;
   let message = initialMessage;
   let elapsedMs = 0;
 
@@ -759,7 +789,7 @@ export function createVeoSpinner(initialMessage) {
       }, 80);
     },
 
-    stop(finalMessage = null) {
+    stop(finalMessage: string | null = null) {
       if (interval) {
         clearInterval(interval);
         interval = null;
@@ -772,13 +802,13 @@ export function createVeoSpinner(initialMessage) {
       }
     },
 
-    updateElapsed(ms) {
+    updateElapsed(ms: number) {
       elapsedMs = ms;
     },
 
-    updateMessage(newMessage) {
+    updateMessage(newMessage: string) {
       message = newMessage;
-    }
+    },
   };
 }
 
@@ -786,18 +816,18 @@ export function createVeoSpinner(initialMessage) {
  * Parse operation metadata from saved JSON file.
  * Used for video extension to load previous operation.
  *
- * @param {string} metadataPath - Path to metadata JSON file
- * @returns {Promise<Object>} Parsed metadata with operation details
- * @throws {Error} If file doesn't exist or is invalid
+ * @param metadataPath - Path to metadata JSON file
+ * @returns Parsed metadata with operation details
+ * @throws Error if file doesn't exist or is invalid
  *
  * @example
  * const metadata = await parseVeoMetadata('./previous-video.json');
  * // Use for video extension
  */
-export async function parseVeoMetadata(metadataPath) {
+export async function parseVeoMetadata(metadataPath: string): Promise<VeoSavedMetadata> {
   try {
     const content = await fs.readFile(metadataPath, 'utf8');
-    const metadata = JSON.parse(content);
+    const metadata = JSON.parse(content) as VeoSavedMetadata;
 
     if (!metadata.operation_name) {
       throw new Error('Invalid Veo metadata: missing operation_name');
@@ -805,7 +835,8 @@ export async function parseVeoMetadata(metadataPath) {
 
     return metadata;
   } catch (error) {
-    if (error.code === 'ENOENT') {
+    const err = error as NodeJS.ErrnoException;
+    if (err.code === 'ENOENT') {
       throw new Error(`Metadata file not found: ${metadataPath}`);
     }
     if (error instanceof SyntaxError) {
@@ -814,5 +845,3 @@ export async function parseVeoMetadata(metadataPath) {
     throw error;
   }
 }
-
-/* END */

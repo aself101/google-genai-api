@@ -4,6 +4,7 @@ export default defineConfig({
   test: {
     // Test environment
     environment: 'node',
+    pool: 'threads',
 
     // Coverage configuration
     coverage: {
@@ -13,16 +14,24 @@ export default defineConfig({
         'node_modules/**',
         'test/**',
         'datasets/**',
+        'docs/**',
+        '*.config.ts',
         '*.config.js',
-        'cli.js' // Exclude CLI from coverage (hard to test interactively)
+        'src/cli.ts', // Exclude CLI from coverage (hard to test interactively)
       ],
-      include: ['api.js', 'video-api.js', 'veo-api.js', 'utils.js', 'config.js'],
+      include: [
+        'src/api.ts',
+        'src/utils.ts',
+        'src/config.ts',
+        'src/video-api.ts',
+        'src/veo-api.ts',
+      ],
       thresholds: {
         lines: 70,
         functions: 70,
         branches: 70,
-        statements: 70
-      }
+        statements: 70,
+      },
     },
 
     // Test globals (allows using describe/it without imports)
@@ -35,13 +44,13 @@ export default defineConfig({
     testTimeout: 10000,
 
     // Include/exclude patterns
-    include: ['test/**/*.test.js'],
-    exclude: ['node_modules/**', 'datasets/**'],
+    include: ['test/**/*.test.ts'],
+    exclude: ['node_modules/**', 'datasets/**', 'docs/**'],
 
     // Watch mode settings
     watch: false,
 
     // Bail on first test failure in CI
-    bail: process.env.CI ? 1 : 0
-  }
+    bail: process.env.CI ? 1 : 0,
+  },
 });

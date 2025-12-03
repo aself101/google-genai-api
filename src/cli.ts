@@ -24,7 +24,12 @@
  */
 
 import { Command } from 'commander';
-import { GoogleGenAIAPI, extractGeminiParts, extractImagenImages, GoogleGenAIVideoAPI } from './api.js';
+import {
+  GoogleGenAIAPI,
+  extractGeminiParts,
+  extractImagenImages,
+  GoogleGenAIVideoAPI,
+} from './api.js';
 import { GoogleGenAIVeoAPI, VEO_MODELS, VEO_MODES } from './veo-api.js';
 import {
   getGoogleGenAIApiKey,
@@ -37,7 +42,6 @@ import {
   VIDEO_MIME_TYPES,
   VEO_ASPECT_RATIOS,
   VEO_RESOLUTIONS,
-  VEO_DURATIONS
 } from './config.js';
 import {
   saveBase64Image,
@@ -51,28 +55,69 @@ import {
   formatTimeOffset,
   extractVideoMetadata,
   imageToVeoInput,
-  generateVeoOutputPath,
   saveVeoMetadata,
-  createVeoSpinner
+  createVeoSpinner,
 } from './utils.js';
 import path from 'path';
 import fs from 'fs/promises';
 import { readFileSync } from 'fs';
 import { fileURLToPath } from 'url';
+import type {
+  GeminiPart,
+  VideoUploadResult,
+  VeoMode,
+  VeoOperation,
+  VeoModel,
+  VeoAspectRatio,
+  VeoResolution,
+  VeoPersonGeneration,
+  VeoGenerateParams,
+  VeoImageToVideoParams,
+} from './types/index.js';
 
 // Get __dirname equivalent for ES modules
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 // Read version from package.json dynamically
-const { version } = JSON.parse(
-  readFileSync(path.join(__dirname, 'package.json'), 'utf8')
-);
+// Navigate up from dist/ to get package.json in root
+const packageJsonPath = path.join(__dirname, '..', 'package.json');
+const { version } = JSON.parse(readFileSync(packageJsonPath, 'utf8')) as { version: string };
+
+/**
+ * CLI options interface.
+ */
+interface CliOptions {
+  gemini?: boolean;
+  gemini3Pro?: boolean;
+  imagen?: boolean;
+  video?: boolean;
+  veo?: boolean;
+  prompt?: string | string[];
+  inputImage?: string;
+  aspectRatio?: string;
+  numberOfImages?: string;
+  inputVideo?: string;
+  videoStart?: string;
+  videoEnd?: string;
+  veoModel?: string;
+  veoAspectRatio?: string;
+  veoResolution?: string;
+  veoDuration?: string;
+  veoNegativePrompt?: string;
+  veoImage?: string;
+  veoPersonGeneration?: string;
+  outputDir?: string;
+  apiKey?: string;
+  logLevel?: string;
+  examples?: boolean;
+  help?: boolean;
+}
 
 /**
  * Display usage examples.
  */
-function showExamples() {
+function showExamples(): void {
   console.log(`
 ${'='.repeat(70)}
 GOOGLE GENAI - USAGE EXAMPLES
@@ -207,10 +252,10 @@ SUPPORTED VIDEO FORMATS:
   ${VIDEO_MIME_TYPES.join(', ')}
 
 TIME OFFSET FORMATS:
-  • Seconds: "90s" or "90"
-  • Minutes+seconds: "1m30s"
-  • MM:SS: "1:30" or "01:30"
-  • HH:MM:SS: "1:15:30"
+  - Seconds: "90s" or "90"
+  - Minutes+seconds: "1m30s"
+  - MM:SS: "1:30" or "01:30"
+  - HH:MM:SS: "1:15:30"
 
 ASPECT RATIOS (Image): ${ASPECT_RATIOS.join(', ')}
 
@@ -245,24 +290,24 @@ VEO VIDEO GENERATION (Veo 3.1)
         --veo-negative-prompt "blurry, low quality, cartoon"
 
 VEO MODELS:
-  • veo-3.1-generate-preview (default) - Full quality, native audio
-  • veo-3.1-fast-generate-preview - Faster generation
-  • veo-3.0-generate-001 - Stable release
-  • veo-3.0-fast-generate-001 - Fast stable
-  • veo-2.0-generate-001 - Legacy (720p only, no audio)
+  - veo-3.1-generate-preview (default) - Full quality, native audio
+  - veo-3.1-fast-generate-preview - Faster generation
+  - veo-3.0-generate-001 - Stable release
+  - veo-3.0-fast-generate-001 - Fast stable
+  - veo-2.0-generate-001 - Legacy (720p only, no audio)
 
 VEO ASPECT RATIOS: ${VEO_ASPECT_RATIOS.join(', ')}
 VEO RESOLUTIONS: ${VEO_RESOLUTIONS.join(', ')} (1080p requires 8s duration)
 VEO DURATIONS: 4s, 6s, 8s (Veo 3.x) or 5s, 6s, 8s (Veo 2)
 
 FEATURES:
-  • All images include SynthID watermarking
-  • Gemini supports natural language editing without masks
-  • Imagen generates 1-4 images per request
-  • Both models support various aspect ratios
-  • Video understanding with Gemini 2.5 Flash
-  • Video clipping with start/end offsets
-  • Video generation with Veo (native audio in Veo 3.x)
+  - All images include SynthID watermarking
+  - Gemini supports natural language editing without masks
+  - Imagen generates 1-4 images per request
+  - Both models support various aspect ratios
+  - Video understanding with Gemini 2.5 Flash
+  - Video clipping with start/end offsets
+  - Video generation with Veo (native audio in Veo 3.x)
 ${'='.repeat(70)}
   `);
 }
@@ -287,7 +332,10 @@ program
 
 // Generation options
 program
-  .option('-p, --prompt <text...>', 'Generation prompt(s) (can specify multiple for batch processing)')
+  .option(
+    '-p, --prompt <text...>',
+    'Generation prompt(s) (can specify multiple for batch processing)'
+  )
   .option('-i, --input-image <path>', 'Input image for editing (Gemini only)')
   .option('-a, --aspect-ratio <ratio>', `Aspect ratio (${ASPECT_RATIOS.join(', ')})`, '1:1')
   .option('-n, --number-of-images <number>', 'Number of images to generate (Imagen only, 1-4)', '1');
@@ -301,12 +349,19 @@ program
 // Veo video generation options
 program
   .option('--veo-model <model>', 'Veo model to use', VEO_MODELS.VEO_3_1)
-  .option('--veo-aspect-ratio <ratio>', `Veo aspect ratio (${VEO_ASPECT_RATIOS.join(', ')})`, '16:9')
+  .option(
+    '--veo-aspect-ratio <ratio>',
+    `Veo aspect ratio (${VEO_ASPECT_RATIOS.join(', ')})`,
+    '16:9'
+  )
   .option('--veo-resolution <res>', `Veo resolution (${VEO_RESOLUTIONS.join(', ')})`, '720p')
   .option('--veo-duration <seconds>', 'Video duration in seconds (4, 5, 6, or 8)', '8')
   .option('--veo-negative-prompt <text>', 'What to avoid in the video')
   .option('--veo-image <path>', 'Image file to animate (image-to-video mode)')
-  .option('--veo-person-generation <value>', 'Person generation (allow_all, allow_adult, dont_allow)');
+  .option(
+    '--veo-person-generation <value>',
+    'Person generation (allow_all, allow_adult, dont_allow)'
+  );
 
 // General options
 program
@@ -318,7 +373,7 @@ program
 
 // Parse arguments
 program.parse(process.argv);
-const options = program.opts();
+const options = program.opts<CliOptions>();
 
 // Show examples if requested
 if (options.examples) {
@@ -339,18 +394,28 @@ if (!options.gemini && !options.gemini3Pro && !options.imagen && !options.video 
 }
 
 // Count modes selected
-const modesSelected = [options.gemini, options.gemini3Pro, options.imagen, options.video, options.veo].filter(Boolean).length;
+const modesSelected = [
+  options.gemini,
+  options.gemini3Pro,
+  options.imagen,
+  options.video,
+  options.veo,
+].filter(Boolean).length;
 
 // Ensure only one mode is selected
 if (modesSelected > 1) {
   if (options.video && (options.gemini || options.gemini3Pro || options.imagen || options.veo)) {
-    console.error('Error: --video cannot be used with --gemini, --gemini-3-pro, --imagen, or --veo.');
+    console.error(
+      'Error: --video cannot be used with --gemini, --gemini-3-pro, --imagen, or --veo.'
+    );
     console.error('Video analysis uses Gemini 2.5 Flash automatically.\n');
   } else if (options.veo && (options.gemini || options.gemini3Pro || options.imagen)) {
     console.error('Error: --veo cannot be used with --gemini, --gemini-3-pro, or --imagen.');
     console.error('Veo is for video generation. Use --gemini, --gemini-3-pro, or --imagen for images.\n');
   } else {
-    console.error('Error: Cannot use multiple model modes. Please choose one: --gemini, --gemini-3-pro, --imagen, --video, or --veo.\n');
+    console.error(
+      'Error: Cannot use multiple model modes. Please choose one: --gemini, --gemini-3-pro, --imagen, --video, or --veo.\n'
+    );
   }
   process.exit(1);
 }
@@ -359,7 +424,9 @@ if (modesSelected > 1) {
 if (options.video) {
   if (!options.inputVideo) {
     console.error('Error: --video requires --input-video <path>');
-    console.error('Example: google-genai --video --input-video ./video.mp4 --prompt "Describe this video"\n');
+    console.error(
+      'Example: google-genai --video --input-video ./video.mp4 --prompt "Describe this video"\n'
+    );
     process.exit(1);
   }
 }
@@ -374,23 +441,23 @@ if (!options.prompt || options.prompt.length === 0) {
  * Handle video analysis mode.
  * Uploads video once and processes all prompts.
  *
- * @param {string} apiKey - Google GenAI API key
- * @param {Array<string>} prompts - Array of analysis prompts
+ * @param apiKey - Google GenAI API key
+ * @param prompts - Array of analysis prompts
  */
-async function handleVideoMode(apiKey, prompts) {
+async function handleVideoMode(apiKey: string, prompts: string[]): Promise<void> {
   const videoApi = new GoogleGenAIVideoAPI(apiKey, options.logLevel);
-  const outputDir = path.join(options.outputDir, 'video-analysis');
+  const outputDir = path.join(options.outputDir || DEFAULT_OUTPUT_DIR, 'video-analysis');
   await ensureDirectory(outputDir);
 
-  let uploadedFile = null;
+  let uploadedFile: VideoUploadResult | null = null;
 
   try {
     // Validate video time offsets if provided
-    let videoMetadata = null;
+    let videoMetadata: { startOffset?: string; endOffset?: string } | null = null;
     if (options.videoStart || options.videoEnd) {
       const validation = validateVideoParams({
         startOffset: options.videoStart,
-        endOffset: options.videoEnd
+        endOffset: options.videoEnd,
       });
 
       videoMetadata = {};
@@ -411,8 +478,10 @@ async function handleVideoMode(apiKey, prompts) {
     uploadSpinner.start();
 
     try {
-      uploadedFile = await videoApi.uploadVideoFile(options.inputVideo);
-      uploadSpinner.stop(`✓ Video uploaded and processed (${(uploadedFile.sizeBytes / 1024 / 1024).toFixed(1)}MB)\n`);
+      uploadedFile = await videoApi.uploadVideoFile(options.inputVideo!);
+      uploadSpinner.stop(
+        `✓ Video uploaded and processed (${(uploadedFile.sizeBytes / 1024 / 1024).toFixed(1)}MB)\n`
+      );
     } catch (error) {
       uploadSpinner.stop('✗ Video upload failed\n');
       throw error;
@@ -427,7 +496,9 @@ async function handleVideoMode(apiKey, prompts) {
 
     for (let i = 0; i < prompts.length; i++) {
       const prompt = prompts[i];
-      console.log(`\nProcessing prompt ${i + 1}/${prompts.length}: "${prompt.substring(0, 50)}${prompt.length > 50 ? '...' : ''}"`);
+      console.log(
+        `\nProcessing prompt ${i + 1}/${prompts.length}: "${prompt.substring(0, 50)}${prompt.length > 50 ? '...' : ''}"`
+      );
 
       const analyzeSpinner = createSpinner('Analyzing video...');
       analyzeSpinner.start();
@@ -438,7 +509,7 @@ async function handleVideoMode(apiKey, prompts) {
           prompt,
           fileUri: uploadedFile.uri,
           mimeType: uploadedFile.mimeType,
-          videoMetadata
+          videoMetadata: videoMetadata || undefined,
         });
         analyzeSpinner.stop('✓ Analysis complete\n');
       } catch (error) {
@@ -458,7 +529,7 @@ async function handleVideoMode(apiKey, prompts) {
       const jsonPath = path.join(outputDir, jsonFilename);
 
       // Save analysis as markdown
-      const videoBasename = path.basename(options.inputVideo);
+      const videoBasename = path.basename(options.inputVideo!);
       const mdContent = `# Video Analysis
 
 ## Video
@@ -486,17 +557,17 @@ ${analysisText}
           mimeType: uploadedFile.mimeType,
           fileSize: uploadedFile.sizeBytes,
           uploadedUri: uploadedFile.uri,
-          ...(videoMetadata && { clipping: videoMetadata })
+          ...(videoMetadata && { clipping: videoMetadata }),
         },
         prompt,
         analysis: {
           text: analysisText,
-          frames
+          frames,
         },
         outputs: [
           { type: 'markdown', filename: mdFilename },
-          { type: 'metadata', filename: jsonFilename }
-        ]
+          { type: 'metadata', filename: jsonFilename },
+        ],
       };
 
       await saveMetadata(jsonPath, metadata);
@@ -508,7 +579,6 @@ ${analysisText}
     }
 
     console.log(`\n✓ All done! Processed ${prompts.length} prompt(s) for video analysis\n`);
-
   } finally {
     // ========================================================================
     // CLEANUP PHASE (BEST-EFFORT, AFTER ALL PROMPTS)
@@ -519,7 +589,8 @@ ${analysisText}
         await videoApi.deleteVideoFile(uploadedFile.uri);
         logger.debug('Deleted uploaded video file');
       } catch (error) {
-        logger.warn(`Failed to delete video file: ${error.message}`);
+        const err = error as Error;
+        logger.warn(`Failed to delete video file: ${err.message}`);
         // Best-effort cleanup - don't fail if deletion fails
       }
     }
@@ -529,14 +600,18 @@ ${analysisText}
 /**
  * Handle Veo video generation mode.
  *
- * @param {string} apiKey - Google GenAI API key
- * @param {Array<string>} prompts - Array of generation prompts
+ * @param apiKey - Google GenAI API key
+ * @param prompts - Array of generation prompts
  */
-async function handleVeoMode(apiKey, prompts) {
+async function handleVeoMode(apiKey: string, prompts: string[]): Promise<void> {
   const veoApi = new GoogleGenAIVeoAPI(apiKey, options.logLevel);
 
-  const model = options.veoModel;
-  const outputDir = path.join(options.outputDir, 'veo', model.replace(/[^a-z0-9.-]/gi, '-'));
+  const model = options.veoModel || VEO_MODELS.VEO_3_1;
+  const outputDir = path.join(
+    options.outputDir || DEFAULT_OUTPUT_DIR,
+    'veo',
+    model.replace(/[^a-z0-9.-]/gi, '-')
+  );
   await ensureDirectory(outputDir);
 
   logger.info(`Starting Veo video generation with ${model}`);
@@ -545,27 +620,29 @@ async function handleVeoMode(apiKey, prompts) {
   for (let i = 0; i < prompts.length; i++) {
     const prompt = prompts[i];
 
-    console.log(`\nProcessing prompt ${i + 1}/${prompts.length}: "${prompt.substring(0, 50)}${prompt.length > 50 ? '...' : ''}"`);
+    console.log(
+      `\nProcessing prompt ${i + 1}/${prompts.length}: "${prompt.substring(0, 50)}${prompt.length > 50 ? '...' : ''}"`
+    );
 
     // Build generation parameters
-    const params = {
+    const params: VeoGenerateParams = {
       prompt,
-      model,
-      aspectRatio: options.veoAspectRatio,
-      resolution: options.veoResolution,
-      durationSeconds: options.veoDuration
+      model: model as VeoModel,
+      aspectRatio: options.veoAspectRatio as VeoAspectRatio | undefined,
+      resolution: options.veoResolution as VeoResolution | undefined,
+      durationSeconds: options.veoDuration,
     };
 
     if (options.veoNegativePrompt) {
       params.negativePrompt = options.veoNegativePrompt;
     }
     if (options.veoPersonGeneration) {
-      params.personGeneration = options.veoPersonGeneration;
+      params.personGeneration = options.veoPersonGeneration as VeoPersonGeneration;
     }
 
     // Determine generation mode
-    let mode = VEO_MODES.TEXT_TO_VIDEO;
-    let operation;
+    let mode: VeoMode = VEO_MODES.TEXT_TO_VIDEO;
+    let operation: VeoOperation;
 
     // Image-to-video mode
     if (options.veoImage) {
@@ -573,22 +650,22 @@ async function handleVeoMode(apiKey, prompts) {
       logger.info(`Loading input image: ${options.veoImage}`);
 
       const image = await imageToVeoInput(options.veoImage);
-      params.image = image;
+      const imageParams: VeoImageToVideoParams = { ...params, image };
 
       // Pre-flight validation
-      validateVeoParams(model, params, mode);
+      validateVeoParams(model, imageParams, mode);
 
       const spinner = createVeoSpinner('Generating video from image...');
       spinner.start();
 
       try {
-        operation = await veoApi.generateFromImage(params);
+        operation = await veoApi.generateFromImage(imageParams);
         spinner.updateMessage('Video generation in progress...');
 
         operation = await veoApi.waitForCompletion(operation, {
-          onProgress: (op, elapsed) => {
+          onProgress: (_op, elapsed) => {
             spinner.updateElapsed(elapsed);
-          }
+          },
         });
 
         spinner.stop('✓ Video generated\n');
@@ -611,9 +688,9 @@ async function handleVeoMode(apiKey, prompts) {
         spinner.updateMessage('Video generation in progress...');
 
         operation = await veoApi.waitForCompletion(operation, {
-          onProgress: (op, elapsed) => {
+          onProgress: (_op, elapsed) => {
             spinner.updateElapsed(elapsed);
-          }
+          },
         });
 
         spinner.stop('✓ Video generated\n');
@@ -642,8 +719,8 @@ async function handleVeoMode(apiKey, prompts) {
         resolution: params.resolution,
         durationSeconds: params.durationSeconds,
         ...(params.negativePrompt && { negativePrompt: params.negativePrompt }),
-        ...(options.veoImage && { inputImage: options.veoImage })
-      }
+        ...(options.veoImage && { inputImage: options.veoImage }),
+      },
     });
     console.log(`✓ Saved metadata: ${metadataPath}`);
   }
@@ -654,16 +731,16 @@ async function handleVeoMode(apiKey, prompts) {
 /**
  * Main execution function.
  */
-async function main() {
+async function main(): Promise<void> {
   try {
     // Set log level
-    setLogLevel(options.logLevel);
+    setLogLevel(options.logLevel || 'info');
 
     // Get API key
-    const apiKey = getGoogleGenAIApiKey(options.apiKey);
+    const apiKey = getGoogleGenAIApiKey(options.apiKey || null);
 
     // Ensure prompts is always an array
-    const prompts = Array.isArray(options.prompt) ? options.prompt : [options.prompt];
+    const prompts = Array.isArray(options.prompt) ? options.prompt : [options.prompt!];
 
     // ========================================================================
     // VEO VIDEO GENERATION MODE
@@ -689,7 +766,7 @@ async function main() {
     const api = new GoogleGenAIAPI(apiKey, options.logLevel);
 
     // Determine model
-    let model;
+    let model: string;
     if (options.gemini3Pro) {
       model = MODELS.GEMINI_3_PRO;
     } else if (options.gemini) {
@@ -711,28 +788,29 @@ async function main() {
       const validationParams = {
         prompt,
         aspectRatio: options.aspectRatio,
-        numberOfImages: parseInt(options.numberOfImages),
-        inputImages: options.inputImage ? [options.inputImage] : []
+        numberOfImages: parseInt(options.numberOfImages || '1'),
+        inputImages: options.inputImage ? [{ mimeType: 'image/png', data: '' }] : [],
       };
 
       validateModelParams(model, validationParams);
 
       // Route to appropriate API method
-      let response;
-      let parts = [];
+      let parts: GeminiPart[] = [];
 
       if (model === MODELS.IMAGEN) {
         // Imagen generation
         logger.info(`Generating with Imagen (numberOfImages: ${options.numberOfImages})`);
 
-        const spinner = createSpinner(`Generating ${options.numberOfImages} image(s) with Imagen...`);
+        const spinner = createSpinner(
+          `Generating ${options.numberOfImages} image(s) with Imagen...`
+        );
         spinner.start();
 
         try {
-          response = await api.generateWithImagen({
+          const response = await api.generateWithImagen({
             prompt,
-            numberOfImages: parseInt(options.numberOfImages),
-            aspectRatio: options.aspectRatio
+            numberOfImages: parseInt(options.numberOfImages || '1'),
+            aspectRatio: options.aspectRatio as Parameters<typeof api.generateWithImagen>[0]['aspectRatio'],
           });
 
           spinner.stop('✓ Generation complete\n');
@@ -743,7 +821,6 @@ async function main() {
           spinner.stop('✗ Generation failed\n');
           throw error;
         }
-
       } else {
         // Gemini generation (gemini-2.5-flash-image or gemini-3-pro-image-preview)
         // Convert input images to inlineData format if provided
@@ -762,11 +839,11 @@ async function main() {
         spinner.start();
 
         try {
-          response = await api.generateWithGemini({
+          const response = await api.generateWithGemini({
             prompt,
             inputImages,
-            aspectRatio: options.aspectRatio,
-            model
+            aspectRatio: options.aspectRatio as Parameters<typeof api.generateWithGemini>[0]['aspectRatio'],
+            model: model as Parameters<typeof api.generateWithGemini>[0]['model'],
           });
 
           spinner.stop('✓ Generation complete\n');
@@ -780,8 +857,8 @@ async function main() {
       }
 
       // Save outputs
-      const outputDir = path.join(options.outputDir, modelDir);
-      await ensureDirectory(outputDir);
+      const outputDirPath = path.join(options.outputDir || DEFAULT_OUTPUT_DIR, modelDir);
+      await ensureDirectory(outputDirPath);
 
       let imageCount = 0;
 
@@ -792,23 +869,23 @@ async function main() {
           imageCount++;
 
           // Generate filename with unique suffix for multiple images
-          const totalImages = parts.filter(p => p.type === 'image').length;
-          let filename;
+          const totalImages = parts.filter((p) => p.type === 'image').length;
+          let filename: string;
           if (totalImages > 1) {
             // Multiple images: add index suffix to ensure unique filenames
             const baseFilename = generateFilename(prompt);
             const ext = baseFilename.split('.').pop();
-            const nameWithoutExt = baseFilename.slice(0, -(ext.length + 1));
+            const nameWithoutExt = baseFilename.slice(0, -(ext!.length + 1));
             filename = `${nameWithoutExt}_${imageCount}.${ext}`;
           } else {
             // Single image: no index
             filename = generateFilename(prompt);
           }
 
-          const imagePath = path.join(outputDir, filename);
+          const imagePath = path.join(outputDirPath, filename);
 
           // Save image
-          await saveBase64Image(part.data, imagePath, part.mimeType);
+          await saveBase64Image(part.data!, imagePath, part.mimeType);
 
           console.log(`✓ Saved image: ${imagePath}`);
         } else if (part.type === 'text') {
@@ -819,7 +896,7 @@ async function main() {
 
       // Save metadata
       const metadataFilename = generateFilename(prompt, 'json');
-      const metadataPath = path.join(outputDir, metadataFilename);
+      const metadataPath = path.join(outputDirPath, metadataFilename);
 
       const metadata = {
         model,
@@ -827,13 +904,13 @@ async function main() {
         prompt,
         parameters: {
           aspectRatio: options.aspectRatio,
-          ...(model === MODELS.IMAGEN && { numberOfImages: parseInt(options.numberOfImages) }),
-          ...(options.inputImage && { inputImage: options.inputImage })
+          ...(model === MODELS.IMAGEN && { numberOfImages: parseInt(options.numberOfImages || '1') }),
+          ...(options.inputImage && { inputImage: options.inputImage }),
         },
-        outputs: parts.map((p, idx) => ({
+        outputs: parts.map((p) => ({
           type: p.type,
-          ...(p.type === 'image' && { filename: generateFilename(p.content || prompt) })
-        }))
+          ...(p.type === 'image' && { filename: generateFilename(p.content || prompt) }),
+        })),
       };
 
       await saveMetadata(metadataPath, metadata);
@@ -842,10 +919,10 @@ async function main() {
     }
 
     console.log(`\n✓ All done! Processed ${prompts.length} prompt(s)\n`);
-
   } catch (error) {
-    console.error(`\n✗ Error: ${error.message}\n`);
-    logger.error(error.stack);
+    const err = error as Error;
+    console.error(`\n✗ Error: ${err.message}\n`);
+    logger.error(err.stack || err.message);
     process.exit(1);
   }
 }

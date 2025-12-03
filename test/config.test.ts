@@ -28,8 +28,9 @@ import {
   detectGeminiMode,
   parseTimeOffset,
   validateVideoParams,
-  validateVeoParams
-} from '../config.js';
+  validateVeoParams,
+} from '../src/config.js';
+import type { InlineData, VeoReferenceImage, VeoPersonGeneration, VeoMode } from '../src/types/index.js';
 
 describe('Configuration Constants', () => {
   describe('Models', () => {
@@ -99,9 +100,9 @@ describe('Configuration Constants', () => {
       expect(imagen).toBeDefined();
       expect(imagen.aspectRatios).toEqual(ASPECT_RATIOS);
       expect(imagen.promptMaxLength).toBe(10000);
-      expect(imagen.numberOfImages.min).toBe(1);
-      expect(imagen.numberOfImages.max).toBe(4);
-      expect(imagen.numberOfImages.default).toBe(1);
+      expect(imagen.numberOfImages!.min).toBe(1);
+      expect(imagen.numberOfImages!.max).toBe(4);
+      expect(imagen.numberOfImages!.default).toBe(1);
       expect(imagen.features.textToImage).toBe(true);
       expect(imagen.features.multipleImages).toBe(true);
       expect(imagen.responseFormat).toBe('generatedImages');
@@ -118,7 +119,7 @@ describe('Configuration Constants', () => {
 
 describe('API Key Functions', () => {
   // Save original environment
-  let originalEnv;
+  let originalEnv: string | undefined;
 
   beforeEach(() => {
     originalEnv = process.env.GOOGLE_GENAI_API_KEY;
@@ -178,13 +179,13 @@ describe('API Key Functions', () => {
     });
 
     it('should reject null or undefined', () => {
-      expect(validateApiKeyFormat(null)).toBe(false);
-      expect(validateApiKeyFormat(undefined)).toBe(false);
+      expect(validateApiKeyFormat(null as unknown as string)).toBe(false);
+      expect(validateApiKeyFormat(undefined as unknown as string)).toBe(false);
     });
 
     it('should reject non-string values', () => {
-      expect(validateApiKeyFormat(123)).toBe(false);
-      expect(validateApiKeyFormat({})).toBe(false);
+      expect(validateApiKeyFormat(123 as unknown as string)).toBe(false);
+      expect(validateApiKeyFormat({} as unknown as string)).toBe(false);
     });
   });
 
@@ -202,12 +203,12 @@ describe('API Key Functions', () => {
     });
 
     it('should handle null or undefined', () => {
-      expect(redactApiKey(null)).toBe('xxx...xxx');
-      expect(redactApiKey(undefined)).toBe('xxx...xxx');
+      expect(redactApiKey(null as unknown as string)).toBe('xxx...xxx');
+      expect(redactApiKey(undefined as unknown as string)).toBe('xxx...xxx');
     });
 
     it('should handle non-string values', () => {
-      expect(redactApiKey(123)).toBe('xxx...xxx');
+      expect(redactApiKey(123 as unknown as string)).toBe('xxx...xxx');
     });
   });
 });
@@ -216,114 +217,136 @@ describe('Validation Functions', () => {
   describe('validateModelParams', () => {
     describe('Common validation', () => {
       it('should throw error for unknown model', () => {
-        expect(() => validateModelParams('unknown-model', { prompt: 'test' }))
-          .toThrow('Unknown model');
+        expect(() => validateModelParams('unknown-model', { prompt: 'test' })).toThrow('Unknown model');
       });
 
       it('should throw error if prompt is missing', () => {
-        expect(() => validateModelParams(MODELS.GEMINI, {}))
-          .toThrow('Prompt is required');
+        expect(() => validateModelParams(MODELS.GEMINI, {})).toThrow('Prompt is required');
       });
 
       it('should throw error if prompt is not a string', () => {
-        expect(() => validateModelParams(MODELS.GEMINI, { prompt: 123 }))
-          .toThrow('Prompt is required and must be a string');
+        expect(() => validateModelParams(MODELS.GEMINI, { prompt: 123 as unknown as string })).toThrow(
+          'Prompt is required and must be a string'
+        );
       });
 
       it('should throw error if prompt exceeds max length', () => {
         const longPrompt = 'a'.repeat(10001);
-        expect(() => validateModelParams(MODELS.GEMINI, { prompt: longPrompt }))
-          .toThrow('Prompt exceeds maximum length');
+        expect(() => validateModelParams(MODELS.GEMINI, { prompt: longPrompt })).toThrow(
+          'Prompt exceeds maximum length'
+        );
       });
 
       it('should throw error for invalid aspect ratio', () => {
-        expect(() => validateModelParams(MODELS.GEMINI, {
-          prompt: 'test',
-          aspectRatio: '99:1'
-        })).toThrow('Invalid aspect ratio');
+        expect(() =>
+          validateModelParams(MODELS.GEMINI, {
+            prompt: 'test',
+            aspectRatio: '99:1',
+          })
+        ).toThrow('Invalid aspect ratio');
       });
 
       it('should accept valid aspect ratios', () => {
-        ASPECT_RATIOS.forEach(ratio => {
-          expect(() => validateModelParams(MODELS.GEMINI, {
-            prompt: 'test',
-            aspectRatio: ratio
-          })).not.toThrow();
+        ASPECT_RATIOS.forEach((ratio) => {
+          expect(() =>
+            validateModelParams(MODELS.GEMINI, {
+              prompt: 'test',
+              aspectRatio: ratio,
+            })
+          ).not.toThrow();
         });
       });
     });
 
     describe('Gemini-specific validation', () => {
       it('should accept valid Gemini parameters', () => {
-        expect(() => validateModelParams(MODELS.GEMINI, {
-          prompt: 'test',
-          aspectRatio: '16:9',
-          inputImages: []
-        })).not.toThrow();
+        expect(() =>
+          validateModelParams(MODELS.GEMINI, {
+            prompt: 'test',
+            aspectRatio: '16:9',
+            inputImages: [],
+          })
+        ).not.toThrow();
       });
 
       it('should accept one input image', () => {
-        expect(() => validateModelParams(MODELS.GEMINI, {
-          prompt: 'test',
-          inputImages: [{ mimeType: 'image/png', data: 'base64...' }]
-        })).not.toThrow();
+        expect(() =>
+          validateModelParams(MODELS.GEMINI, {
+            prompt: 'test',
+            inputImages: [{ mimeType: 'image/png', data: 'base64...' }],
+          })
+        ).not.toThrow();
       });
 
       it('should throw error for multiple input images', () => {
-        expect(() => validateModelParams(MODELS.GEMINI, {
-          prompt: 'test',
-          inputImages: [
-            { mimeType: 'image/png', data: 'base64...' },
-            { mimeType: 'image/png', data: 'base64...' }
-          ]
-        })).toThrow('Gemini supports maximum 1 input image');
+        expect(() =>
+          validateModelParams(MODELS.GEMINI, {
+            prompt: 'test',
+            inputImages: [
+              { mimeType: 'image/png', data: 'base64...' },
+              { mimeType: 'image/png', data: 'base64...' },
+            ],
+          })
+        ).toThrow('Gemini supports maximum 1 input image');
       });
 
       it('should throw error for numberOfImages > 1', () => {
-        expect(() => validateModelParams(MODELS.GEMINI, {
-          prompt: 'test',
-          numberOfImages: 4
-        })).toThrow('Gemini only generates one image per request');
+        expect(() =>
+          validateModelParams(MODELS.GEMINI, {
+            prompt: 'test',
+            numberOfImages: 4,
+          })
+        ).toThrow('Gemini only generates one image per request');
       });
     });
 
     describe('Imagen-specific validation', () => {
       it('should accept valid Imagen parameters', () => {
-        expect(() => validateModelParams(MODELS.IMAGEN, {
-          prompt: 'test',
-          numberOfImages: 4,
-          aspectRatio: '1:1'
-        })).not.toThrow();
+        expect(() =>
+          validateModelParams(MODELS.IMAGEN, {
+            prompt: 'test',
+            numberOfImages: 4,
+            aspectRatio: '1:1',
+          })
+        ).not.toThrow();
       });
 
       it('should accept numberOfImages from 1 to 4', () => {
-        [1, 2, 3, 4].forEach(num => {
-          expect(() => validateModelParams(MODELS.IMAGEN, {
-            prompt: 'test',
-            numberOfImages: num
-          })).not.toThrow();
+        [1, 2, 3, 4].forEach((num) => {
+          expect(() =>
+            validateModelParams(MODELS.IMAGEN, {
+              prompt: 'test',
+              numberOfImages: num,
+            })
+          ).not.toThrow();
         });
       });
 
       it('should throw error for numberOfImages < 1', () => {
-        expect(() => validateModelParams(MODELS.IMAGEN, {
-          prompt: 'test',
-          numberOfImages: 0
-        })).toThrow('numberOfImages must be between 1 and 4');
+        expect(() =>
+          validateModelParams(MODELS.IMAGEN, {
+            prompt: 'test',
+            numberOfImages: 0,
+          })
+        ).toThrow('numberOfImages must be between 1 and 4');
       });
 
       it('should throw error for numberOfImages > 4', () => {
-        expect(() => validateModelParams(MODELS.IMAGEN, {
-          prompt: 'test',
-          numberOfImages: 5
-        })).toThrow('numberOfImages must be between 1 and 4');
+        expect(() =>
+          validateModelParams(MODELS.IMAGEN, {
+            prompt: 'test',
+            numberOfImages: 5,
+          })
+        ).toThrow('numberOfImages must be between 1 and 4');
       });
 
       it('should throw error if input images provided', () => {
-        expect(() => validateModelParams(MODELS.IMAGEN, {
-          prompt: 'test',
-          inputImages: [{ mimeType: 'image/png', data: 'base64...' }]
-        })).toThrow('Imagen does not support input images');
+        expect(() =>
+          validateModelParams(MODELS.IMAGEN, {
+            prompt: 'test',
+            inputImages: [{ mimeType: 'image/png', data: 'base64...' }],
+          })
+        ).toThrow('Imagen does not support input images');
       });
     });
   });
@@ -340,10 +363,12 @@ describe('Validation Functions', () => {
     });
 
     it('should throw error for multiple input images', () => {
-      expect(() => detectGeminiMode([
-        { mimeType: 'image/png', data: 'base64...' },
-        { mimeType: 'image/png', data: 'base64...' }
-      ])).toThrow('Gemini supports maximum 1 input image');
+      expect(() =>
+        detectGeminiMode([
+          { mimeType: 'image/png', data: 'base64...' },
+          { mimeType: 'image/png', data: 'base64...' },
+        ])
+      ).toThrow('Gemini supports maximum 1 input image');
     });
   });
 });
@@ -364,7 +389,7 @@ describe('Video Configuration Constants', () => {
 
     it('should be an array of strings', () => {
       expect(Array.isArray(VIDEO_MIME_TYPES)).toBe(true);
-      VIDEO_MIME_TYPES.forEach(type => {
+      VIDEO_MIME_TYPES.forEach((type) => {
         expect(typeof type).toBe('string');
         expect(type.startsWith('video/')).toBe(true);
       });
@@ -417,12 +442,12 @@ describe('Video Configuration Constants', () => {
 
     it('should support video clipping', () => {
       const geminiVideo = MODEL_CONSTRAINTS['gemini-2.5-flash'];
-      expect(geminiVideo.video.supportsClipping).toBe(true);
+      expect(geminiVideo.video!.supportsClipping).toBe(true);
     });
 
     it('should have correct file size limits', () => {
       const geminiVideo = MODEL_CONSTRAINTS['gemini-2.5-flash'];
-      expect(geminiVideo.video.maxFileSize).toBe(VIDEO_SIZE_LIMITS.MAX_FILE_SIZE);
+      expect(geminiVideo.video!.maxFileSize).toBe(VIDEO_SIZE_LIMITS.MAX_FILE_SIZE);
     });
   });
 });
@@ -522,11 +547,11 @@ describe('parseTimeOffset', () => {
 
   describe('Error handling', () => {
     it('should throw error for null', () => {
-      expect(() => parseTimeOffset(null)).toThrow('Time offset is required');
+      expect(() => parseTimeOffset(null as unknown as string)).toThrow('Time offset is required');
     });
 
     it('should throw error for undefined', () => {
-      expect(() => parseTimeOffset(undefined)).toThrow('Time offset is required');
+      expect(() => parseTimeOffset(undefined as unknown as string)).toThrow('Time offset is required');
     });
 
     it('should throw error for empty string', () => {
@@ -571,7 +596,7 @@ describe('validateVideoParams', () => {
     it('should accept valid start and end offsets', () => {
       const result = validateVideoParams({
         startOffset: '30s',
-        endOffset: '60s'
+        endOffset: '60s',
       });
       expect(result).toEqual({ startSeconds: 30, endSeconds: 60 });
     });
@@ -579,7 +604,7 @@ describe('validateVideoParams', () => {
     it('should accept various time formats', () => {
       const result = validateVideoParams({
         startOffset: '1:30',
-        endOffset: '2m0s'
+        endOffset: '2m0s',
       });
       expect(result).toEqual({ startSeconds: 90, endSeconds: 120 });
     });
@@ -587,36 +612,40 @@ describe('validateVideoParams', () => {
 
   describe('Offset validation', () => {
     it('should reject endOffset <= startOffset', () => {
-      expect(() => validateVideoParams({
-        startOffset: '60s',
-        endOffset: '30s'
-      })).toThrow('must be greater than start offset');
+      expect(() =>
+        validateVideoParams({
+          startOffset: '60s',
+          endOffset: '30s',
+        })
+      ).toThrow('must be greater than start offset');
     });
 
     it('should reject endOffset = startOffset', () => {
-      expect(() => validateVideoParams({
-        startOffset: '60s',
-        endOffset: '60s'
-      })).toThrow('must be greater than start offset');
+      expect(() =>
+        validateVideoParams({
+          startOffset: '60s',
+          endOffset: '60s',
+        })
+      ).toThrow('must be greater than start offset');
     });
 
     it('should include offset values in error message', () => {
-      expect(() => validateVideoParams({
-        startOffset: '60s',
-        endOffset: '30s'
-      })).toThrow('End offset (30s = 30s) must be greater than start offset (60s = 60s)');
+      expect(() =>
+        validateVideoParams({
+          startOffset: '60s',
+          endOffset: '30s',
+        })
+      ).toThrow('End offset (30s = 30s) must be greater than start offset (60s = 60s)');
     });
   });
 
   describe('Invalid offset formats', () => {
     it('should throw error for invalid startOffset format', () => {
-      expect(() => validateVideoParams({ startOffset: 'abc' }))
-        .toThrow('Invalid time offset format');
+      expect(() => validateVideoParams({ startOffset: 'abc' })).toThrow('Invalid time offset format');
     });
 
     it('should throw error for invalid endOffset format', () => {
-      expect(() => validateVideoParams({ endOffset: 'xyz' }))
-        .toThrow('Invalid time offset format');
+      expect(() => validateVideoParams({ endOffset: 'xyz' })).toThrow('Invalid time offset format');
     });
   });
 });
@@ -731,15 +760,13 @@ describe('validateVeoParams', () => {
     });
 
     it('should throw for unknown model', () => {
-      expect(() => validateVeoParams('unknown-model', { prompt: 'test' }))
-        .toThrow('Unknown Veo model');
+      expect(() => validateVeoParams('unknown-model', { prompt: 'test' })).toThrow('Unknown Veo model');
     });
   });
 
   describe('Prompt validation', () => {
     it('should require prompt for text-to-video', () => {
-      expect(() => validateVeoParams(VEO_MODELS.VEO_3_1, {}))
-        .toThrow('Prompt is required');
+      expect(() => validateVeoParams(VEO_MODELS.VEO_3_1, {})).toThrow('Prompt is required');
     });
 
     it('should accept valid prompt', () => {
@@ -754,25 +781,30 @@ describe('validateVeoParams', () => {
     });
 
     it('should reject invalid aspect ratio', () => {
-      expect(() => validateVeoParams(VEO_MODELS.VEO_3_1, { prompt: 'test', aspectRatio: '4:3' }))
-        .toThrow('Invalid aspect ratio');
+      expect(() => validateVeoParams(VEO_MODELS.VEO_3_1, { prompt: 'test', aspectRatio: '4:3' })).toThrow(
+        'Invalid aspect ratio'
+      );
     });
   });
 
   describe('Resolution validation', () => {
     it('should accept valid resolutions', () => {
       expect(validateVeoParams(VEO_MODELS.VEO_3_1, { prompt: 'test', resolution: '720p' })).toBe(true);
-      expect(validateVeoParams(VEO_MODELS.VEO_3_1, { prompt: 'test', resolution: '1080p', durationSeconds: '8' })).toBe(true);
+      expect(
+        validateVeoParams(VEO_MODELS.VEO_3_1, { prompt: 'test', resolution: '1080p', durationSeconds: '8' })
+      ).toBe(true);
     });
 
     it('should reject invalid resolution', () => {
-      expect(() => validateVeoParams(VEO_MODELS.VEO_3_1, { prompt: 'test', resolution: '4K' }))
-        .toThrow('Invalid resolution');
+      expect(() => validateVeoParams(VEO_MODELS.VEO_3_1, { prompt: 'test', resolution: '4K' })).toThrow(
+        'Invalid resolution'
+      );
     });
 
     it('should reject 1080p for Veo 2', () => {
-      expect(() => validateVeoParams(VEO_MODELS.VEO_2, { prompt: 'test', resolution: '1080p' }))
-        .toThrow('Invalid resolution');
+      expect(() => validateVeoParams(VEO_MODELS.VEO_2, { prompt: 'test', resolution: '1080p' })).toThrow(
+        'Invalid resolution'
+      );
     });
   });
 
@@ -788,69 +820,95 @@ describe('validateVeoParams', () => {
     });
 
     it('should reject invalid duration', () => {
-      expect(() => validateVeoParams(VEO_MODELS.VEO_3_1, { prompt: 'test', durationSeconds: '10' }))
-        .toThrow('Invalid duration');
+      expect(() => validateVeoParams(VEO_MODELS.VEO_3_1, { prompt: 'test', durationSeconds: '10' })).toThrow(
+        'Invalid duration'
+      );
     });
   });
 
   describe('1080p constraints', () => {
     it('should require 8s duration for 1080p on Veo 3.1', () => {
-      expect(() => validateVeoParams(VEO_MODELS.VEO_3_1, { prompt: 'test', resolution: '1080p', durationSeconds: '4' }))
-        .toThrow('1080p resolution requires 8-second duration');
+      expect(() =>
+        validateVeoParams(VEO_MODELS.VEO_3_1, { prompt: 'test', resolution: '1080p', durationSeconds: '4' })
+      ).toThrow('1080p resolution requires 8-second duration');
     });
 
     it('should require 16:9 for 1080p on Veo 3', () => {
-      expect(() => validateVeoParams(VEO_MODELS.VEO_3, { prompt: 'test', resolution: '1080p', durationSeconds: '8', aspectRatio: '9:16' }))
-        .toThrow('1080p resolution requires 16:9 aspect ratio');
+      expect(() =>
+        validateVeoParams(VEO_MODELS.VEO_3, {
+          prompt: 'test',
+          resolution: '1080p',
+          durationSeconds: '8',
+          aspectRatio: '9:16',
+        })
+      ).toThrow('1080p resolution requires 16:9 aspect ratio');
     });
   });
 
   describe('Mode-specific validation', () => {
     it('should reject reference images for Veo 2', () => {
-      const refs = [{ image: { imageBytes: 'data', mimeType: 'image/png' }, referenceType: 'asset' }];
-      expect(() => validateVeoParams(VEO_MODELS.VEO_2, { prompt: 'test', referenceImages: refs }, VEO_MODES.REFERENCE_IMAGES))
-        .toThrow('reference-images mode is not supported');
+      const refs: VeoReferenceImage[] = [
+        { image: { imageBytes: 'data', mimeType: 'image/png' }, referenceType: 'asset' },
+      ];
+      expect(() =>
+        validateVeoParams(VEO_MODELS.VEO_2, { prompt: 'test', referenceImages: refs }, VEO_MODES.REFERENCE_IMAGES as VeoMode)
+      ).toThrow('reference-images mode is not supported');
     });
 
     it('should reject interpolation for Veo 3', () => {
-      expect(() => validateVeoParams(VEO_MODELS.VEO_3, { prompt: 'test', firstFrame: {}, lastFrame: {} }, VEO_MODES.INTERPOLATION))
-        .toThrow('interpolation mode is not supported');
+      expect(() =>
+        validateVeoParams(
+          VEO_MODELS.VEO_3,
+          { prompt: 'test', firstFrame: {}, lastFrame: {} },
+          VEO_MODES.INTERPOLATION as VeoMode
+        )
+      ).toThrow('interpolation mode is not supported');
     });
 
     it('should reject extension for Veo 2', () => {
-      expect(() => validateVeoParams(VEO_MODELS.VEO_2, { prompt: 'test', video: {} }, VEO_MODES.EXTENSION))
-        .toThrow('extension mode is not supported');
+      expect(() =>
+        validateVeoParams(VEO_MODELS.VEO_2, { prompt: 'test', video: {} }, VEO_MODES.EXTENSION as VeoMode)
+      ).toThrow('extension mode is not supported');
     });
   });
 
   describe('Reference images validation', () => {
     it('should reject more than 3 reference images', () => {
-      const refs = [
-        { image: {}, referenceType: 'asset' },
-        { image: {}, referenceType: 'asset' },
-        { image: {}, referenceType: 'asset' },
-        { image: {}, referenceType: 'asset' }
+      const refs: VeoReferenceImage[] = [
+        { image: { imageBytes: '', mimeType: '' }, referenceType: 'asset' },
+        { image: { imageBytes: '', mimeType: '' }, referenceType: 'asset' },
+        { image: { imageBytes: '', mimeType: '' }, referenceType: 'asset' },
+        { image: { imageBytes: '', mimeType: '' }, referenceType: 'asset' },
       ];
-      expect(() => validateVeoParams(VEO_MODELS.VEO_3_1, { prompt: 'test', referenceImages: refs }, VEO_MODES.REFERENCE_IMAGES))
-        .toThrow('Maximum 3 reference images');
+      expect(() =>
+        validateVeoParams(VEO_MODELS.VEO_3_1, { prompt: 'test', referenceImages: refs }, VEO_MODES.REFERENCE_IMAGES as VeoMode)
+      ).toThrow('Maximum 3 reference images');
     });
 
     it('should reject empty reference images array', () => {
-      expect(() => validateVeoParams(VEO_MODELS.VEO_3_1, { prompt: 'test', referenceImages: [] }, VEO_MODES.REFERENCE_IMAGES))
-        .toThrow('At least one reference image');
+      expect(() =>
+        validateVeoParams(VEO_MODELS.VEO_3_1, { prompt: 'test', referenceImages: [] }, VEO_MODES.REFERENCE_IMAGES as VeoMode)
+      ).toThrow('At least one reference image');
     });
   });
 
   describe('Person generation validation', () => {
     it('should accept valid person generation values', () => {
-      expect(validateVeoParams(VEO_MODELS.VEO_3_1, { prompt: 'test', personGeneration: 'allow_all' })).toBe(true);
-      expect(validateVeoParams(VEO_MODELS.VEO_3_1, { prompt: 'test', personGeneration: 'allow_adult' })).toBe(true);
-      expect(validateVeoParams(VEO_MODELS.VEO_3_1, { prompt: 'test', personGeneration: 'dont_allow' })).toBe(true);
+      expect(
+        validateVeoParams(VEO_MODELS.VEO_3_1, { prompt: 'test', personGeneration: 'allow_all' as VeoPersonGeneration })
+      ).toBe(true);
+      expect(
+        validateVeoParams(VEO_MODELS.VEO_3_1, { prompt: 'test', personGeneration: 'allow_adult' as VeoPersonGeneration })
+      ).toBe(true);
+      expect(
+        validateVeoParams(VEO_MODELS.VEO_3_1, { prompt: 'test', personGeneration: 'dont_allow' as VeoPersonGeneration })
+      ).toBe(true);
     });
 
     it('should reject invalid person generation value', () => {
-      expect(() => validateVeoParams(VEO_MODELS.VEO_3_1, { prompt: 'test', personGeneration: 'invalid' }))
-        .toThrow('Invalid personGeneration value');
+      expect(() =>
+        validateVeoParams(VEO_MODELS.VEO_3_1, { prompt: 'test', personGeneration: 'invalid' as VeoPersonGeneration })
+      ).toThrow('Invalid personGeneration value');
     });
   });
 });

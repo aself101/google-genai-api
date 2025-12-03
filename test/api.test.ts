@@ -3,9 +3,10 @@
  * Tests for GoogleGenAIAPI class and its methods
  */
 
-import { describe, it, expect, beforeEach, vi } from 'vitest';
-import { GoogleGenAIAPI, extractGeminiParts, extractImagenImages } from '../api.js';
-import { MODELS } from '../config.js';
+import { describe, it, expect, beforeEach, vi, type Mock } from 'vitest';
+import { GoogleGenAIAPI, extractGeminiParts, extractImagenImages } from '../src/api.js';
+import { MODELS } from '../src/config.js';
+import type { GeminiResponse, ImagenResponse, InlineData } from '../src/types/index.js';
 
 // Mock the @google/genai SDK
 vi.mock('@google/genai', () => {
@@ -14,23 +15,37 @@ vi.mock('@google/genai', () => {
       return {
         models: {
           generateContent: vi.fn(),
-          generateImages: vi.fn()
-        }
+          generateImages: vi.fn(),
+        },
       };
-    })
+    }),
   };
 });
 
+// Interface for the mocked API with public access to private members
+interface MockedGoogleGenAIAPI extends GoogleGenAIAPI {
+  apiKey: string | null;
+  client: {
+    models: {
+      generateContent: Mock;
+      generateImages: Mock;
+    };
+  };
+  logger: { level: string; info: () => void; error: () => void };
+  _verifyApiKey: () => void;
+  _buildGeminiContents: (prompt: string, inputImages: InlineData[]) => string | Array<{ text: string } | { inlineData: InlineData }>;
+}
+
 describe('GoogleGenAIAPI Class', () => {
-  let api;
-  let mockClient;
+  let api: MockedGoogleGenAIAPI;
+  let mockClient: MockedGoogleGenAIAPI['client'];
 
   beforeEach(() => {
     // Clear all mocks before each test
     vi.clearAllMocks();
 
     // Create API instance
-    api = new GoogleGenAIAPI('AIzaSyTest1234567890123456789012345678');
+    api = new GoogleGenAIAPI('AIzaSyTest1234567890123456789012345678') as MockedGoogleGenAIAPI;
 
     // Get reference to mocked client
     mockClient = api.client;
@@ -48,19 +63,19 @@ describe('GoogleGenAIAPI Class', () => {
     });
 
     it('should throw error without API key', () => {
-      expect(() => new GoogleGenAIAPI()).toThrow('API key is required');
+      expect(() => new GoogleGenAIAPI(undefined as unknown as string)).toThrow('API key is required');
       expect(() => new GoogleGenAIAPI('')).toThrow('API key is required');
-      expect(() => new GoogleGenAIAPI(null)).toThrow('API key is required');
+      expect(() => new GoogleGenAIAPI(null as unknown as string)).toThrow('API key is required');
     });
 
     it('should set default log level to info', () => {
-      const defaultApi = new GoogleGenAIAPI('AIzaSyTest1234567890123456789012345678');
+      const defaultApi = new GoogleGenAIAPI('AIzaSyTest1234567890123456789012345678') as MockedGoogleGenAIAPI;
       expect(defaultApi.logger).toBeDefined();
       expect(defaultApi.logger.level).toBe('info');
     });
 
     it('should accept custom log level', () => {
-      const debugApi = new GoogleGenAIAPI('AIzaSyTest1234567890123456789012345678', 'debug');
+      const debugApi = new GoogleGenAIAPI('AIzaSyTest1234567890123456789012345678', 'debug') as MockedGoogleGenAIAPI;
       expect(debugApi.logger.level).toBe('debug');
     });
 
@@ -90,21 +105,19 @@ describe('GoogleGenAIAPI Class', () => {
     });
 
     it('should return parts array for image-to-image (with input images)', () => {
-      const inputImages = [
-        { mimeType: 'image/png', data: 'base64data...' }
-      ];
+      const inputImages: InlineData[] = [{ mimeType: 'image/png', data: 'base64data...' }];
       const result = api._buildGeminiContents('Edit this image', inputImages);
 
       expect(Array.isArray(result)).toBe(true);
       expect(result).toHaveLength(2);
-      expect(result[0]).toEqual({ text: 'Edit this image' });
-      expect(result[1]).toEqual({ inlineData: { mimeType: 'image/png', data: 'base64data...' } });
+      expect((result as Array<{ text: string } | { inlineData: InlineData }>)[0]).toEqual({ text: 'Edit this image' });
+      expect((result as Array<{ text: string } | { inlineData: InlineData }>)[1]).toEqual({
+        inlineData: { mimeType: 'image/png', data: 'base64data...' },
+      });
     });
 
     it('should handle multiple input images in parts array', () => {
-      const inputImages = [
-        { mimeType: 'image/png', data: 'base64data1' }
-      ];
+      const inputImages: InlineData[] = [{ mimeType: 'image/png', data: 'base64data1' }];
       const result = api._buildGeminiContents('Combine these', inputImages);
 
       expect(Array.isArray(result)).toBe(true);
@@ -115,69 +128,64 @@ describe('GoogleGenAIAPI Class', () => {
   describe('generateWithGemini', () => {
     it('should call SDK with correct parameters for text-to-image', async () => {
       // Mock successful response with correct structure
-      const mockResponse = {
-        candidates: [{
-          content: {
-            parts: [
-              { inlineData: { mimeType: 'image/png', data: 'base64imagedata' } }
-            ]
-          }
-        }]
+      const mockResponse: GeminiResponse = {
+        candidates: [
+          {
+            content: {
+              parts: [{ inlineData: { mimeType: 'image/png', data: 'base64imagedata' } }],
+            },
+          },
+        ],
       };
       mockClient.models.generateContent.mockResolvedValue(mockResponse);
 
       const result = await api.generateWithGemini({
         prompt: 'A serene mountain landscape',
-        aspectRatio: '16:9'
+        aspectRatio: '16:9',
       });
 
       expect(mockClient.models.generateContent).toHaveBeenCalledWith({
         model: MODELS.GEMINI,
         contents: 'A serene mountain landscape',
-        config: { aspectRatio: '16:9' }
+        config: { aspectRatio: '16:9' },
       });
       expect(result).toEqual(mockResponse);
     });
 
     it('should call SDK with parts array for image-to-image', async () => {
-      const mockResponse = {
-        candidates: [{
-          content: {
-            parts: [
-              { inlineData: { mimeType: 'image/png', data: 'base64edited' } }
-            ]
-          }
-        }]
+      const mockResponse: GeminiResponse = {
+        candidates: [
+          {
+            content: {
+              parts: [{ inlineData: { mimeType: 'image/png', data: 'base64edited' } }],
+            },
+          },
+        ],
       };
       mockClient.models.generateContent.mockResolvedValue(mockResponse);
 
-      const inputImages = [
-        { mimeType: 'image/jpeg', data: 'inputbase64' }
-      ];
+      const inputImages: InlineData[] = [{ mimeType: 'image/jpeg', data: 'inputbase64' }];
 
       const result = await api.generateWithGemini({
         prompt: 'Make it sunset',
         inputImages,
-        aspectRatio: '1:1'
+        aspectRatio: '1:1',
       });
 
       expect(mockClient.models.generateContent).toHaveBeenCalledWith({
         model: MODELS.GEMINI,
-        contents: [
-          { text: 'Make it sunset' },
-          { inlineData: { mimeType: 'image/jpeg', data: 'inputbase64' } }
-        ],
-        config: { aspectRatio: '1:1' }
+        contents: [{ text: 'Make it sunset' }, { inlineData: { mimeType: 'image/jpeg', data: 'inputbase64' } }],
+        config: { aspectRatio: '1:1' },
       });
       expect(result).toEqual(mockResponse);
     });
 
     it('should use default aspect ratio if not provided', async () => {
-      const mockResponse = { candidates: [{ content: { parts: [] } }] };
+      const mockResponse: GeminiResponse = { candidates: [{ content: { parts: [] } }] };
       mockClient.models.generateContent.mockResolvedValue(mockResponse);
 
       await api.generateWithGemini({
-        prompt: 'Test prompt'
+        prompt: 'Test prompt',
       });
 
       expect(mockClient.models.generateContent).toHaveBeenCalled();
@@ -186,18 +194,14 @@ describe('GoogleGenAIAPI Class', () => {
     it('should throw error if API key not set', async () => {
       api.apiKey = null;
 
-      await expect(
-        api.generateWithGemini({ prompt: 'Test' })
-      ).rejects.toThrow('API key not set');
+      await expect(api.generateWithGemini({ prompt: 'Test' })).rejects.toThrow('API key not set');
     });
 
     it('should handle SDK errors', async () => {
       const sdkError = new Error('SDK API error');
       mockClient.models.generateContent.mockRejectedValue(sdkError);
 
-      await expect(
-        api.generateWithGemini({ prompt: 'Test' })
-      ).rejects.toThrow('SDK API error');
+      await expect(api.generateWithGemini({ prompt: 'Test' })).rejects.toThrow('SDK API error');
     });
 
     it('should sanitize errors in production mode', async () => {
@@ -207,82 +211,78 @@ describe('GoogleGenAIAPI Class', () => {
       const sdkError = new Error('Internal SDK details');
       mockClient.models.generateContent.mockRejectedValue(sdkError);
 
-      await expect(
-        api.generateWithGemini({ prompt: 'Test' })
-      ).rejects.toThrow('Image generation failed');
+      await expect(api.generateWithGemini({ prompt: 'Test' })).rejects.toThrow('Image generation failed');
 
       process.env.NODE_ENV = originalEnv;
     });
 
     it('should detect mode automatically based on input images', async () => {
-      const mockResponse = { candidates: [{ content: { parts: [] } }] };
+      const mockResponse: GeminiResponse = { candidates: [{ content: { parts: [] } }] };
       mockClient.models.generateContent.mockResolvedValue(mockResponse);
 
       // Text-to-image (no images)
       await api.generateWithGemini({ prompt: 'Test', inputImages: [] });
 
       // Image-to-image (one image)
-      const inputImages = [{ mimeType: 'image/png', data: 'data' }];
+      const inputImages: InlineData[] = [{ mimeType: 'image/png', data: 'data' }];
       await api.generateWithGemini({ prompt: 'Edit', inputImages });
 
       expect(mockClient.models.generateContent).toHaveBeenCalledTimes(2);
     });
 
     it('should use custom model when provided', async () => {
-      const mockResponse = {
-        candidates: [{
-          content: {
-            parts: [
-              { inlineData: { mimeType: 'image/png', data: 'base64imagedata' } }
-            ]
-          }
-        }]
+      const mockResponse: GeminiResponse = {
+        candidates: [
+          {
+            content: {
+              parts: [{ inlineData: { mimeType: 'image/png', data: 'base64imagedata' } }],
+            },
+          },
+        ],
       };
       mockClient.models.generateContent.mockResolvedValue(mockResponse);
 
       await api.generateWithGemini({
         prompt: 'A futuristic cityscape',
         aspectRatio: '16:9',
-        model: MODELS.GEMINI_3_PRO
+        model: MODELS.GEMINI_3_PRO,
       });
 
       expect(mockClient.models.generateContent).toHaveBeenCalledWith({
         model: MODELS.GEMINI_3_PRO,
         contents: 'A futuristic cityscape',
-        config: { aspectRatio: '16:9' }
+        config: { aspectRatio: '16:9' },
       });
     });
 
     it('should default to GEMINI model when model not specified', async () => {
-      const mockResponse = { candidates: [{ content: { parts: [] } }] };
+      const mockResponse: GeminiResponse = { candidates: [{ content: { parts: [] } }] };
       mockClient.models.generateContent.mockResolvedValue(mockResponse);
 
       await api.generateWithGemini({
         prompt: 'Test prompt',
-        aspectRatio: '1:1'
+        aspectRatio: '1:1',
       });
 
       expect(mockClient.models.generateContent).toHaveBeenCalledWith({
         model: MODELS.GEMINI,
         contents: 'Test prompt',
-        config: { aspectRatio: '1:1' }
+        config: { aspectRatio: '1:1' },
       });
     });
   });
 
   describe('generateWithImagen', () => {
     it('should call SDK with correct parameters', async () => {
-      const mockResponse = {
-        generatedImages: [
-          { image: { imageBytes: 'base64image1' } }
-        ]
+      const mockResponse: ImagenResponse = {
+        generatedImages: [{ image: { imageBytes: 'base64image1' } }],
       };
       mockClient.models.generateImages.mockResolvedValue(mockResponse);
 
       const result = await api.generateWithImagen({
         prompt: 'Futuristic cityscape',
         numberOfImages: 1,
-        aspectRatio: '16:9'
+        aspectRatio: '16:9',
       });
 
       expect(mockClient.models.generateImages).toHaveBeenCalledWith({
@@ -290,27 +290,27 @@ describe('GoogleGenAIAPI Class', () => {
         prompt: 'Futuristic cityscape',
         config: {
           numberOfImages: 1,
-          aspectRatio: '16:9'
-        }
+          aspectRatio: '16:9',
+        },
       });
       expect(result).toEqual(mockResponse);
     });
 
     it('should generate multiple images', async () => {
-      const mockResponse = {
+      const mockResponse: ImagenResponse = {
         generatedImages: [
           { image: { imageBytes: 'base64image1' } },
           { image: { imageBytes: 'base64image2' } },
           { image: { imageBytes: 'base64image3' } },
-          { image: { imageBytes: 'base64image4' } }
-        ]
+          { image: { imageBytes: 'base64image4' } },
+        ],
       };
       mockClient.models.generateImages.mockResolvedValue(mockResponse);
 
       const result = await api.generateWithImagen({
         prompt: 'Character designs',
         numberOfImages: 4,
-        aspectRatio: '1:1'
+        aspectRatio: '1:1',
       });
 
       expect(mockClient.models.generateImages).toHaveBeenCalledWith({
@@ -318,21 +318,21 @@ describe('GoogleGenAIAPI Class', () => {
         prompt: 'Character designs',
         config: {
           numberOfImages: 4,
-          aspectRatio: '1:1'
-        }
+          aspectRatio: '1:1',
+        },
       });
       expect(result.generatedImages).toHaveLength(4);
     });
 
     it('should use default numberOfImages if not provided', async () => {
-      const mockResponse = {
-        generatedImages: [{ image: { imageBytes: 'base64' } }]
+      const mockResponse: ImagenResponse = {
+        generatedImages: [{ image: { imageBytes: 'base64' } }],
       };
       mockClient.models.generateImages.mockResolvedValue(mockResponse);
 
       await api.generateWithImagen({
         prompt: 'Test',
-        aspectRatio: '1:1'
+        aspectRatio: '1:1',
       });
 
       expect(mockClient.models.generateImages).toHaveBeenCalledWith({
@@ -340,26 +340,22 @@ describe('GoogleGenAIAPI Class', () => {
         prompt: 'Test',
         config: {
           numberOfImages: 1,
-          aspectRatio: '1:1'
-        }
+          aspectRatio: '1:1',
+        },
       });
     });
 
     it('should throw error if API key not set', async () => {
       api.apiKey = null;
 
-      await expect(
-        api.generateWithImagen({ prompt: 'Test' })
-      ).rejects.toThrow('API key not set');
+      await expect(api.generateWithImagen({ prompt: 'Test' })).rejects.toThrow('API key not set');
     });
 
     it('should handle SDK errors', async () => {
       const sdkError = new Error('SDK error');
       mockClient.models.generateImages.mockRejectedValue(sdkError);
 
-      await expect(
-        api.generateWithImagen({ prompt: 'Test', numberOfImages: 2 })
-      ).rejects.toThrow('SDK error');
+      await expect(api.generateWithImagen({ prompt: 'Test', numberOfImages: 2 })).rejects.toThrow('SDK error');
     });
 
     it('should sanitize errors in production mode', async () => {
@@ -369,9 +365,7 @@ describe('GoogleGenAIAPI Class', () => {
       const sdkError = new Error('Internal error details');
       mockClient.models.generateImages.mockRejectedValue(sdkError);
 
-      await expect(
-        api.generateWithImagen({ prompt: 'Test' })
-      ).rejects.toThrow('Image generation failed');
+      await expect(api.generateWithImagen({ prompt: 'Test' })).rejects.toThrow('Image generation failed');
 
       process.env.NODE_ENV = originalEnv;
     });
@@ -402,10 +396,8 @@ describe('GoogleGenAIAPI Class', () => {
 describe('Response Extraction Functions', () => {
   describe('extractGeminiParts', () => {
     it('should extract text parts from Gemini response', () => {
-      const response = {
-        parts: [
-          { text: 'This is a description of the image' }
-        ]
+      const response: GeminiResponse = {
+        parts: [{ text: 'This is a description of the image' }],
       };
 
       const parts = extractGeminiParts(response);
@@ -413,20 +405,20 @@ describe('Response Extraction Functions', () => {
       expect(parts).toHaveLength(1);
       expect(parts[0]).toEqual({
         type: 'text',
-        content: 'This is a description of the image'
+        content: 'This is a description of the image',
       });
     });
 
     it('should extract image parts from Gemini response', () => {
-      const response = {
+      const response: GeminiResponse = {
         parts: [
           {
             inlineData: {
               mimeType: 'image/png',
-              data: 'base64imagedata'
-            }
-          }
-        ]
+              data: 'base64imagedata',
+            },
+          },
+        ],
       };
 
       const parts = extractGeminiParts(response);
@@ -435,22 +427,22 @@ describe('Response Extraction Functions', () => {
       expect(parts[0]).toEqual({
         type: 'image',
         mimeType: 'image/png',
-        data: 'base64imagedata'
+        data: 'base64imagedata',
       });
     });
 
     it('should extract mixed text and image parts', () => {
-      const response = {
+      const response: GeminiResponse = {
         parts: [
           { text: 'Here is your image:' },
           {
             inlineData: {
               mimeType: 'image/png',
-              data: 'base64data'
-            }
+              data: 'base64data',
+            },
           },
-          { text: 'Additional description' }
-        ]
+          { text: 'Additional description' },
+        ],
       };
 
       const parts = extractGeminiParts(response);
@@ -462,14 +454,14 @@ describe('Response Extraction Functions', () => {
     });
 
     it('should use default mimeType if not provided', () => {
-      const response = {
+      const response: GeminiResponse = {
         parts: [
           {
             inlineData: {
-              data: 'base64data'
-            }
-          }
-        ]
+              data: 'base64data',
+            },
+          },
+        ],
       };
 
       const parts = extractGeminiParts(response);
@@ -478,13 +470,13 @@ describe('Response Extraction Functions', () => {
     });
 
     it('should handle empty parts array', () => {
-      const response = { parts: [] };
+      const response: GeminiResponse = { parts: [] };
       const parts = extractGeminiParts(response);
       expect(parts).toEqual([]);
     });
 
     it('should handle missing parts property', () => {
-      const response = {};
+      const response: GeminiResponse = {};
       const parts = extractGeminiParts(response);
       expect(parts).toEqual([]);
     });
@@ -492,14 +484,14 @@ describe('Response Extraction Functions', () => {
 
   describe('extractImagenImages', () => {
     it('should extract single image from Imagen response', () => {
-      const response = {
+      const response: ImagenResponse = {
         generatedImages: [
           {
             image: {
-              imageBytes: 'base64imagedata1'
-            }
-          }
-        ]
+              imageBytes: 'base64imagedata1',
+            },
+          },
+        ],
       };
 
       const images = extractImagenImages(response);
@@ -508,18 +500,18 @@ describe('Response Extraction Functions', () => {
       expect(images[0]).toEqual({
         type: 'image',
         mimeType: 'image/png',
-        data: 'base64imagedata1'
+        data: 'base64imagedata1',
       });
     });
 
     it('should extract multiple images from Imagen response', () => {
-      const response = {
+      const response: ImagenResponse = {
         generatedImages: [
           { image: { imageBytes: 'base64image1' } },
           { image: { imageBytes: 'base64image2' } },
           { image: { imageBytes: 'base64image3' } },
-          { image: { imageBytes: 'base64image4' } }
-        ]
+          { image: { imageBytes: 'base64image4' } },
+        ],
       };
 
       const images = extractImagenImages(response);
@@ -533,28 +525,25 @@ describe('Response Extraction Functions', () => {
     });
 
     it('should handle empty generatedImages array', () => {
-      const response = { generatedImages: [] };
+      const response: ImagenResponse = { generatedImages: [] };
       const images = extractImagenImages(response);
       expect(images).toEqual([]);
     });
 
     it('should handle missing generatedImages property', () => {
-      const response = {};
+      const response = {} as ImagenResponse;
       const images = extractImagenImages(response);
       expect(images).toEqual([]);
     });
 
     it('should always set mimeType to image/png for Imagen', () => {
-      const response = {
-        generatedImages: [
-          { image: { imageBytes: 'data1' } },
-          { image: { imageBytes: 'data2' } }
-        ]
+      const response: ImagenResponse = {
+        generatedImages: [{ image: { imageBytes: 'data1' } }, { image: { imageBytes: 'data2' } }],
       };
 
       const images = extractImagenImages(response);
 
-      images.forEach(img => {
+      images.forEach((img) => {
         expect(img.mimeType).toBe('image/png');
       });
     });
