@@ -1,3 +1,10 @@
+# [1.3.0](https://github.com/aself101/google-genai-api/compare/v1.2.2...v1.3.0) (2025-12-03)
+
+
+### Features
+
+* **typescript:** migrate codebase from JavaScript to TypeScript ([4a307db](https://github.com/aself101/google-genai-api/commit/4a307db3dcac4883edb2123ebe960505e881948c))
+
 ## [1.2.2](https://github.com/aself101/google-genai-api/compare/v1.2.1...v1.2.2) (2025-11-23)
 
 
