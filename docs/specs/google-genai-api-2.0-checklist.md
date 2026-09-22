@@ -1,6 +1,6 @@
 # google-genai-api 2.0 — checklist
 
-Companion to [`google-genai-api-2.0-spec-v0_4_1.md`](./google-genai-api-2.0-spec-v0_4_1.md). `[x]` done · `[-]` deliberately skipped (reason inline) · actuals recorded inline. **Ship target: when gates pass; ideally before 2026-10-02.**
+Companion to [`google-genai-api-2.0-spec-v0_4_2.md`](./google-genai-api-2.0-spec-v0_4_2.md). `[x]` done · `[-]` deliberately skipped (reason inline) · actuals recorded inline. **Ship target: when gates pass; ideally before 2026-10-02.**
 
 ## P0 — spec, review, probes
 - [x] Vendor snapshots in `docs/api/` (2026-09-22)
@@ -18,7 +18,7 @@ Companion to [`google-genai-api-2.0-spec-v0_4_1.md`](./google-genai-api-2.0-spec
 - [x] Architect-only confirmation on v0.4.0 — 88 REVISE (AF-006: non-production error identity) · 14 issues (tracker run 4)
 - [x] Alex: catalog = current models only; announced-shutdown models dropped; add lifecycle check
 - [x] Spec v0.4.1 — §13d
-- [ ] Targeted architect re-check (D13 step 5, §6 error rows, D2/D16) → PROCEED
+- [x] Targeted architect re-check — **88 PROCEED, no gates** (tracker run 5); six edits folded into v0.4.2 (§13e). Spec frozen.
 - [x] V2 — `gemini-3-pro-image-preview` **OK** 1024×1024 ; `gemini-3.1-flash-image-preview` **OK** 1024×1024 → D2 deprecated tier
 - [x] V3 — first run confounded (prompt "wide establishing shot": flat 16:9 and imageConfig 16:9 both 1376×768). Rerun, neutral prompt: flat `9:16` → **1408×768 (ignored)**; `imageConfig` `9:16` → **768×1376**. SDK 1.30 `generateContentConfigToMldev` copies `imageConfig` only. Unset ratio ⇒ model-chosen framing, not 1:1.
 - [x] V10 — `'512'` → 512×512 ; `'2K'` → 2048×2048 ; Lite `'2K'` → server 400 "Image size 2K is not supported for this model"
@@ -34,7 +34,7 @@ Companion to [`google-genai-api-2.0-spec-v0_4_1.md`](./google-genai-api-2.0-spec
 - [ ] Remove `.releaserc.json`, `.github/workflows/release.yml`, semantic-release devDeps + script
 - [ ] `.github/workflows/ci.yml` (Node 20/22/24, `npm ci && npm run verify`)
 - [ ] `.github/workflows/sdk-drift.yml` (weekly + dispatch; `@google/genai@^2 --no-save`; full `verify`; opens `sdk-drift` issue on failure)
-- [ ] `scripts/check-lifecycle.mjs` + `check:lifecycle` (V19: `--control` on 1.x catalog vs snapshot fails; zero-row parse fails)
+- [ ] `scripts/check-lifecycle.mjs` + `check:lifecycle` (V19: `--control` on 1.x catalog vs snapshot fails; zero-row parse fails; unfound id fails unless allowlisted; `--offline`)
 - [ ] `verify` script; `check:release` (runs `check:lifecycle`) as `prepublishOnly` incl. non-empty `[Unreleased]` (V14, each condition induced once)
 - [ ] `engines.node >=20`; `@google/genai ^2.24.0`; TS ^5.9; vitest ^4; `@types/node` ^24
 - [ ] Test count on SDK 2.24 with compile fixes only: ___ (1.3.0: 358)
@@ -63,10 +63,11 @@ Companion to [`google-genai-api-2.0-spec-v0_4_1.md`](./google-genai-api-2.0-spec
 - [ ] Lite; 4k; `durationRequired` added (`resolution1080p` kept, deprecated); D3 + D5 for Veo (`getVeoViolations(model, params, mode)`, `'warn'`); `validateVeoParams` 1.x signature; `isKnownVeoModel`; `getModelInfo` unchanged
 - [ ] D15: remove `seed`; present `seed` → `ValidationError`
 - [ ] `source:` call shape; D13 in veo-api.ts
+- [ ] Poll retry by source: finished-job `operation.error` thrown at once (test: RESOURCE_EXHAUSTED op → one poll, immediate throw)
 - [ ] Wire tests (video) incl. no SDK deprecation `console.warn`; Lite gating unit tests; legacy negative tests repointed at Lite
 
 ## P5 — CLI (~110 src + 150 test)
-- [ ] `--model`, aliases, repeatable `--input-image`, `--image-size`, no aspect default, Veo `4k`; remove `--imagen`/`-n`
+- [ ] `--gemini` kept as mode flag with new help text; `--model`, aliases, repeatable `--input-image`, `--image-size`, no aspect default, Veo `4k`; remove `--imagen`/`-n`
 - [ ] CLI pre-flight via `get*Violations` on real inputs; `_N` kept (after thought filter); metadata filename fix; zero-image error exit
 - [ ] `test/cli.test.ts` via `--import test/helpers/fetch-replay.mjs`, temp `HOME`, fail on unexpected request, `dist/` built in `globalSetup`
 
