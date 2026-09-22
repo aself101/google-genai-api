@@ -5,7 +5,8 @@
 
 import { describe, it, expect, beforeEach, vi, type Mock } from 'vitest';
 import { GoogleGenAIAPI, extractGeminiParts } from '../src/api.js';
-import { MODELS } from '../src/config.js';
+import { GoogleGenAI } from '@google/genai';
+import { MODELS, DEFAULT_IMAGE_MODEL, ValidationError } from '../src/config.js';
 import type { GeminiResponse, InlineData } from '../src/types/index.js';
 
 // Mock the @google/genai SDK
@@ -30,7 +31,7 @@ interface MockedGoogleGenAIAPI extends GoogleGenAIAPI {
       generateContent: Mock;
     };
   };
-  logger: { level: string; info: () => void; error: () => void };
+  logger: { level: string; info: () => void; error: () => void; warn: (msg: string) => void };
   _verifyApiKey: () => void;
   _buildGeminiContents: (prompt: string, inputImages: InlineData[]) => string | Array<{ text: string } | { inlineData: InlineData }>;
 }
@@ -144,7 +145,7 @@ describe('GoogleGenAIAPI Class', () => {
       });
 
       expect(mockClient.models.generateContent).toHaveBeenCalledWith({
-        model: MODELS.GEMINI,
+        model: DEFAULT_IMAGE_MODEL,
         contents: 'A serene mountain landscape',
         config: { aspectRatio: '16:9' },
       });
@@ -172,7 +173,7 @@ describe('GoogleGenAIAPI Class', () => {
       });
 
       expect(mockClient.models.generateContent).toHaveBeenCalledWith({
-        model: MODELS.GEMINI,
+        model: DEFAULT_IMAGE_MODEL,
         contents: [{ text: 'Make it sunset' }, { inlineData: { mimeType: 'image/jpeg', data: 'inputbase64' } }],
         config: { aspectRatio: '1:1' },
       });
@@ -254,7 +255,7 @@ describe('GoogleGenAIAPI Class', () => {
       });
     });
 
-    it('should default to GEMINI model when model not specified', async () => {
+    it('should default to DEFAULT_IMAGE_MODEL (gemini-3.1-flash-image) when model not specified', async () => {
       const mockResponse: GeminiResponse = { candidates: [{ content: { parts: [] } }] };
       mockClient.models.generateContent.mockResolvedValue(mockResponse);
 
@@ -264,10 +265,84 @@ describe('GoogleGenAIAPI Class', () => {
       });
 
       expect(mockClient.models.generateContent).toHaveBeenCalledWith({
-        model: MODELS.GEMINI,
+        model: DEFAULT_IMAGE_MODEL,
         contents: 'Test prompt',
         config: { aspectRatio: '1:1' },
       });
+    });
+  });
+
+  describe('parameter validation (spec D3/D5)', () => {
+    const ok: GeminiResponse = { candidates: [{ content: { parts: [] } }] };
+
+    it('pins the SDK client to the Gemini Developer API (vertexai: false)', () => {
+      expect(GoogleGenAI).toHaveBeenLastCalledWith({ apiKey: 'AIzaSyTest1234567890123456789012345678', vertexai: false });
+    });
+
+    it('known model + unsupported value: throws ValidationError and never calls the SDK', async () => {
+      await expect(
+        api.generateWithGemini({ prompt: 'x', model: MODELS.GEMINI_3_PRO, aspectRatio: '8:1' })
+      ).rejects.toBeInstanceOf(ValidationError);
+      expect(mockClient.models.generateContent).not.toHaveBeenCalled();
+    });
+
+    it('known model + too many images: throws even when the caller supplies `mode` (1.x skipped the check)', async () => {
+      const images: InlineData[] = Array.from({ length: 15 }, () => ({ mimeType: 'image/png', data: 'abc' }));
+      await expect(
+        api.generateWithGemini({ prompt: 'x', inputImages: images, mode: 'image-to-image' })
+      ).rejects.toThrow('accepts at most 14 input images');
+      expect(mockClient.models.generateContent).not.toHaveBeenCalled();
+    });
+
+    it("capabilityValidation 'warn': logs the violation and sends the request", async () => {
+      const warnApi = new GoogleGenAIAPI('AIzaSyTest1234567890123456789012345678', 'info', {
+        capabilityValidation: 'warn',
+      }) as MockedGoogleGenAIAPI;
+      const warn = vi.spyOn(warnApi.logger, 'warn').mockImplementation(() => undefined);
+      warnApi.client.models.generateContent.mockResolvedValue(ok);
+
+      await warnApi.generateWithGemini({ prompt: 'x', model: MODELS.GEMINI_3_PRO, aspectRatio: '8:1' });
+
+      expect(warnApi.client.models.generateContent).toHaveBeenCalledTimes(1);
+      expect(warn.mock.calls.map((c) => c[0]).join('\n')).toMatch(/Invalid aspect ratio '8:1'.*sending anyway/);
+    });
+
+    it("shape violations throw even under 'warn'", async () => {
+      const warnApi = new GoogleGenAIAPI('AIzaSyTest1234567890123456789012345678', 'info', {
+        capabilityValidation: 'warn',
+      }) as MockedGoogleGenAIAPI;
+      await expect(
+        warnApi.generateWithGemini({ prompt: 'x', inputImages: [{ mimeType: 'image/png', data: '' }] })
+      ).rejects.toThrow('has no data');
+      expect(warnApi.client.models.generateContent).not.toHaveBeenCalled();
+    });
+
+    it('unknown model: warns once per id, sends every caller param', async () => {
+      const warn = vi.spyOn(api.logger, 'warn').mockImplementation(() => undefined);
+      mockClient.models.generateContent.mockResolvedValue(ok);
+      const images: InlineData[] = Array.from({ length: 20 }, () => ({ mimeType: 'image/png', data: 'abc' }));
+
+      await api.generateWithGemini({ prompt: 'x', model: 'gemini-9-imaginary', aspectRatio: '8:1', inputImages: images });
+      await api.generateWithGemini({ prompt: 'y', model: 'gemini-9-imaginary' });
+
+      const unknownWarnings = warn.mock.calls.filter((c) => String(c[0]).includes("'gemini-9-imaginary' is not in this package's catalog"));
+      expect(unknownWarnings).toHaveLength(1);
+      const [first] = mockClient.models.generateContent.mock.calls[0];
+      expect(first.model).toBe('gemini-9-imaginary');
+      expect(first.contents).toHaveLength(21); // prompt + all 20 images: nothing dropped for lack of a constraint
+      expect(mockClient.models.generateContent).toHaveBeenCalledTimes(2);
+    });
+
+    it('a ValidationError is not rewritten by production sanitization', async () => {
+      const originalEnv = process.env.NODE_ENV;
+      process.env.NODE_ENV = 'production';
+      try {
+        await expect(
+          api.generateWithGemini({ prompt: 'x', model: MODELS.GEMINI_3_PRO, aspectRatio: '8:1' })
+        ).rejects.toThrow("Invalid aspect ratio '8:1'");
+      } finally {
+        process.env.NODE_ENV = originalEnv;
+      }
     });
   });
 

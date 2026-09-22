@@ -6,7 +6,14 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import {
   MODELS,
+  DEFAULT_IMAGE_MODEL,
   ASPECT_RATIOS,
+  IMAGE_SIZES,
+  SUPPORTED_IMAGE_MIME_TYPES,
+  ValidationError,
+  getModelViolations,
+  isKnownImageModel,
+  isKnownVeoModel,
   GEMINI_MODES,
   MODEL_CONSTRAINTS,
   DEFAULT_OUTPUT_DIR,
@@ -34,26 +41,38 @@ import type { InlineData, VeoReferenceImage, VeoPersonGeneration, VeoMode } from
 
 describe('Configuration Constants', () => {
   describe('Models', () => {
-    it('should have GEMINI model defined', () => {
-      expect(MODELS.GEMINI).toBeDefined();
-      expect(MODELS.GEMINI).toBe('gemini-2.5-flash-image');
+    it('catalogs only current image models (spec D2)', () => {
+      expect(MODELS.GEMINI_3_1_FLASH).toBe('gemini-3.1-flash-image');
+      expect(MODELS.GEMINI_3_1_FLASH_LITE).toBe('gemini-3.1-flash-lite-image');
+      expect(MODELS.GEMINI_3_PRO).toBe('gemini-3-pro-image');
+      expect(MODELS.GEMINI_VIDEO).toBe('gemini-2.5-flash');
     });
 
-    it('should have GEMINI_3_PRO model defined', () => {
-      expect(MODELS.GEMINI_3_PRO).toBeDefined();
-      expect(MODELS.GEMINI_3_PRO).toBe('gemini-3-pro-image-preview');
+    it('does not keep keys for models with an announced shutdown', () => {
+      expect(Object.keys(MODELS).sort()).toEqual(
+        ['GEMINI_3_1_FLASH', 'GEMINI_3_1_FLASH_LITE', 'GEMINI_3_PRO', 'GEMINI_VIDEO'].sort()
+      );
+      expect(Object.values(MODELS)).not.toContain('gemini-2.5-flash-image');
+      expect(Object.values(MODELS)).not.toContain('gemini-3-pro-image-preview');
+    });
+
+    it('defaults image generation to gemini-3.1-flash-image (spec D4)', () => {
+      expect(DEFAULT_IMAGE_MODEL).toBe('gemini-3.1-flash-image');
+      expect(DEFAULT_IMAGE_MODEL).toBe(MODELS.GEMINI_3_1_FLASH);
     });
   });
 
   describe('Aspect Ratios', () => {
-    it('should have valid aspect ratios', () => {
-      expect(ASPECT_RATIOS).toBeDefined();
-      expect(ASPECT_RATIOS).toContain('1:1');
-      expect(ASPECT_RATIOS).toContain('3:4');
-      expect(ASPECT_RATIOS).toContain('4:3');
-      expect(ASPECT_RATIOS).toContain('9:16');
-      expect(ASPECT_RATIOS).toContain('16:9');
-      expect(ASPECT_RATIOS.length).toBe(5);
+    it('lists the ten standard ratios plus the four 3.1 extremes', () => {
+      expect(ASPECT_RATIOS).toEqual([
+        '1:1', '3:2', '2:3', '3:4', '4:3', '4:5', '5:4', '9:16', '16:9', '21:9',
+        '1:4', '4:1', '1:8', '8:1',
+      ]);
+    });
+
+    it('lists image sizes and supported input MIME types', () => {
+      expect(IMAGE_SIZES).toEqual(['512', '1K', '2K', '4K']);
+      expect(SUPPORTED_IMAGE_MIME_TYPES).toEqual(['image/png', 'image/jpeg', 'image/webp', 'image/gif']);
     });
   });
 
@@ -66,28 +85,61 @@ describe('Configuration Constants', () => {
   });
 
   describe('Model Constraints', () => {
-    it('should have constraints for Gemini model', () => {
-      const gemini = MODEL_CONSTRAINTS[MODELS.GEMINI];
-      expect(gemini).toBeDefined();
-      expect(gemini.aspectRatios).toEqual(ASPECT_RATIOS);
-      expect(gemini.promptMaxLength).toBe(10000);
-      expect(gemini.inputImagesMax).toBe(1);
-      expect(gemini.features.textToImage).toBe(true);
-      expect(gemini.features.imageToImage).toBe(true);
-      expect(gemini.features.semanticMasking).toBe(true);
-      expect(gemini.responseFormat).toBe('parts');
+    const imageModels = [MODELS.GEMINI_3_1_FLASH, MODELS.GEMINI_3_1_FLASH_LITE, MODELS.GEMINI_3_PRO];
+
+    it('has an entry for every MODELS value, and nothing else', () => {
+      expect(Object.keys(MODEL_CONSTRAINTS).sort()).toEqual([...Object.values(MODELS)].sort());
     });
 
-    it('should have constraints for Gemini 3 Pro model', () => {
-      const gemini3Pro = MODEL_CONSTRAINTS[MODELS.GEMINI_3_PRO];
-      expect(gemini3Pro).toBeDefined();
-      expect(gemini3Pro.aspectRatios).toEqual(ASPECT_RATIOS);
-      expect(gemini3Pro.promptMaxLength).toBe(10000);
-      expect(gemini3Pro.inputImagesMax).toBe(1);
-      expect(gemini3Pro.features.textToImage).toBe(true);
-      expect(gemini3Pro.features.imageToImage).toBe(true);
-      expect(gemini3Pro.features.semanticMasking).toBe(true);
-      expect(gemini3Pro.responseFormat).toBe('parts');
+    it('keeps every 1.x ModelConstraint field on image models (spec D5, additive only)', () => {
+      for (const m of imageModels) {
+        const c = MODEL_CONSTRAINTS[m];
+        expect(c.promptMaxLength).toBe(10000);
+        expect(c.supportedModes).toEqual(Object.values(GEMINI_MODES));
+        expect(c.features.textToImage).toBe(true);
+        expect(c.features.imageToImage).toBe(true);
+        expect(c.features.semanticMasking).toBe(true);
+        expect(c.responseFormat).toBe('parts');
+        expect(c.inputImagesMax).toBe(14);
+      }
+    });
+
+    it('records per-model ratios and sizes from vendor docs and live probes', () => {
+      expect(MODEL_CONSTRAINTS[MODELS.GEMINI_3_1_FLASH].aspectRatios).toEqual(ASPECT_RATIOS);
+      expect(MODEL_CONSTRAINTS[MODELS.GEMINI_3_1_FLASH].imageSizes).toEqual(['512', '1K', '2K', '4K']);
+      expect(MODEL_CONSTRAINTS[MODELS.GEMINI_3_1_FLASH_LITE].aspectRatios).toEqual(ASPECT_RATIOS);
+      expect(MODEL_CONSTRAINTS[MODELS.GEMINI_3_1_FLASH_LITE].imageSizes).toEqual(['1K']);
+      expect(MODEL_CONSTRAINTS[MODELS.GEMINI_3_PRO].aspectRatios).toHaveLength(10);
+      expect(MODEL_CONSTRAINTS[MODELS.GEMINI_3_PRO].aspectRatios).not.toContain('1:4');
+      expect(MODEL_CONSTRAINTS[MODELS.GEMINI_3_PRO].imageSizes).toEqual(['1K', '2K', '4K']);
+    });
+
+    it('keeps the video-understanding entry unchanged', () => {
+      const video = MODEL_CONSTRAINTS[MODELS.GEMINI_VIDEO];
+      expect(video.features.videoUnderstanding).toBe(true);
+      expect(video.responseFormat).toBe('candidates');
+      expect(video.imageSizes).toBeUndefined();
+    });
+
+    it('removed ids are gone from the string-keyed table (runtime undefined, spec §6)', () => {
+      expect(MODEL_CONSTRAINTS['gemini-2.5-flash-image']).toBeUndefined();
+      expect(MODEL_CONSTRAINTS['gemini-3-pro-image-preview']).toBeUndefined();
+    });
+  });
+
+  describe('Model guards', () => {
+    it('isKnownImageModel is true only for cataloged image models', () => {
+      expect(isKnownImageModel('gemini-3.1-flash-image')).toBe(true);
+      expect(isKnownImageModel('gemini-3-pro-image')).toBe(true);
+      expect(isKnownImageModel('gemini-2.5-flash')).toBe(false); // video understanding, not image
+      expect(isKnownImageModel('gemini-2.5-flash-image')).toBe(false); // dropped (spec D2)
+      expect(isKnownImageModel('not-a-model')).toBe(false);
+    });
+
+    it('isKnownVeoModel is true only for cataloged Veo models', () => {
+      expect(isKnownVeoModel(VEO_MODELS.VEO_3_1)).toBe(true);
+      expect(isKnownVeoModel('veo-2.0-generate-001')).toBe(false);
+      expect(isKnownVeoModel('toString')).toBe(false); // own-property check, not the prototype
     });
   });
 
@@ -196,111 +248,130 @@ describe('API Key Functions', () => {
 });
 
 describe('Validation Functions', () => {
-  describe('validateModelParams', () => {
-    describe('Common validation', () => {
-      it('should throw error for unknown model', () => {
-        expect(() => validateModelParams('unknown-model', { prompt: 'test' })).toThrow('Unknown model');
-      });
+  const png = (data = 'iVBORw0KGgo='): InlineData => ({ mimeType: 'image/png', data });
 
-      it('should throw error if prompt is missing', () => {
-        expect(() => validateModelParams(MODELS.GEMINI, {})).toThrow('Prompt is required');
-      });
-
-      it('should throw error if prompt is not a string', () => {
-        expect(() => validateModelParams(MODELS.GEMINI, { prompt: 123 as unknown as string })).toThrow(
-          'Prompt is required and must be a string'
-        );
-      });
-
-      it('should throw error if prompt exceeds max length', () => {
-        const longPrompt = 'a'.repeat(10001);
-        expect(() => validateModelParams(MODELS.GEMINI, { prompt: longPrompt })).toThrow(
-          'Prompt exceeds maximum length'
-        );
-      });
-
-      it('should throw error for invalid aspect ratio', () => {
-        expect(() =>
-          validateModelParams(MODELS.GEMINI, {
-            prompt: 'test',
-            aspectRatio: '99:1',
-          })
-        ).toThrow('Invalid aspect ratio');
-      });
-
-      it('should accept valid aspect ratios', () => {
-        ASPECT_RATIOS.forEach((ratio) => {
-          expect(() =>
-            validateModelParams(MODELS.GEMINI, {
-              prompt: 'test',
-              aspectRatio: ratio,
-            })
-          ).not.toThrow();
-        });
-      });
+  describe('validateModelParams (throwing wrapper — 1.x contract)', () => {
+    it('throws ValidationError, which is an Error', () => {
+      let caught: unknown;
+      try {
+        validateModelParams(DEFAULT_IMAGE_MODEL, { prompt: 'test', aspectRatio: '7:3' });
+      } catch (e) {
+        caught = e;
+      }
+      expect(caught).toBeInstanceOf(ValidationError);
+      expect(caught).toBeInstanceOf(Error);
+      expect((caught as ValidationError).name).toBe('ValidationError');
+      expect((caught as ValidationError).violations[0].param).toBe('aspectRatio');
     });
 
-    describe('Gemini-specific validation', () => {
-      it('should accept valid Gemini parameters', () => {
-        expect(() =>
-          validateModelParams(MODELS.GEMINI, {
-            prompt: 'test',
-            aspectRatio: '16:9',
-            inputImages: [],
-          })
-        ).not.toThrow();
-      });
+    it('keeps 1.x messages for the rules 1.x had', () => {
+      expect(() => validateModelParams(DEFAULT_IMAGE_MODEL, {} as never)).toThrow('Prompt is required');
+      expect(() => validateModelParams(DEFAULT_IMAGE_MODEL, { prompt: 123 as unknown as string })).toThrow(
+        'Prompt is required and must be a string'
+      );
+      expect(() => validateModelParams(DEFAULT_IMAGE_MODEL, { prompt: 'a'.repeat(10001) })).toThrow(
+        'Prompt exceeds maximum length'
+      );
+      expect(() => validateModelParams(MODELS.GEMINI_3_PRO, { prompt: 'test', aspectRatio: '1:4' })).toThrow(
+        'Invalid aspect ratio'
+      );
+      expect(() => validateModelParams(DEFAULT_IMAGE_MODEL, { prompt: 'test', numberOfImages: 4 })).toThrow(
+        'Gemini generates one image per request'
+      );
+    });
 
-      it('should accept one input image', () => {
-        expect(() =>
-          validateModelParams(MODELS.GEMINI, {
-            prompt: 'test',
-            inputImages: [{ mimeType: 'image/png', data: 'base64...' }],
-          })
-        ).not.toThrow();
-      });
+    it('accepts every ratio a model lists', () => {
+      for (const m of [MODELS.GEMINI_3_1_FLASH, MODELS.GEMINI_3_1_FLASH_LITE, MODELS.GEMINI_3_PRO]) {
+        for (const ratio of MODEL_CONSTRAINTS[m].aspectRatios!) {
+          expect(() => validateModelParams(m, { prompt: 'test', aspectRatio: ratio })).not.toThrow();
+        }
+      }
+    });
 
-      it('should throw error for multiple input images', () => {
-        expect(() =>
-          validateModelParams(MODELS.GEMINI, {
-            prompt: 'test',
-            inputImages: [
-              { mimeType: 'image/png', data: 'base64...' },
-              { mimeType: 'image/png', data: 'base64...' },
-            ],
-          })
-        ).toThrow('Gemini supports maximum 1 input image');
-      });
+    it('no longer throws for an unknown model id (spec D3); shape rules still apply', () => {
+      expect(() => validateModelParams('gemini-9-imaginary', { prompt: 'test', aspectRatio: '7:3' })).not.toThrow();
+      expect(() => validateModelParams('gemini-9-imaginary', { prompt: '' })).toThrow('Prompt is required');
+    });
+  });
 
-      it('should throw error for numberOfImages > 1', () => {
-        expect(() =>
-          validateModelParams(MODELS.GEMINI, {
-            prompt: 'test',
-            numberOfImages: 4,
-          })
-        ).toThrow('Gemini generates one image per request');
+  describe('getModelViolations — shape (every id)', () => {
+    const cases: Array<[string, Parameters<typeof getModelViolations>[1], string]> = [
+      ['missing prompt', { prompt: '' }, 'prompt'],
+      ['ratio not W:H', { prompt: 'x', aspectRatio: 'wide' }, 'aspectRatio'],
+      ['lowercase k', { prompt: 'x', imageSize: '2k' }, 'imageSize'],
+      ['empty image data', { prompt: 'x', inputImages: [png('')] }, 'inputImages[0].data'],
+      ['malformed mimeType', { prompt: 'x', inputImages: [{ mimeType: 'png', data: 'abc' }] }, 'inputImages[0].mimeType'],
+    ];
+    for (const model of [DEFAULT_IMAGE_MODEL, 'gemini-9-imaginary']) {
+      for (const [name, params, param] of cases) {
+        it(`${model}: ${name} → shape violation on ${param}`, () => {
+          const v = getModelViolations(model, params);
+          expect(v.map((x) => [x.kind, x.param])).toContainEqual(['shape', param]);
+        });
+      }
+    }
+
+    it('shape patterns are open: an unseen ratio or size passes shape', () => {
+      expect(getModelViolations('gemini-9-imaginary', { prompt: 'x', aspectRatio: '3:1', imageSize: '8K' })).toEqual([]);
+    });
+  });
+
+  describe('getModelViolations — capability (known ids only)', () => {
+    it('rejects a ratio the model does not list', () => {
+      const [v] = getModelViolations(MODELS.GEMINI_3_PRO, { prompt: 'x', aspectRatio: '8:1' });
+      expect(v).toMatchObject({ kind: 'capability', param: 'aspectRatio', value: '8:1' });
+      expect(v.allowed).toHaveLength(10);
+    });
+
+    it('rejects a size the model does not list (Lite: 1K only — 2K rejected live)', () => {
+      const [v] = getModelViolations(MODELS.GEMINI_3_1_FLASH_LITE, { prompt: 'x', imageSize: '2K' });
+      expect(v).toMatchObject({ kind: 'capability', param: 'imageSize', allowed: ['1K'] });
+      expect(getModelViolations(MODELS.GEMINI_3_1_FLASH, { prompt: 'x', imageSize: '512' })).toEqual([]);
+    });
+
+    it('rejects imageSize on a model that does not take it', () => {
+      const [v] = getModelViolations(MODELS.GEMINI_VIDEO, { prompt: 'x', imageSize: '1K' });
+      expect(v).toMatchObject({ kind: 'capability', param: 'imageSize' });
+    });
+
+    it('allows up to 14 input images and rejects 15', () => {
+      const fourteen = Array.from({ length: 14 }, () => png());
+      expect(getModelViolations(DEFAULT_IMAGE_MODEL, { prompt: 'x', inputImages: fourteen })).toEqual([]);
+      const [v] = getModelViolations(DEFAULT_IMAGE_MODEL, { prompt: 'x', inputImages: [...fourteen, png()] });
+      expect(v).toMatchObject({ kind: 'capability', param: 'inputImages', value: 15 });
+    });
+
+    it('rejects a well-formed but unsupported input type; accepts gif (1.x set)', () => {
+      const [v] = getModelViolations(DEFAULT_IMAGE_MODEL, { prompt: 'x', inputImages: [{ mimeType: 'image/tiff', data: 'abc' }] });
+      expect(v).toMatchObject({ kind: 'capability', param: 'inputImages[0].mimeType' });
+      expect(getModelViolations(DEFAULT_IMAGE_MODEL, { prompt: 'x', inputImages: [{ mimeType: 'image/gif', data: 'abc' }] })).toEqual([]);
+    });
+
+    it('gives an unknown id no capability violations, whatever it is passed', () => {
+      const v = getModelViolations('gemini-9-imaginary', {
+        prompt: 'x', aspectRatio: '8:1', imageSize: '4K', numberOfImages: 3,
+        inputImages: Array.from({ length: 20 }, () => ({ mimeType: 'image/tiff', data: 'abc' })),
       });
+      expect(v).toEqual([]);
+    });
+
+    it('reports a malformed value once, as shape — not again as capability', () => {
+      const v = getModelViolations(DEFAULT_IMAGE_MODEL, { prompt: 'x', aspectRatio: 'wide' });
+      expect(v.map((x) => x.kind)).toEqual(['shape']);
     });
   });
 
   describe('detectGeminiMode', () => {
     it('should detect TEXT_TO_IMAGE with no input images', () => {
-      const mode = detectGeminiMode([]);
-      expect(mode).toBe(GEMINI_MODES.TEXT_TO_IMAGE);
+      expect(detectGeminiMode([])).toBe(GEMINI_MODES.TEXT_TO_IMAGE);
     });
 
     it('should detect IMAGE_TO_IMAGE with one input image', () => {
-      const mode = detectGeminiMode([{ mimeType: 'image/png', data: 'base64...' }]);
-      expect(mode).toBe(GEMINI_MODES.IMAGE_TO_IMAGE);
+      expect(detectGeminiMode([png()])).toBe(GEMINI_MODES.IMAGE_TO_IMAGE);
     });
 
-    it('should throw error for multiple input images', () => {
-      expect(() =>
-        detectGeminiMode([
-          { mimeType: 'image/png', data: 'base64...' },
-          { mimeType: 'image/png', data: 'base64...' },
-        ])
-      ).toThrow('Gemini supports maximum 1 input image');
+    it('returns IMAGE_TO_IMAGE for several images — the count is a model capability, not a mode (spec §6)', () => {
+      expect(detectGeminiMode([png(), png(), png()])).toBe(GEMINI_MODES.IMAGE_TO_IMAGE);
     });
   });
 });

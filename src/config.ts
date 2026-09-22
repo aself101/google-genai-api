@@ -19,13 +19,18 @@ import dotenv from 'dotenv';
 import { existsSync } from 'fs';
 import { homedir } from 'os';
 import { join } from 'path';
+import { ValidationError } from './errors.js';
+import type { Violation } from './errors.js';
 import type {
   AspectRatio,
+  GeminiImageModel,
   GeminiMode,
   GeminiModes,
+  ImageSize,
   InlineData,
   ModelConstraint,
   ModelConstraints,
+  ModelValidationParams,
   Models,
   ParsedTimeOffsets,
   VeoAspectRatio,
@@ -53,12 +58,22 @@ if (existsSync(globalConfigPath)) {
   dotenv.config({ path: globalConfigPath });
 }
 
-// Google GenAI API models
+export { ValidationError };
+export type { Violation };
+
+// Google GenAI API models. Current models only: a model with an announced
+// shutdown is removed from the package (spec D2) and `npm run check:lifecycle`
+// fails until it is. Removed ids still work — any string is accepted as a model
+// id and sent without capability validation (spec D3).
 export const MODELS: Models = {
-  GEMINI: 'gemini-2.5-flash-image',
-  GEMINI_3_PRO: 'gemini-3-pro-image-preview',
+  GEMINI_3_1_FLASH: 'gemini-3.1-flash-image',
+  GEMINI_3_1_FLASH_LITE: 'gemini-3.1-flash-lite-image',
+  GEMINI_3_PRO: 'gemini-3-pro-image',
   GEMINI_VIDEO: 'gemini-2.5-flash', // Video analysis uses standard Gemini model
 };
+
+/** Image model used when a caller does not pass one (spec D4). */
+export const DEFAULT_IMAGE_MODEL: GeminiImageModel = 'gemini-3.1-flash-image';
 
 // ============================================================================
 // VIDEO CONFIGURATION
@@ -101,8 +116,26 @@ export const VIDEO_TIMEOUTS: VideoTimeouts = {
   POLL_MAX_ATTEMPTS: 120, // Maximum polling attempts
 };
 
-// Valid aspect ratios for Gemini image models
-export const ASPECT_RATIOS: AspectRatio[] = ['1:1', '3:4', '4:3', '9:16', '16:9'];
+// The ten aspect ratios every current Gemini image model accepts.
+const STANDARD_ASPECT_RATIOS: AspectRatio[] = [
+  '1:1', '3:2', '2:3', '3:4', '4:3', '4:5', '5:4', '9:16', '16:9', '21:9',
+];
+
+// Every aspect ratio any cataloged image model accepts. The 3.1 models add four
+// extreme ratios (vendor docs; 1:4 verified live on 3.1 Flash Lite, 2026-09-22).
+// Per-model lists are in MODEL_CONSTRAINTS.
+export const ASPECT_RATIOS: AspectRatio[] = [...STANDARD_ASPECT_RATIOS, '1:4', '4:1', '1:8', '8:1'];
+
+// imageConfig.imageSize values across cataloged models; per-model lists are in
+// MODEL_CONSTRAINTS. '512' and '2K' verified live on 3.1 Flash, 2026-09-22.
+export const IMAGE_SIZES: ImageSize[] = ['512', '1K', '2K', '4K'];
+
+// Input-image MIME types this package accepts (the 1.x set; imageToInlineData
+// produces these).
+export const SUPPORTED_IMAGE_MIME_TYPES: string[] = ['image/png', 'image/jpeg', 'image/webp', 'image/gif'];
+
+// Prompt length ceiling applied to ids with no constraint entry (spec D3 shape).
+const PROMPT_MAX_LENGTH = 10000;
 
 // Gemini generation modes (detected automatically based on input)
 export const GEMINI_MODES: GeminiModes = {
@@ -113,10 +146,11 @@ export const GEMINI_MODES: GeminiModes = {
 
 // Model parameter constraints
 export const MODEL_CONSTRAINTS: ModelConstraints = {
-  'gemini-2.5-flash-image': {
+  'gemini-3.1-flash-image': {
     aspectRatios: ASPECT_RATIOS,
+    imageSizes: ['512', '1K', '2K', '4K'],
     promptMaxLength: 10000,
-    inputImagesMax: 1, // Only one input image supported for editing/masking
+    inputImagesMax: 14, // 10 object + 4 character references (vendor docs); 3 verified live
     supportedModes: Object.values(GEMINI_MODES) as GeminiMode[],
     features: {
       textToImage: true,
@@ -127,10 +161,13 @@ export const MODEL_CONSTRAINTS: ModelConstraints = {
     // Note: Response format is { parts: [{ text }, { inlineData }] }
     responseFormat: 'parts',
   },
-  'gemini-3-pro-image-preview': {
+  'gemini-3.1-flash-lite-image': {
+    // The model page lists the ten standard ratios but says "14 aspect ratios";
+    // 1:4 was accepted live (2026-09-22), so the extended set is taken as real.
     aspectRatios: ASPECT_RATIOS,
+    imageSizes: ['1K'], // 2K rejected live: "Image size 2K is not supported for this model"
     promptMaxLength: 10000,
-    inputImagesMax: 1, // Only one input image supported for editing/masking
+    inputImagesMax: 14,
     supportedModes: Object.values(GEMINI_MODES) as GeminiMode[],
     features: {
       textToImage: true,
@@ -138,7 +175,20 @@ export const MODEL_CONSTRAINTS: ModelConstraints = {
       semanticMasking: true,
       naturalLanguageEditing: true,
     },
-    // Note: Response format is { parts: [{ text }, { inlineData }] }
+    responseFormat: 'parts',
+  },
+  'gemini-3-pro-image': {
+    aspectRatios: STANDARD_ASPECT_RATIOS,
+    imageSizes: ['1K', '2K', '4K'],
+    promptMaxLength: 10000,
+    inputImagesMax: 14, // 6 object + 5 character references (vendor docs)
+    supportedModes: Object.values(GEMINI_MODES) as GeminiMode[],
+    features: {
+      textToImage: true,
+      imageToImage: true,
+      semanticMasking: true,
+      naturalLanguageEditing: true,
+    },
     responseFormat: 'parts',
   },
   'gemini-2.5-flash': {
@@ -241,71 +291,130 @@ export function redactApiKey(apiKey: string): string {
   return `xxx...${apiKey.slice(-4)}`;
 }
 
+const IMAGE_MODEL_IDS: readonly string[] = [
+  MODELS.GEMINI_3_1_FLASH,
+  MODELS.GEMINI_3_1_FLASH_LITE,
+  MODELS.GEMINI_3_PRO,
+];
+
+/** True for an image-generation model this package catalogs (spec D2). */
+export function isKnownImageModel(id: string): id is GeminiImageModel {
+  return IMAGE_MODEL_IDS.includes(id);
+}
+
+/** True for a Veo model this package catalogs. */
+export function isKnownVeoModel(id: string): id is VeoModel {
+  return Object.prototype.hasOwnProperty.call(VEO_MODEL_CONSTRAINTS, id);
+}
+
+// Shape patterns are deliberately open (spec D3): a ratio or size a future
+// model introduces passes shape and reaches the vendor.
+const ASPECT_RATIO_SHAPE = /^\d+:\d+$/;
+const IMAGE_SIZE_SHAPE = /^\d+K?$/;
+const IMAGE_MIME_SHAPE = /^image\/[a-z0-9.+-]+$/;
+
 /**
- * Parameters for model validation.
+ * Check image-generation parameters against the shape rules and, for a known
+ * model, its constraint table. Pure: never throws, never logs.
+ *
+ * Shape violations apply to every id; capability violations only to ids with a
+ * `MODEL_CONSTRAINTS` entry. See `Violation` for the distinction.
+ *
+ * @example
+ * getModelViolations('gemini-3-pro-image', { prompt: 'a cat', imageSize: '512' });
+ * // → [{ kind: 'capability', param: 'imageSize', value: '512', allowed: ['1K','2K','4K'], ... }]
  */
-interface ModelValidationParams {
-  prompt: string;
-  aspectRatio?: string;
-  numberOfImages?: number;
-  inputImages?: InlineData[];
+export function getModelViolations(model: string, params: ModelValidationParams): Violation[] {
+  const violations: Violation[] = [];
+  const constraints = Object.prototype.hasOwnProperty.call(MODEL_CONSTRAINTS, model)
+    ? (MODEL_CONSTRAINTS[model] as ModelConstraint)
+    : undefined;
+
+  // ---- shape: every id ----
+  if (!params.prompt || typeof params.prompt !== 'string') {
+    violations.push({ kind: 'shape', param: 'prompt', value: params.prompt, message: 'Prompt is required and must be a string' });
+  } else {
+    const max = constraints?.promptMaxLength ?? PROMPT_MAX_LENGTH;
+    if (params.prompt.length > max) {
+      violations.push({ kind: 'shape', param: 'prompt', value: params.prompt.length, message: `Prompt exceeds maximum length of ${max} characters` });
+    }
+  }
+  if (params.aspectRatio !== undefined && !ASPECT_RATIO_SHAPE.test(String(params.aspectRatio))) {
+    violations.push({ kind: 'shape', param: 'aspectRatio', value: params.aspectRatio, message: `Invalid aspect ratio '${params.aspectRatio}': expected W:H, e.g. '16:9'` });
+  }
+  if (params.imageSize !== undefined && !IMAGE_SIZE_SHAPE.test(String(params.imageSize))) {
+    violations.push({ kind: 'shape', param: 'imageSize', value: params.imageSize, message: `Invalid imageSize '${params.imageSize}': expected e.g. '512', '1K', '2K', '4K' (uppercase K)` });
+  }
+  (params.inputImages ?? []).forEach((image, i) => {
+    if (!image || typeof image.mimeType !== 'string' || !IMAGE_MIME_SHAPE.test(image.mimeType)) {
+      violations.push({ kind: 'shape', param: `inputImages[${i}].mimeType`, value: image?.mimeType, message: `Input image ${i + 1} has an invalid mimeType '${image?.mimeType}'` });
+    }
+    if (!image || typeof image.data !== 'string' || image.data.length === 0) {
+      violations.push({ kind: 'shape', param: `inputImages[${i}].data`, value: undefined, message: `Input image ${i + 1} has no data` });
+    }
+  });
+
+  if (!constraints) return violations;
+
+  // ---- capability: known ids only ----
+  if (params.aspectRatio !== undefined && constraints.aspectRatios && ASPECT_RATIO_SHAPE.test(String(params.aspectRatio))
+      && !constraints.aspectRatios.includes(params.aspectRatio as AspectRatio)) {
+    violations.push({
+      kind: 'capability', param: 'aspectRatio', value: params.aspectRatio, allowed: constraints.aspectRatios,
+      message: `Invalid aspect ratio '${params.aspectRatio}'. Must be one of: ${constraints.aspectRatios.join(', ')}`,
+    });
+  }
+  if (params.imageSize !== undefined && IMAGE_SIZE_SHAPE.test(String(params.imageSize))) {
+    if (!constraints.imageSizes) {
+      violations.push({ kind: 'capability', param: 'imageSize', value: params.imageSize, message: `${model} does not accept imageSize` });
+    } else if (!constraints.imageSizes.includes(params.imageSize)) {
+      violations.push({
+        kind: 'capability', param: 'imageSize', value: params.imageSize, allowed: constraints.imageSizes,
+        message: `Invalid imageSize '${params.imageSize}' for ${model}. Must be one of: ${constraints.imageSizes.join(', ')}`,
+      });
+    }
+  }
+  const inputs = params.inputImages ?? [];
+  if (constraints.inputImagesMax !== undefined && inputs.length > constraints.inputImagesMax) {
+    violations.push({
+      kind: 'capability', param: 'inputImages', value: inputs.length,
+      message: `${model} accepts at most ${constraints.inputImagesMax} input image${constraints.inputImagesMax === 1 ? '' : 's'}; got ${inputs.length}`,
+    });
+  }
+  inputs.forEach((image, i) => {
+    if (image && typeof image.mimeType === 'string' && IMAGE_MIME_SHAPE.test(image.mimeType)
+        && !SUPPORTED_IMAGE_MIME_TYPES.includes(image.mimeType)) {
+      violations.push({
+        kind: 'capability', param: `inputImages[${i}].mimeType`, value: image.mimeType, allowed: SUPPORTED_IMAGE_MIME_TYPES,
+        message: `Input image ${i + 1} type '${image.mimeType}' is not supported. Must be one of: ${SUPPORTED_IMAGE_MIME_TYPES.join(', ')}`,
+      });
+    }
+  });
+  if (isKnownImageModel(model) && params.numberOfImages !== undefined && params.numberOfImages !== 1) {
+    violations.push({
+      kind: 'capability', param: 'numberOfImages', value: params.numberOfImages, allowed: [1],
+      message: 'Gemini generates one image per request; call again for more.',
+    });
+  }
+  return violations;
 }
 
 /**
- * Validate model-specific parameters before making API calls.
- * Catches invalid parameters early to save API credits.
+ * Validate image-generation parameters, throwing on the first violation.
+ * Same contract as 1.x — throws before any API call — now as `ValidationError`
+ * (an `Error`). Unlike 1.x, an id with no constraint entry is not rejected: it
+ * gets shape checks only (spec D3).
  *
- * @param model - Model name (e.g., 'gemini-2.5-flash-image')
+ * @param model - Model id (e.g. 'gemini-3.1-flash-image')
  * @param params - Parameters to validate
- * @throws Error if validation fails
+ * @throws ValidationError if any shape or capability rule fails
  *
  * @example
- * validateModelParams('gemini-2.5-flash-image', { prompt: 'a cat', aspectRatio: '1:1' });
- * validateModelParams('gemini-2.5-flash-image', { prompt: 'a dog', aspectRatio: '16:9' });
+ * validateModelParams('gemini-3.1-flash-image', { prompt: 'a cat', aspectRatio: '1:1' });
  */
 export function validateModelParams(model: string, params: ModelValidationParams): void {
-  const constraints = MODEL_CONSTRAINTS[model] as ModelConstraint | undefined;
-  if (!constraints) {
-    const validModels = Object.keys(MODEL_CONSTRAINTS).join(', ');
-    throw new Error(`Unknown model: ${model}. Valid models: ${validModels}`);
-  }
-
-  // Validate prompt
-  if (!params.prompt || typeof params.prompt !== 'string') {
-    throw new Error('Prompt is required and must be a string');
-  }
-
-  if (constraints.promptMaxLength && params.prompt.length > constraints.promptMaxLength) {
-    throw new Error(`Prompt exceeds maximum length of ${constraints.promptMaxLength} characters`);
-  }
-
-  // Validate aspect ratio (if provided)
-  if (
-    params.aspectRatio &&
-    constraints.aspectRatios &&
-    !constraints.aspectRatios.includes(params.aspectRatio as AspectRatio)
-  ) {
-    throw new Error(
-      `Invalid aspect ratio '${params.aspectRatio}'. Must be one of: ${constraints.aspectRatios.join(', ')}`
-    );
-  }
-
-  // Model-specific validation
-  if (model === MODELS.GEMINI || model === MODELS.GEMINI_3_PRO) {
-    // Validate input images count
-    if (
-      params.inputImages &&
-      constraints.inputImagesMax &&
-      params.inputImages.length > constraints.inputImagesMax
-    ) {
-      throw new Error(`Gemini supports maximum ${constraints.inputImagesMax} input image`);
-    }
-
-    // numberOfImages is not supported by Gemini
-    if (params.numberOfImages !== undefined && params.numberOfImages !== 1) {
-      throw new Error('Gemini generates one image per request; call again for more.');
-    }
-  }
+  const violations = getModelViolations(model, params);
+  if (violations.length > 0) throw new ValidationError(violations);
 }
 
 /**
@@ -319,14 +428,10 @@ export function validateModelParams(model: string, params: ModelValidationParams
  * detectGeminiMode([image1]); // 'image-to-image' or 'semantic-masking'
  */
 export function detectGeminiMode(inputImages: InlineData[] = []): GeminiMode {
-  if (inputImages.length === 0) {
-    return GEMINI_MODES.TEXT_TO_IMAGE;
-  } else if (inputImages.length === 1) {
-    // Note: Semantic masking and image-to-image use the same API
-    // The distinction is in the prompt (editing vs transforming)
-    return GEMINI_MODES.IMAGE_TO_IMAGE;
-  }
-  throw new Error('Gemini supports maximum 1 input image');
+  // Mode only. The input-image count is a per-model capability, checked by
+  // getModelViolations; 1.x threw here on more than one image (spec §6).
+  // Semantic masking and image-to-image use the same API; the prompt decides.
+  return inputImages.length === 0 ? GEMINI_MODES.TEXT_TO_IMAGE : GEMINI_MODES.IMAGE_TO_IMAGE;
 }
 
 // ============================================================================

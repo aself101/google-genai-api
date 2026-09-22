@@ -51,13 +51,15 @@ Companion to [`google-genai-api-2.0-spec-v0_4_2.md`](./google-genai-api-2.0-spec
 - [x] **Found in P2:** `src/`, `test/` and `package.json` use CRLF; a Python text-mode rewrite silently converts to LF (whole-file diffs). P1's `package.json` rewrite had done exactly that — restored here. All edits now read/write with `newline=''`. `package-lock.json` is LF because npm 11 writes it so; not fought
 
 ## P3a — catalog, validation (~200 src + 160 test)
-- [ ] Catalog current-only: `MODELS` (no `GEMINI`, no `IMAGEN`), `DEFAULT_IMAGE_MODEL`, `MODEL_CONSTRAINTS` (additive), `ASPECT_RATIOS`, `IMAGE_SIZES`, `SUPPORTED_IMAGE_MIME_TYPES`
-- [ ] D3 passthrough, all params sent (V6 + both mutations)
-- [ ] `src/errors.ts` (leaf): `ValidationError`, `Violation`; `getModelViolations` (shape/capability); `validateModelParams` still throws; `isKnownImageModel`
-- [ ] Constraint types kept field-for-field; `imageSizes` added; `'gemini-2.5-flash'` entry kept
-- [ ] Both clients: `new GoogleGenAI({ apiKey, vertexai: false })`
-- [ ] Violations checked in `generateWithGemini` before the sanitizing try; `capabilityValidation: 'error' | 'warn'`; `detectGeminiMode` + mode-bypass fixed
-- [ ] 17 `validateModelParams` test sites rewritten for the new constraint shape
+- [x] Catalog current-only: `MODELS` = 3.1 Flash, 3.1 Flash Lite, 3 Pro, video; `DEFAULT_IMAGE_MODEL`; `MODEL_CONSTRAINTS` keys = exactly `Object.values(MODELS)` (tested); `ASPECT_RATIOS` 14; `IMAGE_SIZES`; `SUPPORTED_IMAGE_MIME_TYPES`
+- [x] D3 passthrough, all params sent — V6 tests + mutation controls, each turned the suite red then restored (2026-09-22): M1 restore 1.x unknown-model throw → 4 failed; M2 drop images for unknown ids → 1 failed; M3 skip validation when `mode` supplied (1.x bypass) → 1 failed
+- [x] `src/errors.ts` (leaf, imports nothing): `ValidationError`, `Violation`; `getModelViolations` (shape/capability; malformed values reported once, as shape); `validateModelParams` still throws; `isKnownImageModel`, `isKnownVeoModel` (own-property check — `'toString'` is not a model)
+- [x] Constraint types kept field-for-field; `imageSizes` added; `'gemini-2.5-flash'` entry kept (tested)
+- [x] All three clients (image, Veo, video): `new GoogleGenAI({ apiKey, vertexai: false })` — asserted on the image client's constructor call
+- [x] Violations checked in `generateWithGemini` before the sanitizing try (test: ValidationError text survives `NODE_ENV=production`); `capabilityValidation` 3rd ctor arg; `detectGeminiMode` no count throw; mode bypass closed. `imageSize` is validated but **not yet** a `generateWithGemini` param — it arrives with its wire mapping in P3b (a validated-then-dropped param would be §1.4 again)
+- [x] Validation tests rewritten; 15 test references to the removed `MODELS.GEMINI` found by the test typecheck (they still *passed*, silently testing the unknown-id path) and replaced. Tests 326 → **352**; test-typecheck backlog 33 → 31
+- [x] CLI (pulled forward from P5 because P3a would otherwise break it): `--gemini` → `DEFAULT_IMAGE_MODEL`, help text per D8; pre-flight validates the real decoded input image, not 1.x's `{ data: '' }` placeholder
+- [x] **V19 now passes live**: `check:lifecycle` → 6 catalog ids, all "No shutdown date announced" (exit 0)
 
 ## P3b — request shape, errors, wire tests (~200 src + 150 test)
 - [ ] `imageConfig` / `responseModalities`, no casts, no aspect default (V4 + mutation)

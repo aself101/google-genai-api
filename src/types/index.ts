@@ -37,15 +37,43 @@ export interface GoogleGenAIVeoApiOptions {
   logLevel?: string;
 }
 
+/**
+ * Third constructor argument of `GoogleGenAIAPI` and `GoogleGenAIVeoAPI`.
+ */
+export interface GoogleGenAIClientOptions {
+  /**
+   * What to do when a known model's constraint table rejects a parameter
+   * (a `capability` violation). `'error'` (default) throws `ValidationError`
+   * before any network call; `'warn'` logs each violation and sends the request
+   * anyway — for when the vendor accepts something the table does not know yet.
+   * Shape violations always throw.
+   */
+  capabilityValidation?: 'error' | 'warn';
+}
+
 // ==================== MODEL TYPES ====================
 
 /**
  * Gemini model identifiers.
  */
 export type GeminiModel =
-  | 'gemini-2.5-flash-image'
-  | 'gemini-3-pro-image-preview'
+  | 'gemini-3.1-flash-image'
+  | 'gemini-3.1-flash-lite-image'
+  | 'gemini-3-pro-image'
   | 'gemini-2.5-flash';
+
+/**
+ * Gemini image-generation model identifiers this package catalogs
+ * (current models only — spec D2).
+ */
+export type GeminiImageModel = Exclude<GeminiModel, 'gemini-2.5-flash'>;
+
+/**
+ * Any image model id. Known ids autocomplete; any other string is accepted and
+ * sent without capability validation (spec D3), so a model Google releases
+ * after this package does, or a retired id Google still serves, stays usable.
+ */
+export type ImageModelId = GeminiModel | (string & {});
 
 /**
  * Veo model identifiers.
@@ -58,7 +86,8 @@ export type VeoModel =
  * All supported models.
  */
 export interface Models {
-  GEMINI: GeminiModel;
+  GEMINI_3_1_FLASH: GeminiModel;
+  GEMINI_3_1_FLASH_LITE: GeminiModel;
   GEMINI_3_PRO: GeminiModel;
   GEMINI_VIDEO: GeminiModel;
 }
@@ -76,7 +105,28 @@ export interface VeoModels {
 /**
  * Image aspect ratios for Gemini image models.
  */
-export type AspectRatio = '1:1' | '3:4' | '4:3' | '9:16' | '16:9';
+export type AspectRatio =
+  | '1:1'
+  | '3:2'
+  | '2:3'
+  | '3:4'
+  | '4:3'
+  | '4:5'
+  | '5:4'
+  | '9:16'
+  | '16:9'
+  | '21:9'
+  | '1:4'
+  | '4:1'
+  | '1:8'
+  | '8:1'
+  | (string & {});
+
+/**
+ * Gemini image output sizes (`imageConfig.imageSize`). Uppercase K; `'512'` is
+ * the 3.1 Flash half-K tier. Which sizes a model accepts is in its constraint.
+ */
+export type ImageSize = '512' | '1K' | '2K' | '4K' | (string & {});
 
 /**
  * Veo video aspect ratios.
@@ -187,12 +237,12 @@ export interface FileData {
 export interface GeminiGenerateParams {
   /** Generation or editing prompt */
   prompt: string;
-  /** Input images for editing (max 1) */
+  /** Input images for editing / reference (per-model limit: `MODEL_CONSTRAINTS[model].inputImagesMax`) */
   inputImages?: InlineData[];
   /** Aspect ratio */
   aspectRatio?: AspectRatio;
-  /** Model to use */
-  model?: GeminiModel;
+  /** Model to use (default `DEFAULT_IMAGE_MODEL`); unknown ids pass through with a warning */
+  model?: ImageModelId;
   /** Override auto-detection mode */
   mode?: GeminiMode;
 }
@@ -498,6 +548,8 @@ export interface VeoModelInfo {
 export interface ModelConstraint {
   /** Supported aspect ratios */
   aspectRatios?: AspectRatio[];
+  /** Accepted `imageSize` values; `null`/absent means the model does not take the parameter */
+  imageSizes?: ImageSize[] | null;
   /** Maximum prompt length */
   promptMaxLength?: number;
   /** Number of images constraints (1.x field, kept for compatibility; no current model sets it) */
@@ -659,6 +711,8 @@ export interface ModelValidationParams {
   prompt: string;
   /** Aspect ratio */
   aspectRatio?: string;
+  /** Output image size (`'512'`, `'1K'`, `'2K'`, `'4K'`) */
+  imageSize?: string;
   /** Number of images — Gemini generates one per request; any other value is rejected */
   numberOfImages?: number;
   /** Input images (Gemini) */

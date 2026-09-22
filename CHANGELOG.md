@@ -4,12 +4,25 @@
 
 ### Added
 
+- **Current Gemini image models:** `gemini-3.1-flash-image` (`MODELS.GEMINI_3_1_FLASH`), `gemini-3.1-flash-lite-image` (`MODELS.GEMINI_3_1_FLASH_LITE`) and `gemini-3-pro-image` (GA), each with its own constraint entry: aspect ratios, `imageSizes`, and up to 14 input images.
+- `DEFAULT_IMAGE_MODEL` (`gemini-3.1-flash-image`), `IMAGE_SIZES`, `SUPPORTED_IMAGE_MIME_TYPES`; `ASPECT_RATIOS` grows from 5 to 14 values (the ten every model accepts, plus `1:4`, `4:1`, `1:8`, `8:1` on the 3.1 models).
+- `ValidationError` (extends `Error`; `violations` lists every problem) and `getModelViolations(model, params)`, which returns violations instead of throwing. Each is tagged `shape` (malformed — always enforced) or `capability` (the model's constraint table says no).
+- A third constructor argument, `{ capabilityValidation: 'error' | 'warn' }`. `'warn'` logs a capability violation and sends the request anyway, for when Google accepts something the table does not know yet. Shape violations always throw.
+- `isKnownImageModel(id)` and `isKnownVeoModel(id)` type guards.
 - `npm run check:lifecycle` — fails if any cataloged model has an announced shutdown on Google's deprecations page, or is missing from it. `--control` proves it can fail against the 1.x catalog.
 - `npm run check:release`, run by `prepublishOnly`: CHANGELOG heading for the version, empty `[Unreleased]`, fresh build, tarball contents, lifecycle.
 - CI on push and pull request (Node 20, 22, 24): typecheck, build, test, production audit, pack check. A weekly workflow runs the suite against the newest `@google/genai` 2.x and the lifecycle check, and opens an issue when either fails.
 
 ### Changed
 
+- **Default image model is `gemini-3.1-flash-image`** (was `gemini-2.5-flash-image`, which Google shuts down on 2026-10-02). Callers that relied on the implicit default get the new model.
+- **`generateWithGemini()` now validates parameters before calling the API** — shape rules for every model, and the constraint table for known models. 1.x never validated in the library, only in the CLI.
+- **Model ids this package does not know are sent, not rejected.** They get a one-time warning per client and shape checks only; every parameter the caller passed is sent. `validateModelParams()` no longer throws for an unknown id. This keeps new Google models, and retired ids Google still serves, usable without a release.
+- `validateModelParams()` keeps its throwing contract, now throwing `ValidationError` (an `Error`, with the same messages 1.x used for the rules 1.x had). It also now rejects input images with empty `data` or a malformed `mimeType`, and an `aspectRatio`/`imageSize` that is not well-formed, for every model.
+- `detectGeminiMode()` no longer throws on more than one input image; how many a model takes is its `inputImagesMax` (up to 14).
+- `MODELS.GEMINI_3_PRO` is now `'gemini-3-pro-image'` (GA), not the preview id.
+- The SDK client is pinned to the Gemini Developer API (`vertexai: false`) in all three clients. Before, `GOOGLE_GENAI_USE_VERTEXAI` or `GOOGLE_GENAI_USE_ENTERPRISE` in the environment would move requests to a different endpoint and serializer.
+- CLI: `--gemini` uses `gemini-3.1-flash-image`; `--gemini-3-pro` uses `gemini-3-pro-image`.
 - **Node.js ≥ 20 is required** (was ≥ 18). `@google/genai` has required Node 20 since its 1.0.1, so the 1.x `engines` field already understated it.
 - `@google/genai` `^1.30.0` → `^2.24.0`. SDK 2.0's breaking changes are confined to its Interactions API; this package needed no source change for it.
 
@@ -17,7 +30,13 @@
 
 - **Imagen.** Google shut the Imagen family down on 2026-08-17 (the endpoints return 404; verified 2026-09-22). Removed: `generateWithImagen()`, `extractImagenImages()`, `MODELS.IMAGEN`, the `imagen-4.0-generate-001` entry in `MODEL_CONSTRAINTS`, the `Imagen*` types, and the CLI's `--imagen` and `-n/--number-of-images`. Google's replacement is `gemini-3.1-flash-image` via `generateWithGemini()` — one image per call.
 - **Veo 3.0 and Veo 2.** Shut down 2026-06-30 (404). Removed: `VEO_MODELS.VEO_3`, `VEO_3_FAST`, `VEO_2`, their `VEO_DURATIONS` and `VEO_MODEL_CONSTRAINTS` entries, and duration `'5'` from `VeoDuration` (Veo 2 only). Use `VEO_MODELS.VEO_3_1` / `VEO_3_1_FAST`.
+- **`gemini-2.5-flash-image`, `gemini-3-pro-image-preview` and `gemini-3.1-flash-image-preview` leave the catalog**, with `MODELS.GEMINI` (which pointed at `gemini-2.5-flash-image`) and their `MODEL_CONSTRAINTS` entries. The package now catalogs only models with no announced shutdown. The ids still work — pass them as `model` and they are sent with a warning, for as long as Google serves them. `MODELS.GEMINI` was removed rather than pointed at a new model, so code that used it fails visibly instead of silently switching models. `MODEL_CONSTRAINTS` is string-keyed: a lookup of a removed id compiles and returns `undefined` — check `isKnownImageModel()` first.
 - semantic-release and its release workflow. Releases are published by hand, gated by `check:release`.
+
+### Fixed
+
+- `generateWithGemini()` skipped its input-image count check whenever the caller passed `mode`; the check now always runs.
+- CLI: pre-flight validation used a placeholder input image; it now validates the real decoded image.
 
 ### Security
 

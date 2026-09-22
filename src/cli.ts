@@ -30,6 +30,7 @@ import {
   validateVideoParams,
   validateVeoParams,
   MODELS,
+  DEFAULT_IMAGE_MODEL,
   DEFAULT_OUTPUT_DIR,
   ASPECT_RATIOS,
   VIDEO_MIME_TYPES,
@@ -287,8 +288,8 @@ program
 
 // Model selection flags
 program
-  .option('--gemini', 'Use Gemini 2.5 Flash Image model')
-  .option('--gemini-3-pro', 'Use Gemini 3 Pro Image Preview model')
+  .option('--gemini', `Image generation/editing (model: ${DEFAULT_IMAGE_MODEL})`)
+  .option('--gemini-3-pro', `Image generation/editing with ${MODELS.GEMINI_3_PRO}`)
   .option('--video', 'Analyze video content (requires --input-video)')
   .option('--veo', 'Generate video with Veo 3.1 models');
 
@@ -726,7 +727,7 @@ async function main(): Promise<void> {
     const api = new GoogleGenAIAPI(apiKey, options.logLevel);
 
     // Determine model
-    const model: string = options.gemini3Pro ? MODELS.GEMINI_3_PRO : MODELS.GEMINI;
+    const model: string = options.gemini3Pro ? MODELS.GEMINI_3_PRO : DEFAULT_IMAGE_MODEL;
     const modelDir = model; // Use model name as directory
 
     logger.info(`Processing ${prompts.length} prompt(s) with ${model}`);
@@ -737,19 +738,6 @@ async function main(): Promise<void> {
 
       logger.info(`\nProcessing prompt ${i + 1}/${prompts.length}: "${prompt}"`);
 
-      // Pre-flight validation
-      const validationParams = {
-        prompt,
-        aspectRatio: options.aspectRatio,
-        inputImages: options.inputImage ? [{ mimeType: 'image/png', data: '' }] : [],
-      };
-
-      validateModelParams(model, validationParams);
-
-      // Route to appropriate API method
-      let parts: GeminiPart[] = [];
-
-      // Gemini generation (gemini-2.5-flash-image or gemini-3-pro-image-preview)
       // Convert input images to inlineData format if provided
       const inputImages = [];
       if (options.inputImage) {
@@ -757,6 +745,12 @@ async function main(): Promise<void> {
         const inlineData = await imageToInlineData(options.inputImage);
         inputImages.push(inlineData);
       }
+
+      // Pre-flight validation on the real inputs (the shape rules reject the
+      // empty placeholder 1.x passed here)
+      validateModelParams(model, { prompt, aspectRatio: options.aspectRatio, inputImages });
+
+      let parts: GeminiPart[] = [];
 
       logger.info(`Generating with ${model} (inputImages: ${inputImages.length})`);
 

@@ -9,10 +9,11 @@
 
 import { GoogleGenAI } from '@google/genai';
 import winston from 'winston';
-import { redactApiKey, MODELS, detectGeminiMode } from './config.js';
+import { redactApiKey, DEFAULT_IMAGE_MODEL, MODEL_CONSTRAINTS, detectGeminiMode, getModelViolations } from './config.js';
+import { ValidationError } from './errors.js';
 import type {
-  GeminiModel,
   GeminiMode,
+  GoogleGenAIClientOptions,
   GeminiPart,
   GeminiResponse,
   GeminiGenerateParams,
@@ -32,26 +33,35 @@ export class GoogleGenAIAPI {
   private client: GoogleGenAI;
   private apiKey: string;
   private logger: winston.Logger;
+  private capabilityValidation: 'error' | 'warn';
+  /** Unknown model ids already warned about by this instance (spec D3: once per id). */
+  private warnedUnknownModels = new Set<string>();
 
   /**
    * Create a new Google GenAI API client.
    *
    * @param apiKey - Google GenAI API key
    * @param logLevel - Logging level (debug, info, warn, error)
+   * @param options - `capabilityValidation: 'warn'` to log, not throw, when a
+   *   known model's constraint table rejects a parameter
    * @throws Error if API key is not provided
    *
    * @example
    * const api = new GoogleGenAIAPI('AIzaSy...');
    * const api = new GoogleGenAIAPI('AIzaSy...', 'debug');
+   * const api = new GoogleGenAIAPI('AIzaSy...', 'info', { capabilityValidation: 'warn' });
    */
-  constructor(apiKey: string, logLevel = 'info') {
+  constructor(apiKey: string, logLevel = 'info', options: GoogleGenAIClientOptions = {}) {
     if (!apiKey) {
       throw new Error('API key is required');
     }
 
-    // Initialize Google GenAI client
-    this.client = new GoogleGenAI({ apiKey });
+    // Pinned to the Gemini Developer API: without `vertexai: false` the SDK
+    // switches to Vertex/Enterprise when GOOGLE_GENAI_USE_VERTEXAI or
+    // GOOGLE_GENAI_USE_ENTERPRISE is set in the environment (spec D5).
+    this.client = new GoogleGenAI({ apiKey, vertexai: false });
     this.apiKey = apiKey;
+    this.capabilityValidation = options.capabilityValidation ?? 'error';
 
     // Configure logger
     this.logger = winston.createLogger({
@@ -116,10 +126,16 @@ export class GoogleGenAIAPI {
    *
    * Mode is automatically detected:
    * - No input images: Text-to-image
-   * - One input image: Image-to-image or semantic masking
+   * - One or more input images: Image-to-image or semantic masking
+   *
+   * Parameters are checked before any network call: shape rules always, and a
+   * known model's constraint table (throws, or warns under
+   * `capabilityValidation: 'warn'`). An id this package does not catalog is
+   * sent with a one-time warning (spec D3).
    *
    * @param params - Generation parameters
    * @returns Response object with parts array
+   * @throws ValidationError if parameters are rejected (before any API call)
    * @throws Error if generation fails
    *
    * @example
@@ -139,7 +155,7 @@ export class GoogleGenAIAPI {
    * // Using Gemini 3 Pro
    * const response = await api.generateWithGemini({
    *   prompt: 'A futuristic cityscape',
-   *   model: 'gemini-3-pro-image-preview'
+   *   model: 'gemini-3-pro-image'
    * });
    */
   async generateWithGemini(params: GeminiGenerateParams): Promise<GeminiResponse> {
@@ -149,11 +165,17 @@ export class GoogleGenAIAPI {
       prompt,
       inputImages = [],
       aspectRatio = '1:1',
-      model = MODELS.GEMINI as GeminiModel,
+      model = DEFAULT_IMAGE_MODEL,
       mode,
     } = params;
 
-    // Detect or use provided mode
+    // Validate before the try below, so a ValidationError reaches the caller
+    // intact rather than through production error sanitization (spec D5).
+    // Only caller-supplied values are checked — not the defaults above.
+    this._checkParams(model, { prompt, aspectRatio: params.aspectRatio, inputImages });
+
+    // Detect or use provided mode. The image count was already validated above,
+    // whether or not the caller supplied `mode` (1.x skipped the check then).
     const detectedMode: GeminiMode = mode || detectGeminiMode(inputImages);
 
     this.logger.info(
@@ -194,6 +216,25 @@ export class GoogleGenAIAPI {
 
       throw error;
     }
+  }
+
+  /**
+   * Apply spec D3/D5: warn once per unknown model id; throw on shape
+   * violations; throw or warn on capability violations per
+   * `capabilityValidation`.
+   * @private
+   */
+  private _checkParams(model: string, params: Parameters<typeof getModelViolations>[1]): void {
+    if (!Object.prototype.hasOwnProperty.call(MODEL_CONSTRAINTS, model) && !this.warnedUnknownModels.has(model)) {
+      this.warnedUnknownModels.add(model);
+      this.logger.warn(`Model '${model}' is not in this package's catalog; sending without capability validation`);
+    }
+    const violations = getModelViolations(model, params);
+    const shape = violations.filter((v) => v.kind === 'shape');
+    if (shape.length > 0) throw new ValidationError(shape);
+    if (violations.length === 0) return;
+    if (this.capabilityValidation === 'error') throw new ValidationError(violations);
+    for (const v of violations) this.logger.warn(`${v.message} (sending anyway: capabilityValidation is 'warn')`);
   }
 
   /**

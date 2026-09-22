@@ -71,7 +71,8 @@ export class GoogleGenAIVideoAPI {
     }
 
     this.apiKey = apiKey;
-    this.client = new GoogleGenAI({ apiKey });
+    // Pinned to the Gemini Developer API (spec D5; see api.ts).
+    this.client = new GoogleGenAI({ apiKey, vertexai: false });
     this.model = MODELS.GEMINI_VIDEO;
 
     // Configure logger
