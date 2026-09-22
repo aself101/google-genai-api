@@ -2,18 +2,18 @@
 
 | | |
 |---|---|
-| Version | v0.4.0 (revised after pre-implementation run #3) |
+| Version | v0.4.1 (catalog policy from Alex; architect run #4 fixes) |
 | Date | 2026-09-22 |
 | Target repo | `misc/npm-packages/google-genai-api`, branch `release/2.0` |
 | From → To | 1.3.0 (`3e52d92`, `master`) → 2.0.0 |
 | Decision owner | Alex |
-| Settled decisions | Omni Flash + Lyria out of scope (separate releases); drop semantic-release; rename `master` → `main` (both 2026-09-22) |
+| Settled decisions | Omni Flash + Lyria out of scope (separate releases); drop semantic-release; rename `master` → `main`; **catalog lists current models only — any model with an announced shutdown is dropped from the package** (all Alex, 2026-09-22) |
 | Ship target | When the gates pass; **ideally** before 2026-10-02. That date kills the 1.x default model for every 1.x caller whether or not 2.0 exists — 2.0 is their upgrade path, not a fix they receive automatically — so it motivates shipping promptly but does not justify shortcutting a gate (run #3 A14). |
 | Consumers | Unknown npm users (28 downloads/week, ~2,100/year, npm API 2026-09-22; control: a nonexistent package returns "not found") — the reason for semver discipline. darkroom is Alex's personal, unreleased app and serves as the live test bed, not a production consumer. |
 | Companion | [`google-genai-api-2.0-checklist.md`](./google-genai-api-2.0-checklist.md) |
 | Vendor source | `docs/api/*.md` — raw `.md.txt` snapshots of ai.google.dev pages + js-genai `CHANGELOG.md`, fetched 2026-09-22 |
 | Live evidence | `docs/specs/probes-2026-09-22.jsonl` (raw), summarized in §1.2 and the checklist |
-| Review record | run #1: architect 67 REVISE · docs 56 · assumptions 81 · 44 issues (§13). run #2: architect 83 REVISE (AF-006) · docs 71 · assumptions 81 · 41 issues (§13b). run #3: architect 83 REVISE (AF-006) · docs 73 · assumptions 82 · 38 issues (§13c). Tracker project `google-genai-api`. |
+| Review record | run #1: architect 67 REVISE · docs 56 · assumptions 81 · 44 issues (§13). run #2: architect 83 REVISE (AF-006) · docs 71 · assumptions 81 · 41 issues (§13b). run #3: architect 83 REVISE (AF-006) · docs 73 · assumptions 82 · 38 issues (§13c). run #4 (architect only): 88 REVISE (AF-006, narrow) · 14 issues (§13d). Tracker project `google-genai-api`. |
 | Tags | **[LIVE]** observed against the real API on this date · **[DOC]** vendor docs snapshot · **[VERIFY]** unresolved; the named check settles it |
 
 ## 0. Summary
@@ -106,9 +106,8 @@ State as re-read 2026-09-22 after the handoff (run #3 A5 — v0.3.0's citations 
 | `gemini-3.1-flash-image` | Stable | STD + `1:4`,`4:1`,`1:8`,`8:1` | `512`, `1K`, `2K`, `4K` [LIVE 512, 2K] | 14 [LIVE 3] | if requested (thinking deferred, D11) |
 | `gemini-3.1-flash-lite-image` | Stable | STD + extended [LIVE `1:4`] | `1K` only [LIVE 2K → 400] | 14 [DOC] | same |
 | `gemini-3-pro-image` | Stable | STD | `1K`, `2K`, `4K` | 14 | always thinks; interim thought images possible [DOC] |
-| `gemini-2.5-flash-image` | shutdown 2026-10-02 | STD | none (fixed ~1024px) | 3 recommended | none |
-| `gemini-3-pro-image-preview` | past shutdown, live | as `gemini-3-pro-image` | | | |
-| `gemini-3.1-flash-image-preview` | past shutdown, live | as `gemini-3.1-flash-image` | | | |
+| *(not cataloged — D2)* `gemini-2.5-flash-image` | shutdown 2026-10-02 | STD | none | 3 recommended | none |
+| *(not cataloged — D2)* `gemini-3-pro-image-preview`, `gemini-3.1-flash-image-preview` | past shutdown 2026-06-25, still live | — | | | |
 
 STD = `1:1`, `3:2`, `2:3`, `3:4`, `4:3`, `4:5`, `5:4`, `9:16`, `16:9`, `21:9`. `imageSize` values are uppercase-K strings plus `'512'` [LIVE]. Output count is not a parameter ("the model won't always follow the exact number"). Responses: `candidates[0].content.parts`; images in `inlineData`; thought parts carry `thought: true`; `finishReason` other than `STOP` (e.g. `IMAGE_SAFETY`) can leave zero image parts.
 
@@ -141,8 +140,8 @@ No shutdown announced for any 3.1 preview. All three are preview-class; Google n
 | Unknown Veo model throws in validation | `config.ts:722-725` | **changed** to passthrough (D3) |
 | `getModelInfo(unknown)` throws | `veo-api.ts:700-702` | **kept**; `isKnownVeoModel` / `isKnownImageModel` added (D3) |
 | `new GoogleGenAI({ apiKey })` | `api.ts:56`; `veo-api.ts:88`; `video-api.ts:74` | **pinned** `vertexai: false` (D5) |
-| `MODELS.GEMINI` (`gemini-2.5-flash-image`) | `config.ts:58` | kept; deprecated tier |
-| `MODELS.GEMINI_3_PRO` (`gemini-3-pro-image-preview`) | `config.ts:59` | key kept, **value → `gemini-3-pro-image`**; preview id kept in catalog, deprecated tier (D2) |
+| `MODELS.GEMINI` (`gemini-2.5-flash-image`) | `config.ts:58` | **removed** — model has an announced shutdown (D2); not repointed |
+| `MODELS.GEMINI_3_PRO` (`gemini-3-pro-image-preview`) | `config.ts:59` | key kept, **value → `gemini-3-pro-image`**; the preview id leaves the catalog (D2), still callable via D3 |
 | Model-identity check `model === MODELS.GEMINI \|\| …` | `config.ts:330` | **replaced** by constraint lookup (D5) |
 | `detectGeminiMode` hard >1-image throw | `config.ts:357-366` | **replaced**: returns mode only; count checked in validation, which now runs regardless of a caller-supplied `mode` (`api.ts:160` bypass closed) |
 | `generateWithGemini` never validates | `api.ts:148-200` | **changed**: calls `getModelViolations` before the request (D5) |
@@ -167,24 +166,32 @@ Preserved verbatim: class names, `(apiKey, logLevel)` constructors (a third opti
 
 *Alternative rejected — non-breaking 1.4.0 first (fix + catalog), 2.0 for removals only.* It would let `^1.3.0` consumers pick up the aspect-ratio fix automatically. Rejected: (a) that pickup is a *silent* framing change for every caret consumer, which is exactly the kind of change a major exists to announce; (b) darkroom's exposure is in its own model-id literals (§1.6), which no 1.x release reaches, so darkroom gains nothing from it; (c) two releases inside the 10-day window before 2026-10-02 doubles the release overhead that D10 makes manual.
 
-**D2 — Two-tier retirement.** Confirmed dead (404 [LIVE]) → delete. Announced shutdown but generating [LIVE] → keep in the catalog with full capability validation, listed in `MODEL_DEPRECATIONS: Record<string, { shutdown: string; replacement: string }>`, emit one `logger.warn` per model per client instance, request still sent. Wording is tense-aware: before the date "shuts down on 2026-10-02; use gemini-3.1-flash-image", on/after "was scheduled to shut down on 2026-06-25 and may stop working at any time; use gemini-3-pro-image". Date comparison is in UTC against a `YYYY-MM-DD` string; the clock is an injectable `now: () => Date` (internal, default `() => new Date()`) so tests can pin both tenses.
+**D2 — The catalog lists current models only** (Alex, 2026-09-22: "Any models that will be removed soon, we can drop from the package completely"). A model is in the catalog iff it generates [LIVE] **and** Google's deprecations page shows no shutdown date for it. A model that 404s, or that gains a shutdown date, is removed from the package in the next release — constants, constraints, types, CLI aliases, README. Removal never cuts a caller off early: under D3 the id still passes through with a warning for as long as Google serves it.
 
-Entries at 2.0.0: `gemini-2.5-flash-image` (2026-10-02 → `gemini-3.1-flash-image`), `gemini-3-pro-image-preview` (2026-06-25 → `gemini-3-pro-image`), `gemini-3.1-flash-image-preview` (2026-06-25 → `gemini-3.1-flash-image`) — the previews route here, not to deletion, per V2 [LIVE].
+Applied at 2.0.0 — removed, beyond the 404'd Imagen/Veo 3.0/2.0 surface:
+- `gemini-2.5-flash-image` (shutdown 2026-10-02) — the 1.x default; `MODELS.GEMINI` pointed at it.
+- `gemini-3-pro-image-preview`, `gemini-3.1-flash-image-preview` (shutdown 2026-06-25; still generating 2026-09-22 per V2, and still callable via D3).
 
-*Why not delete everything past its paper date:* openai precedent — "nothing was removed on this package's own initiative"; darkroom's Pro path sends `gemini-3-pro-image-preview` today (§1.6) and it still works. *After a shutdown:* the id stays a known, validated model whose request the API rejects; the vendor error reaches the caller intact (D13) and the warning says why. It is removed in the next release after Google 404s it. *Breaks if:* nobody reads warnings. The warning fires once per model per client instance, and a long-running server that memoizes its client (darkroom, `providers.js:59-60`) emits it once per process — easy to scroll past (run #2 A15). Accepted: the durable signal is the vendor's rejection surfaced per D13 and the README's lifecycle table; the warning is a courtesy, not the mechanism.
+Checked against every remaining catalog id (`docs/api/deprecations.md`, 2026-09-22): `gemini-2.5-flash`, `gemini-3.1-flash-image`, `gemini-3-pro-image`, and all three Veo 3.1 previews show "No shutdown date announced"; `gemini-3.1-flash-lite-image` is not listed. Nothing else is removed.
 
-**D3 — Unknown model ids pass through, for image and video.** Types: `GeminiModel` = the known image-id union, `ImageModelId = GeminiModel | (string & {})`; `VeoModel` = the known Veo union, `VeoModelId = VeoModel | (string & {})`. Tables keyed by known ids stay `Record<GeminiModel | VeoModel, …>` (so `VEO_DURATIONS` etc. do not widen). Unknown id → one `logger.warn` per id per instance ("not in this package's catalog; sending without capability validation"), then only **shape** checks run and every declared parameter is sent.
+**`MODELS.GEMINI` is removed, not repointed.** Repointing it at `gemini-3.1-flash-image` would keep 1.x code compiling while silently changing which model it calls — the semantics-without-signature change this spec has now caught three times. A removed key fails at compile time (TS) or yields `undefined` → the D4 default (JS), and has a §6 row.
+
+*No deprecated tier in 2.0.* v0.1.0–v0.4.0 carried a `MODEL_DEPRECATIONS` table, a warn-once mechanism and an injectable clock for these three models. With the policy above there is nothing to put in the table, so the machinery is not built (−~60 LOC in P3a; V7 retired). How the rule stays true without it: D16.
+
+*Superseded rationale, recorded:* the openai precedent ("nothing was removed on this package's own initiative") was the reason for a deprecated tier. Alex's call replaces it for this package: announced-dead models are not worth catalog surface, and D3 already provides the grace period a deprecated tier existed to give.
+
+**D3 — Unknown model ids pass through, for image and video.** Types: `GeminiModel` = the known image-id union, `ImageModelId = GeminiModel | (string & {})`; `VeoModel` = the known Veo union, `VeoModelId = VeoModel | (string & {})`. Exported tables keep their 1.x index types (`MODEL_CONSTRAINTS`, `VEO_MODEL_CONSTRAINTS` are string-keyed and stay so, §5); only internal lookups narrow with `isKnown*Model` guards. `GeminiModel` becomes the three current image ids plus `gemini-2.5-flash` (1.x had three ids including it, `types/index.ts:45-48`). Unknown id → one `logger.warn` per id per instance ("not in this package's catalog; sending without capability validation"), then only **shape** checks run and every declared parameter is sent.
 
 *Shape* (always enforced, for every id) vs *capability* (known ids only, downgradable by D5's `'warn'`):
 
 | | Shape | Capability |
 |---|---|---|
-| Image | prompt present, ≤ `PROMPT_MAX_LENGTH` (10 000); each input image has `mimeType` in the supported set and non-empty base64 `data`; `aspectRatio` matches `/^\d+:\d+$/`; `imageSize` matches `/^\d+K?$/` (uppercase K; rejects `'2k'`) | ratio ∈ model's list; size ∈ model's list (or param not accepted); input count ≤ `maxInputImages` |
-| Veo | prompt required except extension/interpolation; `image`/`lastFrame`/reference images have `imageBytes`+`mimeType`; `lastFrame` requires `image`; `personGeneration` matches `/^[a-z_]+$/` (membership in the vendor enum is capability — run #3: a closed enum in the always-on tier contradicted the open-shape rule); `durationSeconds` is a numeric string; `resolution` matches `/^\d+(p|k)$/` | aspect ∈ model's list; resolution ∈ model's list; duration ∈ model's list; `durationRequired` per resolution; feature gates (refs, extension, interpolation); reference count; extension 720p-only; `personGeneration` ∈ `VEO_PERSON_GENERATION` |
+| Image | prompt present, ≤ `PROMPT_MAX_LENGTH` (10 000); each input image has a `mimeType` matching `/^image\/[a-z0-9.+-]+$/` and non-empty base64 `data`; `aspectRatio` matches `/^\d+:\d+$/`; `imageSize` matches `/^\d+K?$/` (uppercase K; rejects `'2k'`) | ratio ∈ model's list; size ∈ model's list (or param not accepted); input count ≤ `inputImagesMax`; `mimeType` ∈ `SUPPORTED_IMAGE_MIME_TYPES` (the 1.x set, incl. `image/gif`, which `imageToInlineData` produces); `numberOfImages`, if passed, is `1` (the 1.x Gemini rule, `config.ts:337-340`, kept; `ModelValidationParams.numberOfImages` stays in the type) |
+| Veo | prompt required except extension/interpolation; every image param (`image`, `firstFrame`, `lastFrame`, reference images) has `imageBytes`+`mimeType`; interpolation requires both `firstFrame` and `lastFrame` (the public names, `types/index.ts:265-272` — the builder maps `firstFrame` → the SDK's `image`); `personGeneration` matches `/^[a-z_]+$/` (membership in the vendor enum is capability — run #3: a closed enum in the always-on tier contradicted the open-shape rule); `durationSeconds` is a numeric string; `resolution` matches `/^\d+(p|k)$/` | aspect ∈ model's list; resolution ∈ model's list; duration ∈ model's list; `durationRequired` per resolution; feature gates (refs, extension, interpolation); reference count; extension 720p-only; `personGeneration` ∈ `VEO_PERSON_GENERATION` |
 
 Shape patterns are deliberately open (run #2 A11): a future `8K` or `3:1` passes shape and reaches the vendor, which is the point of passthrough. Types follow: `AspectRatio` and `ImageSize` are known-value unions `| (string & {})`.
 
-**"Sent as-is" means every *declared* parameter is mapped** — nothing declared is dropped for lack of a constraint entry (dropping would recreate §1.4). The bound, stated rather than hidden: the builders map what `GeminiGenerateParams` / `VeoGenerateParams` declare, and the **SDK serializer is itself an allowlist** (§1.5) — so a vendor field this package does not declare cannot be sent in 2.0. It reaches callers when a release declares it (after an SDK minor has learned it).
+**"Sent as-is" means every *declared* parameter is mapped** — nothing declared is dropped for lack of a constraint entry (dropping would recreate §1.4). The one exception is pre-existing and kept: 1.x's per-mode constants — interpolation forces `durationSeconds: 8` and does not send `resolution`/`personGeneration` (`veo-api.ts:405-411`); extension forces 720p/`numberOfVideos: 1` and does not send `aspectRatio`/`durationSeconds`/`personGeneration` (`veo-api.ts:466-473`). These are vendor mode rules, not dropped caller intent; they are listed as constant rows in D12's table and unchanged from 1.x. The bound, stated rather than hidden: the builders map what `GeminiGenerateParams` / `VeoGenerateParams` declare, and the **SDK serializer is itself an allowlist** (§1.5) — so a vendor field this package does not declare cannot be sent in 2.0. It reaches callers when a release declares it (after an SDK minor has learned it).
 
 *v0.3.0 added an `extraConfig` escape hatch here; v0.4.0 removes it* (run #3 A2, architect #5). A merge-last object could replace the validated `imageConfig` (recreating §1.4), override `responseModalities`, bypass Lite's capability gates, reintroduce `thinkingConfig`/`tools` (voiding D11) and `seed` (voiding D15), and set `httpOptions` retries (voiding D12's one-fetch premise). No consumer asked for it; it was scope added to answer a review finding. Removing it closes every one of those at once. Candidate for 2.1 with a collision rule, if a real consumer needs it.
 
@@ -211,7 +218,7 @@ Shape patterns are deliberately open (run #2 A11): a future `8K` or `3:1` passes
 
 *CLI* (run #3 architect #4): the CLI stops calling the throwing validators with placeholder inputs (`cli.ts:791` passes `{ data: '' }`, which the new shape rule rejects). Pre-flight becomes `get*Violations` on the **real** decoded inputs, honoring `--capability-validation`; the clients then run the same check again, which is idempotent.
 
-*Constructor:* `(apiKey?, logLevel?, options?: { capabilityValidation?: 'error' | 'warn' })` on both clients; two-argument calls unchanged. Both pin `new GoogleGenAI({ apiKey, vertexai: false })` (run #3 A6): SDK 2.24 honors `GOOGLE_GENAI_USE_VERTEXAI`/`GOOGLE_GENAI_USE_ENTERPRISE` (`index.mjs:27486-27501`) and 1.30 honors the former (`:17354`), which would silently move a consumer onto a different serializer and endpoint. This package is Gemini-API-only; pinning makes that true rather than environmental. (`GOOGLE_GEMINI_BASE_URL` is left honored — it changes the host, not the protocol.)
+*Constructor:* `(apiKey: string, logLevel = 'info', options?: { capabilityValidation?: 'error' | 'warn' })` on both clients — the 1.x signature with an optional third argument; a missing key still throws "API key is required" (`api.ts:51`, `veo-api.ts:84`). Both pin `new GoogleGenAI({ apiKey, vertexai: false })` (run #3 A6): SDK 2.24 honors `GOOGLE_GENAI_USE_VERTEXAI`/`GOOGLE_GENAI_USE_ENTERPRISE` (`index.mjs:27486-27501`) and 1.30 honors the former (`:17354`), which would silently move a consumer onto a different serializer and endpoint. This package is Gemini-API-only; pinning makes that true rather than environmental. (`GOOGLE_GEMINI_BASE_URL` is left honored — it changes the host, not the protocol.)
 
 *Module graph* (run #3 architect #15): `src/errors.ts` is a leaf — it imports nothing from this package. `config.ts`, `api.ts`, `veo-api.ts` import from it.
 
@@ -267,9 +274,11 @@ Every assertion names its wire path — the list is closed; adding a declared pa
 | (always) | `generationConfig.responseModalities = ['TEXT','IMAGE']` |
 | Veo `model` | URL `…/models/{model}:predictLongRunning` |
 | Veo `prompt` / `image` / `video` (extension) | `instances[0].prompt` / `.image` / `.video` |
+| Veo interpolation `firstFrame` | `instances[0].image` |
 | Veo `lastFrame` / `referenceImages` | `instances[0].lastFrame` / `.referenceImages` |
 | Veo `aspectRatio` / `resolution` / `durationSeconds` / `negativePrompt` / `personGeneration` | `parameters.<same>` (`durationSeconds` numeric) |
-| (internal constant, `extendVideo` only: `numberOfVideos: 1`, `veo-api.ts:471`) | `parameters.sampleCount = 1` |
+| (constant, extension: `numberOfVideos: 1`, 720p; `veo-api.ts:466-473`) | `parameters.sampleCount = 1`, `parameters.resolution = '720p'`; no `aspectRatio`/`durationSeconds`/`personGeneration` |
+| (constant, interpolation: `veo-api.ts:405-411`) | `parameters.durationSeconds = 8`; no `resolution`/`personGeneration` |
 
 Also: unknown image and Veo ids produce the same body shape with the id in the URL (D3); canned 400 (JSON), **400 (`text/html` body)**, 403, 429 responses produce the D13 error shape in production and non-production modes; `GOOGLE_GENAI_USE_VERTEXAI=true` in the environment does not change the URL host (D5 `vertexai: false`).
 
@@ -281,19 +290,26 @@ The existing mocked unit tests remain for logic; wire tests own "does the field 
 
 One shared `toPublicError(err, { surface: 'image' | 'video' })` in `src/errors.ts`, used by both clients:
 
-1. **Extract.** `status` = `err.status` (HTTP); `code` = `err.operationError?.code` (gRPC, Veo operation errors). Parse `err.message` as JSON; the vendor message is `error.message` **only if** `error.status` matches `/^[A-Z][A-Z_]+$/` — a gRPC canonical status (`INVALID_ARGUMENT`, `NOT_FOUND`, …), which the Gemini API always sends and the SDK's non-JSON wrapper never produces (it copies HTTP `statusText`, e.g. `Bad Request`, or `''` on HTTP/2). Otherwise there is no vendor message. `details[]` is never read.
-2. **Classify** — status first, then text (run #3 A8: the 1.x Veo classifier matched words like "blocked"/"policy" before checking status, and would now see `details[]`): 401/403 → `AUTH`; 429 → `TRANSIENT`; 408/5xx → `TRANSIENT`; 400/404/422 → `USER_ACTIONABLE`; then, only on the extracted vendor message (never the raw body), safety terms → `SAFETY_BLOCKED` / `AUDIO_BLOCKED`. Veo polling keeps retrying exactly the `TRANSIENT` class (`veo-api.ts:572-575`).
-3. **Errors with no status** (run #3 A12): `ValidationError` never reaches here (D5). SDK client-side throws (e.g. "…parameter is not supported in Gemini API") carry our/SDK text, no vendor data → message kept in all environments, classification `USER_ACTIONABLE`. `TypeError` from fetch / `AbortError` → `NETWORK` / `TIMEOUT`.
-4. **Message.** Non-production: the original message, unchanged (as 1.x). Production: a category sentence **for the right surface** ("Image generation…" / "Video generation…" — 1.x's Veo sentences said "Video" and would have been wrong on image errors), plus the extracted vendor message (≤300 chars) for `USER_ACTIONABLE` and `SAFETY_*`, plus SDK client-side text. `AUTH` and `TRANSIENT` never include vendor text; they include the HTTP status.
-5. **Properties, every environment:** `status`, `code`, `classification`, `surface`. **`cause`:** non-production only. In production the raw `ApiError` is **not** attached — Node's `util.inspect`/`console.error` print the `[cause]` chain, which would re-expose the full body the message withholds (run #3 architect #3). 1.x production threw a fresh `Error` with no `cause`; that property is preserved.
+1. **Extract.** `status` = `err.status` (HTTP). For Veo **operation** errors (thrown during polling from `operation.error`, `veo-api.ts:555-560` — no HTTP status, message is the operation's own `error.message` field from parsed JSON), `code` = `err.operationError.code` (gRPC numeric) and the vendor message is that field directly. For HTTP errors, parse `err.message` as JSON; the vendor message is `error.message` **only if** `error.status` is one of the 17 gRPC canonical status names (`OK` … `UNAUTHENTICATED`) — which the Gemini API always sends, and which the SDK's non-JSON wrapper (it copies HTTP `statusText`) would match only if a proxy's reason phrase were literally one of those names. Matching the enumerated names, not a pattern (run #4: `BAD_REQUEST` would pass `/^[A-Z][A-Z_]+$/`; it is not a gRPC name). `details[]` is never read.
+2. **Classify** — status/code first, then text. HTTP: 401/403 → `AUTH`; 408/429/5xx → `TRANSIENT`; 400/404/422 → `USER_ACTIONABLE`. gRPC (operation errors): 4 `DEADLINE_EXCEEDED`, 8 `RESOURCE_EXHAUSTED`, 14 `UNAVAILABLE` → `TRANSIENT`; 3 `INVALID_ARGUMENT`, 5 `NOT_FOUND`, 9 `FAILED_PRECONDITION` → `USER_ACTIONABLE`; 7/16 → `AUTH`. Then, only on the extracted vendor message (never a raw body), safety terms → `SAFETY_BLOCKED` / `AUDIO_BLOCKED`.
+3. **Errors with no status or code:** `ValidationError` never reaches here (D5). SDK client-side throws carry SDK text, no vendor data → message kept in all environments, `USER_ACTIONABLE`. Fetch `TypeError` → `NETWORK`; `AbortError` → `TIMEOUT`.
+4. **Retry (Veo polling):** retries `TRANSIENT`, `NETWORK` and `TIMEOUT` — a superset of 1.x, which retried 429/502/503 and network/timeout/ECONNRESET message matches (`veo-api.ts:153-162`); 2.0 adds 408/500/504 and gRPC 4/8/14. CHANGELOG `Changed` (run #4).
+5. **What is thrown.**
+   - **Non-production: the original error object**, with `status`, `code`, `classification`, `surface` **added as properties**. No wrapper, no `cause`. `instanceof ApiError`, `name`, `message` and Veo's `operationError` are exactly as 1.x rethrew them (`api.ts:199`, `veo-api.ts:193`) (run #4 AF-006: v0.4.0 wrapped it and lost that identity).
+   - **Production: a new `Error`**, as 1.x production did (`api.ts:193-197`, `veo-api.ts` `_sanitizeError`), with message = a category sentence for the right surface ("Image generation…" / "Video generation…") plus the extracted vendor message (≤300 chars) for `USER_ACTIONABLE` and `SAFETY_*`, plus SDK client-side text; `AUTH` and `TRANSIENT` include the HTTP status and never vendor text. Properties: `status`, `code`, `classification`, `surface`. **No `cause`** — Node's `util.inspect` prints the cause chain, which would re-expose the full body.
 
 This is a **Security**-category CHANGELOG entry: it changes what production errors disclose, in both directions (more for 400/404/422, never `details`/non-JSON/auth/quota).
 
-*Note:* darkroom never sets `NODE_ENV=production`, so it sees raw errors; D13 is for production consumers.
+*Note:* darkroom never sets `NODE_ENV=production`, so it receives the original SDK errors (step 5), now with four extra properties; D13's production path is for production consumers.
 
 **D14 — Catalog stays in `config.ts`.** The architect suggested extracting to `models.ts` (kling). Declined for 2.0: `./config` is a public subpath that exports these constants; the removals shrink `config.ts` (878 LOC) by roughly a quarter; extraction is churn without a consumer benefit. The same reasoning covers `cli.ts` (931), `veo-api.ts` (712) and `types/index.ts` (955): P2's removals shrink all three, none gains a new responsibility, and splitting them is independent of anything 2.0 ships. Recorded, revisit in 2.1.
 
 **D15 — Remove Veo `seed`.** Both SDKs reject `seed` in Gemini API mode before any request, with different wording: 1.30 "seed parameter is not supported in Gemini API." (`index.mjs:9166, 9424`), 2.24 "seed parameter is only supported in Gemini Enterprise Agent Platform mode, not in Gemini Developer API mode." (`:11059-11060`). Proven locally 2026-09-22 (§D12). `VeoGenerateParams.seed` (`types/index.ts:243`, forwarded `veo-api.ts:225`) has therefore failed every call that used it. With D5 pinning `vertexai: false`, it cannot work in this package. Removed from the type; and because a JS caller spreading `{ seed }` would otherwise go from a loud SDK throw to silent ignore (run #3 A13), a present `seed` key is a **shape** violation: `ValidationError` "seed was removed in 2.0: the Gemini Developer API does not support it". Tests assert on the `ValidationError`, never on SDK message text. darkroom never sends it (`providers.js:132-139`); other consumers [UNSEARCHED — not searchable]. CHANGELOG: `Removed`, with the reason.
+
+**D16 — Lifecycle check** (Alex, 2026-09-22). D2's rule — catalog lists only models with no announced shutdown — stays true only if someone notices when Google announces one. `scripts/check-lifecycle.mjs` (~40 LOC, bfl `check:spec` precedent): fetch `https://ai.google.dev/gemini-api/docs/deprecations.md.txt`, parse the deprecation tables (model id, release date, shutdown date), and **fail** if any id in `MODELS`/`VEO_MODELS` has a shutdown date other than "No shutdown date announced", printing the id, date and listed replacement. It also fails if the page cannot be fetched or yields zero parsed rows (a check that parses nothing must not pass).
+- `npm run check:lifecycle`; `--control` runs it against the committed snapshot `docs/api/deprecations.md` with the **1.x** catalog and must fail on `gemini-2.5-flash-image`, `gemini-3-pro-image-preview`, `imagen-4.0-generate-001`, `veo-3.0-*`, `veo-2.0-*`.
+- Runs in the weekly `sdk-drift.yml` job (same issue-on-failure path, label `model-lifecycle`) and in `check:release`, so a publish can't ship a model Google has put on notice.
+- A failure is a to-do (drop the model per D2 in the next release), not an outage: D3 keeps the id callable meanwhile.
 
 ## 5. Target catalog (constants)
 
@@ -303,19 +319,18 @@ MODELS = {
   GEMINI_3_1_FLASH: 'gemini-3.1-flash-image',
   GEMINI_3_1_FLASH_LITE: 'gemini-3.1-flash-lite-image',
   GEMINI_3_PRO: 'gemini-3-pro-image',            // value changed from the preview id
-  GEMINI: 'gemini-2.5-flash-image',              // deprecated 2026-10-02
   GEMINI_VIDEO: 'gemini-2.5-flash',              // video understanding, unchanged
-}
-MODEL_CONSTRAINTS keys: the four above + 'gemini-3-pro-image-preview', 'gemini-3.1-flash-image-preview'
-MODEL_DEPRECATIONS: three entries (D2)
+}                                                // GEMINI and IMAGEN keys removed (D2, §6)
+MODEL_CONSTRAINTS keys: all four MODELS values (the three image models + 'gemini-2.5-flash')
 ASPECT_RATIOS (all known) = STD + '1:4','4:1','1:8','8:1'; per-model subsets in constraints
 IMAGE_SIZES = ['512','1K','2K','4K']
+SUPPORTED_IMAGE_MIME_TYPES = ['image/png','image/jpeg','image/webp','image/gif']   // the 1.x set, utils.ts:258
 VEO_MODELS = { VEO_3_1, VEO_3_1_FAST, VEO_3_1_LITE }
 VEO_RESOLUTIONS = ['720p','1080p','4k']
 VEO_DURATIONS = ['4','6','8'] for all three
 VeoModelConstraint.durationRequired = { '1080p': '8', '4k': '8' } (Lite: { '1080p': '8' })
 ```
-Key names `GEMINI`, `GEMINI_3_PRO` preserved so `MODELS.X` references keep compiling.
+`MODELS.GEMINI_3_PRO` and `MODELS.GEMINI_VIDEO` keep their key names. `MODEL_CONSTRAINTS` and `VEO_MODEL_CONSTRAINTS` keep their 1.x **string-keyed** index types (`types/index.ts:590-592, 659-661`) — re-keying them to a closed union would break consumers who index with a `string` (run #4).
 
 ## 6. Migration table (1.x → 2.0), source for README "Upgrading to 2.0"
 
@@ -337,10 +352,15 @@ Key names `GEMINI`, `GEMINI_3_PRO` preserved so `MODELS.X` references keep compi
 | `inputImagesMax: 1` for every image model; `detectGeminiMode` threw on >1 image | `inputImagesMax` per model (up to 14; same field name); `detectGeminiMode` never throws on count — it returns the mode only |
 | `ModelConstraint` fields | all 1.x fields kept with the same types; `imageSizes` added; Imagen's entry gone with the model |
 | `AspectRatio` = 5 values; `ASPECT_RATIOS` 5 values | 14 values; per-model subsets |
-| `GeminiModel` union = 2 ids | 6 known ids + `(string & {})` |
+| `GeminiModel` union: `gemini-2.5-flash-image`, `gemini-3-pro-image-preview`, `gemini-2.5-flash` | `gemini-3.1-flash-image`, `gemini-3.1-flash-lite-image`, `gemini-3-pro-image`, `gemini-2.5-flash`; model params accept any string (`ImageModelId`) |
+| `MODELS.GEMINI` (`gemini-2.5-flash-image`) | removed (announced shutdown 2026-10-02); use `DEFAULT_IMAGE_MODEL`. The id itself still passes through (D3) until Google turns it off |
+| `gemini-3-pro-image-preview`, `gemini-3.1-flash-image-preview` in the catalog | removed (past announced shutdown); still pass through (D3) |
+| exported validators accepted empty image `data` and any ratio/size string shape | always reject empty image `data`, a malformed `mimeType`, and a ratio/size not matching the shape patterns (D3) — even for unknown models and under `'warn'` |
 | `extractGeminiParts` returned thought parts as images/text | skips `thought: true` parts; `{ includeThoughts: true }` to keep |
 | `GeminiResponse.parts` / fallback | removed (never an SDK field) |
-| production errors: image all → one generic sentence; Veo → category sentence | both: category sentence + vendor `error.message` field for 400/404/422 and Veo operation errors; `status` / `code` / `classification` / `cause` on every error; 401/403/429 never include vendor text |
+| non-production errors: the SDK error rethrown | the same SDK error object, now with `status`, `code`, `classification`, `surface` properties |
+| production errors: image all → one generic sentence; Veo → category sentence | both: per-surface category sentence + vendor `error.message` for 400/404/422 and Veo operation errors; `status`/`code`/`classification`/`surface` properties; never `details`, non-JSON bodies, 401/403/429 vendor text, or `cause` |
+| Veo polling retried 429/502/503 + network message matches | retries 408/429/5xx, gRPC 4/8/14, network and timeout errors |
 | `VEO_MODELS.VEO_3/VEO_3_FAST/VEO_2` | `VEO_3_1`, `VEO_3_1_FAST`, `VEO_3_1_LITE` |
 | `VeoResolution` = `720p \| 1080p` | + `4k` (3.1, Fast) |
 | `durationSeconds: '5'` | `'4' \| '6' \| '8'` |
@@ -359,14 +379,14 @@ Every check states how it fails. Live checks (L) are recorded in the checklist w
 | # | Check | Fails when / control |
 |---|---|---|
 | V1 | `npm run verify` green on Node 20, 22, 24 (CI). Test count recorded (baseline 358). | any typecheck/test failure |
-| V2 (L) | Past-shutdown previews generate ≥1 `inlineData` image part | **done**: both OK → D2 deprecated tier |
+| V2 (L) | Past-shutdown previews generate ≥1 `inlineData` image part | **done**: both OK (informed v0.2–v0.4's deprecated tier; superseded by D2's current-only rule) |
 | V3 (L) | Neutral prompt, `9:16` via 2.0 → height > width | **done**: control 1.x flat → 1408×768; fix → 768×1376 |
 | V4 | Mocked unit: `generateContent` receives `config.imageConfig.aspectRatio` | mutation: flat shape → fails |
 | V5 | Dead-literal census `grep -rniE "imagen\|veo-3\.0\|veo-2\.0\|VEO_3[^_]\|VEO_3_FAST\|VEO_2[^_0-9]" src test package.json README.md` → **only** lines inside README's "Upgrading to 2.0" section | control: run before P2 and record the count (must be >0; v0.1.0's case-sensitive form matched 79 lines and missed 98) |
 | V6 | Unknown id: one warn per id, request sent with every caller param; known id + unsupported param → throws; `'warn'` mode → warns and sends | mutations: restore unknown-model throw; drop `imageSize` for unknown ids → tests fail |
-| V7 | Deprecation warn: once per model per instance; future-tense before the date, past-tense on/after (injected clock) | two calls → one warn; clock at 2026-10-02T00:00Z → past tense |
+| V7 | *(retired in v0.4.1 — no deprecation machinery; see D2)* | — |
 | V8 (L) | Lite refs rejected; Lite 720p/4s completes | **done**: server 400 on refs; T2V OK. Client-side: Lite refs/extension/4k rejected before any call (unit) |
-| V9 (L) | darkroom: `npm ls google-genai-api` shows 2.0.0 (from Verdaccio); darkroom tests pass; **one job per darkroom Google model** (`gemini-3-pro-image(-preview)`, `gemini-3.1-flash-image`, fallback, `veo-3.1`, `veo-3.1-fast`) succeeds | `npm ls` shows 1.3.0 → run void; after promotion, jq scan for `localhost:4873` must be empty and resolved URL must 200 |
+| V9 (L) | darkroom (test bed): installs the `npm pack` tarball; `npm ls google-genai-api @google/genai` shows 2.0.0 and a 2.x SDK; darkroom tests pass; one job per darkroom Google model (`gemini-3-pro-image`, `gemini-3.1-flash-image`, `veo-3.1`, `veo-3.1-fast`) succeeds | `npm ls` shows 1.3.0 → run void |
 | V10 (L) | `imageSize` `'512'` → 512 px, `'2K'` → 2048 px on 3.1-flash; Lite `'2K'` rejected | **done**; client-side lowercase `'2k'` → shape error (unit) |
 | V11 (L) | 3 input images on 3.1-flash → ≥1 image part | **done**: OK |
 | V12 (L) | Against the built 2.0 package: `veo-3.1-fast-generate-preview` 720p/4s T2V; `veo-3.1-generate-preview` with 1 reference image; `veo-3.1-generate-preview` 4k/8s — each downloads a video | any failure blocks release; 4k/refs failing live → constraint corrected before publish |
@@ -376,9 +396,10 @@ Every check states how it fails. Live checks (L) are recorded in the checklist w
 | V16 (L) | **Through the built 2.0 package on SDK 2.24** (not raw SDK calls): neutral prompt, `9:16` on `gemini-3.1-flash-image` → height > width; `imageSize: '2K'` → 2048 px long edge | a square or landscape result blocks release — the headline Fixed entry is verified on the shipped artifact, not on 1.30 (run #2 A9) |
 | V17 | `test/readme.test.ts`: (a) every identifier in README export blocks and in `import … from 'google-genai-api…'` examples resolves for its subpath against the **union** of runtime exports (`Object.keys(await import(subpath))`) and exported symbols of the subpath's `.d.ts` (parsed with the TypeScript compiler API) — interfaces and type aliases exist only in the latter (run #3 docs); (b) every `<!-- generated:… -->` block equals a fresh render from the catalog; (c) every TOC link targets an existing heading anchor | controls: 1.x README + 1.x dist fails (a) at `:456-494, :532-552`; hand-edit one generated cell fails (b); rename one heading fails (c) |
 | V18 | SDK-drift job (D9) runs green on `@google/genai@^2` at P7, and a failure opens an `sdk-drift` issue | control: dispatch once with a deliberately broken assertion → job fails **and** the issue appears |
+| V19 | `check:lifecycle` (D16) passes on the 2.0 catalog against the live deprecations page | control `--control`: 1.x catalog against the committed snapshot → fails, naming `gemini-2.5-flash-image` and the Imagen/Veo 3.0/2.0 ids; a fetch that parses zero rows → fails |
 
 **Every check is classified** (run #3: v0.3.0 classified 6 of 18 and its V12 row contradicted the paragraph).
-- **Blocking** — the release does not ship while red: V1, V4, V5, V6, V7, V13, V14, V15, V16, V17, V18.
+- **Blocking** — the release does not ship while red: V1, V4, V5, V6, V13, V14, V15, V16, V17, V18, V19.
 - **Done (P0)** — recorded, not re-run: V2, V3, V8, V10, V11.
 - **Degradable** — V12, per capability:
   - *Veo 4k or reference images fail live* → that capability's constraint becomes unsupported for that model (clients reject it with a clear `ValidationError`, overridable by `'warn'`); CHANGELOG notes it; ship.
@@ -388,14 +409,14 @@ Every check states how it fails. Live checks (L) are recorded in the checklist w
 
 ## 8. Phases
 
-LOC = added + changed lines, per phase split into source and test (round 2 asked for test budgets explicitly). Total ≈ 820 src + 730 test ≈ 1,550 (v0.4.0: +60 script/+40 test for generated tables, −30 for removing `extraConfig`; P3a unchanged at 440 — the additive constraint shapes touch fewer lines than v0.3.0's replacement, which offsets the new type guards) — higher than v0.2.0's 1,190, which folded test rewrites in implicitly. No phase exceeds 440. Removals are not counted.
+LOC = added + changed lines, per phase split into source and test (round 2 asked for test budgets explicitly). Total ≈ 800 src + 710 test ≈ 1,510 (v0.4.1: −60 src/−20 test for the dropped deprecation machinery, +40 for `check:lifecycle`) (v0.4.0: +60 script/+40 test for generated tables, −30 for removing `extraConfig`; P3a unchanged at 440 — the additive constraint shapes touch fewer lines than v0.3.0's replacement, which offsets the new type guards) — higher than v0.2.0's 1,190, which folded test rewrites in implicitly. No phase exceeds 440. Removals are not counted.
 
 | Phase | Scope | Files | Est. LOC | Exit |
 |---|---|---|---|---|
 | P0 | Spec, review ×2, probes | docs/ | — | review PROCEED; all [VERIFY] settled or assigned to a V-check |
-| P1 | Tooling/release: D9, D10 (not rename) — SDK bump, CI, weekly SDK-drift workflow, `verify`, `check:release` | package.json, lock, ci.yml, sdk-drift.yml, scripts/check-release.mjs | 140 | `verify` green on SDK 2.24 with compile fixes only; V14 |
+| P1 | Tooling/release: D9, D10 (not rename), D16 — SDK bump, CI, weekly SDK-drift workflow, `check:lifecycle`, `verify`, `check:release` | package.json, lock, ci.yml, sdk-drift.yml, scripts/check-release.mjs, scripts/check-lifecycle.mjs | 180 | `verify` green on SDK 2.24 with compile fixes only; V14 |
 | P2 | Removals (§3) | api.ts, config.ts, types, cli.ts, 3 tests, package.json | 60 (net −~900) | V5 = 0 with recorded control |
-| P3a | Catalog, constraints, `MODEL_DEPRECATIONS`, D2 warn-once + clock, D3 passthrough + shape/capability split, D5 violation functions + `ValidationError` + `capabilityValidation`; rewrite of the 17 throw-style `validateModelParams` sites in `test/config.test.ts` against the new constraint shape | config.ts, errors.ts (new), api.ts, types; test/config.test.ts, test/api.test.ts | 260 src + 180 test | V6, V7 unit-green |
+| P3a | Catalog (current models only, D2), constraints (additive), D3 passthrough + shape/capability split, D5 violation functions + `ValidationError` + `capabilityValidation` + type guards; rewrite of the 17 throw-style `validateModelParams` sites in `test/config.test.ts` | config.ts, errors.ts (new), api.ts, types; test/config.test.ts, test/api.test.ts | 200 src + 160 test | V6 unit-green |
 | P3b | D6 request shape, `extractGeminiParts` thoughts, zero-image path, D13 `toPublicError` (both clients), D12 wire tests (image) | api.ts, errors.ts, veo-api.ts (errors only), types, test/wire.test.ts, test/api.test.ts | 200 src + 150 test | V4, V13 (image) green |
 | P4 | Veo: Lite, 4k, `durationRequired`, D3 + D5 for Veo, D7 `source`, D15 `seed` removal, wire tests (video); legacy negative tests repointed at Lite | config.ts, veo-api.ts, types; test/config.test.ts, test/veo-api.test.ts, test/wire.test.ts | 150 src + 150 test | V13 (video); Lite gating unit tests |
 | P5 | CLI: D8; subprocess tests with the fetch-replay preload (CLI has 0 tests today) | cli.ts, test/cli.test.ts, test/helpers/fetch-replay.mjs | 110 src + 150 test | CLI tests green |
@@ -418,10 +439,10 @@ New sections: "Upgrading to 2.0" (§6), "Model lifecycle" (D2 tiers and dates, D
 
 | Category | Source |
 |---|---|
-| Added | 3.1 Flash / Lite / 3 Pro GA; Veo Lite; Veo 4k; `imageSize`; extended aspect ratios (14 values; `1:4`, `4:1`, `1:8`, `8:1` on 3.1); multi-image input (up to 14); `MODEL_DEPRECATIONS`; `DEFAULT_IMAGE_MODEL`; `capabilityValidation`; `ValidationError`; `getModelViolations` / `getVeoViolations`; `isKnownImageModel` / `isKnownVeoModel`; `durationRequired`; error `status`/`code`/`classification`/`surface`; CLI `--model`, `--image-size`, `--capability-validation`, repeatable `--input-image`; weekly SDK-drift CI |
-| Changed | default model (D4); library validation for image (D5); `detectGeminiMode` no longer throws on image count; SDK client pinned to the Gemini Developer API (`vertexai: false`); `VeoDuration` no longer includes `'5'` (Veo 2 only); unknown-id passthrough, incl. `validateModelParams`/`validateVeoParams` no longer throwing on unknown ids (D3); `extractGeminiParts` skips thoughts (D6); `MODELS.GEMINI_3_PRO` value; Veo `source` (D7); constraint shapes; **CLI `--aspect-ratio` no longer defaults to `1:1`**; Node ≥20; SDK 2.x |
-| Deprecated | `gemini-2.5-flash-image`, both previews (D2); `VeoModelConstraint.resolution1080p` in favor of `durationRequired` |
-| Removed | Imagen surface; Veo 3.0/2.0; Veo `seed` (always rejected by the SDK on this API, D15); `GeminiResponse.parts`; CLI `--imagen`/`-n`; semantic-release |
+| Added | 3.1 Flash / Lite / 3 Pro GA; Veo Lite; Veo 4k; `imageSize`; extended aspect ratios (14 values; `1:4`, `4:1`, `1:8`, `8:1` on 3.1); multi-image input (up to 14); `DEFAULT_IMAGE_MODEL`; `SUPPORTED_IMAGE_MIME_TYPES`; `capabilityValidation`; `ValidationError`; `getModelViolations` / `getVeoViolations`; `isKnownImageModel` / `isKnownVeoModel`; `durationRequired`; error `status`/`code`/`classification`/`surface`; CLI `--model`, `--image-size`, `--capability-validation`, repeatable `--input-image`; weekly SDK-drift and model-lifecycle checks (`check:lifecycle`) |
+| Changed | default model (D4); library validation for image (D5); `detectGeminiMode` no longer throws on image count; SDK client pinned to the Gemini Developer API (`vertexai: false`); `VeoDuration` no longer includes `'5'` (Veo 2 only); Veo polling retries 408/5xx and gRPC 4/8/14 in addition to 1.x's set; non-production errors gain `status`/`code`/`classification`/`surface` properties; unknown-id passthrough, incl. `validateModelParams`/`validateVeoParams` no longer throwing on unknown ids (D3); `extractGeminiParts` skips thoughts (D6); `MODELS.GEMINI_3_PRO` value; Veo `source` (D7); constraint shapes; **CLI `--aspect-ratio` no longer defaults to `1:1`**; Node ≥20; SDK 2.x |
+| Deprecated | `VeoModelConstraint.resolution1080p` in favor of `durationRequired` |
+| Removed | `gemini-2.5-flash-image`, `gemini-3-pro-image-preview`, `gemini-3.1-flash-image-preview` from the catalog and `MODELS.GEMINI` (announced shutdowns, D2 — ids still pass through); Imagen surface; Veo 3.0/2.0; Veo `seed` (always rejected by the SDK on this API, D15); `GeminiResponse.parts`; CLI `--imagen`/`-n`; semantic-release |
 | Fixed | **`aspectRatio` was never sent — now honored; output framing changes for every caller that passed it** (the semantics-without-signature case, stated explicitly); CLI metadata filename; `detectGeminiMode` mode bypass; Pro thought images no longer returned as output |
 | Security | production errors now include the vendor's `error.message` field for 400/404/422 and Veo operation errors; `details[]`, non-JSON bodies, and 401/403/429 vendor text are never included (D13) |
 
@@ -434,7 +455,7 @@ New sections: "Upgrading to 2.0" (§6), "Model lifecycle" (D2 tiers and dates, D
 - No client-side inline payload-size check; `inputImagesMax` 14 is the documented count, 3 exercised live (D5).
 - A vendor field this package does not declare cannot be sent; there is no escape hatch in 2.0 (D3).
 - SDK drift is detected weekly, not prevented; a consumer can install an untested 2.x minor in between. The weekly job stops after 60 days without repository activity until re-enabled (D9).
-- Deprecation warnings fire once per model per client instance (D2).
+- The catalog tracks Google's announced shutdowns weekly (D16), not in real time; a model announced mid-week stays cataloged until the next release, and remains callable via D3 after it leaves.
 - Every Veo model is preview-class; a Veo retirement is handled by D2/D3 on the next release, and D3 keeps unknown/new Veo ids usable meanwhile.
 
 ## 10. Out of scope
@@ -452,6 +473,9 @@ New sections: "Upgrading to 2.0" (§6), "Model lifecycle" (D2 tiers and dates, D
 None. (darkroom's aspect-ratio question is settled in its code; its 2.5 catalog entry is its own item, not a gate here.)
 
 ## 12. Residual [VERIFY]
+
+*(unchanged from v0.4.0 except: `check:lifecycle`'s parser is validated against the committed snapshot by its control — V19)*
+
 
 | Item | Settled by |
 |---|---|
@@ -565,8 +589,29 @@ Superseded earlier dispositions: §13b's `extraConfig` (row "As-is vs allowlist"
 | Ship target without driver (assumptions, L) | header: "ideally", with the reason |
 | Loop convergence (assumptions, L) | accepted: remaining debt is runtime; one architect-only check, then P1 (recommendation to Alex) |
 
+## 13d. Review findings → disposition (run #4, architect only, 14 issues) and Alex's catalog policy
+
+| Finding / input | Disposition |
+|---|---|
+| Alex: "stick with current … any models that will be removed soon, we can drop from the package completely" | D2 rewritten: current-only catalog; `gemini-2.5-flash-image` + both previews removed; `MODELS.GEMINI` removed (not repointed); deprecation machinery not built; V7 retired |
+| Alex: add the lifecycle check | D16 `check:lifecycle`; V19; runs weekly and in `check:release` |
+| AF-006: non-production error identity (arch, C) | D13 step 5: original SDK error augmented in place, no wrapper, no `cause`; §6 rows |
+| §6 said `cause` on every error (arch, H) | §6 production row: never `cause` |
+| Veo operation-error path (arch, M) | D13 steps 1–2: operation `error.message` + gRPC `code` classification |
+| `numberOfImages` rule (arch, M) | D3 capability: kept as 1.x; field stays in `ModelValidationParams` |
+| MIME set undefined/closed in shape tier (arch, M) | D3: open pattern in shape; `SUPPORTED_IMAGE_MIME_TYPES` (1.x set incl. gif) in capability; §6 row for new always-on shape checks |
+| `firstFrame` naming; per-mode constants (arch, M) | D3 public names; D3 exception paragraph; D12 constant rows |
+| Table key types; model counts (arch, M) | §5: string-keyed index types kept; `GEMINI_VIDEO` in `MODEL_CONSTRAINTS`; §6 `GeminiModel` row corrected |
+| Polling retry change undocumented (arch, L) | D13 step 4; §6 row; CHANGELOG `Changed` |
+| Discriminator overstated (arch, L) | D13 step 1: 17 enumerated gRPC names |
+| V9 still Verdaccio (arch, L) | V9 row rewritten |
+| Constructor `apiKey?` (arch, L) | D5: 1.x signature + optional `options`; throw kept |
+| P3a headroom (arch, M) | P3a now 200 src + 160 test (deprecation machinery removed) |
+| Files >500 LOC (arch, L) | D14 unchanged |
+
 ## Revision history
 
+- v0.4.1 (2026-09-22) — Alex's catalog policy (current models only; announced-shutdown models dropped; D16 lifecycle check) and architect run #4 fixes (§13d): non-production errors are the original SDK error augmented in place; operation-error classification; public interpolation names; kept 1.x `numberOfImages` rule, MIME set, index types and constructor. Net scope down (deprecation machinery removed).
 - v0.4.0 (2026-09-22) — addresses pre-implementation run #3 (38 findings, §13c). All 1.x constraint shapes kept (AF-006); `extraConfig` removed; D13 rebuilt around a gRPC-status discriminator, per-surface messages, no production `cause`; SDK pinned to the Developer API; drift job targets `^2`, runs full verify, opens issues; every V-check classified; generated README tables; `npm pack` replaces Verdaccio for this unscoped package; darkroom re-framed as Alex's personal test bed; consumer data from npm. Scope net-reduced.
 - v0.3.0 (2026-09-22) — addresses pre-implementation run #2 (41 findings, §13b). Exported validators keep their throwing contract (AF-006); darkroom deadline decoupled; weekly SDK-drift job; D13 narrowed to the vendor message field; D3 shape/capability table + `extraConfig` + SDK-allowlist bound; fetch seam and retry behavior verified on SDK 2.24; D15 removes Veo `seed` (SDK rejects it on this API); V16–V18; ship-blocking vs degradable; P6 switches from line lists to a gated full rewrite; LOC re-estimated with explicit test budgets (~1,510).
 - v0.2.0 (2026-09-22) — addresses pre-implementation run #1 (44 findings, §13). Adds D11–D14, ship target, generation evidence for every kept image model, P0 probe results (V2/V3/V8/V10/V11 done), expanded migration table, per-phase LOC, enumerated P6 scope, CHANGELOG plan, darkroom follow-through. Withdraws v0.1.0's SDK "any minor" claim and `hasAudio` removal.

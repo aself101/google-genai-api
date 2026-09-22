@@ -1,6 +1,6 @@
 # google-genai-api 2.0 — checklist
 
-Companion to [`google-genai-api-2.0-spec-v0_4_0.md`](./google-genai-api-2.0-spec-v0_4_0.md). `[x]` done · `[-]` deliberately skipped (reason inline) · actuals recorded inline. **Ship target: when gates pass; ideally before 2026-10-02.**
+Companion to [`google-genai-api-2.0-spec-v0_4_1.md`](./google-genai-api-2.0-spec-v0_4_1.md). `[x]` done · `[-]` deliberately skipped (reason inline) · actuals recorded inline. **Ship target: when gates pass; ideally before 2026-10-02.**
 
 ## P0 — spec, review, probes
 - [x] Vendor snapshots in `docs/api/` (2026-09-22)
@@ -15,7 +15,10 @@ Companion to [`google-genai-api-2.0-spec-v0_4_0.md`](./google-genai-api-2.0-spec
 - [x] Spec v0.4.0 — all 38 findings dispositioned (spec §13c); `extraConfig` removed; darkroom re-framed as personal test bed
 - [x] npm consumers: 28/week, ~2,100/year (npm API; control returns not-found)
 - [x] Repo visibility: PUBLIC (60-day schedule disable applies)
-- [ ] Architect-only confirmation on v0.4.0 → PROCEED
+- [x] Architect-only confirmation on v0.4.0 — 88 REVISE (AF-006: non-production error identity) · 14 issues (tracker run 4)
+- [x] Alex: catalog = current models only; announced-shutdown models dropped; add lifecycle check
+- [x] Spec v0.4.1 — §13d
+- [ ] Targeted architect re-check (D13 step 5, §6 error rows, D2/D16) → PROCEED
 - [x] V2 — `gemini-3-pro-image-preview` **OK** 1024×1024 ; `gemini-3.1-flash-image-preview` **OK** 1024×1024 → D2 deprecated tier
 - [x] V3 — first run confounded (prompt "wide establishing shot": flat 16:9 and imageConfig 16:9 both 1376×768). Rerun, neutral prompt: flat `9:16` → **1408×768 (ignored)**; `imageConfig` `9:16` → **768×1376**. SDK 1.30 `generateContentConfigToMldev` copies `imageConfig` only. Unset ratio ⇒ model-chosen framing, not 1:1.
 - [x] V10 — `'512'` → 512×512 ; `'2K'` → 2048×2048 ; Lite `'2K'` → server 400 "Image size 2K is not supported for this model"
@@ -31,7 +34,8 @@ Companion to [`google-genai-api-2.0-spec-v0_4_0.md`](./google-genai-api-2.0-spec
 - [ ] Remove `.releaserc.json`, `.github/workflows/release.yml`, semantic-release devDeps + script
 - [ ] `.github/workflows/ci.yml` (Node 20/22/24, `npm ci && npm run verify`)
 - [ ] `.github/workflows/sdk-drift.yml` (weekly + dispatch; `@google/genai@^2 --no-save`; full `verify`; opens `sdk-drift` issue on failure)
-- [ ] `verify` script; `check:release` as `prepublishOnly` incl. non-empty `[Unreleased]` (V14, each condition induced once)
+- [ ] `scripts/check-lifecycle.mjs` + `check:lifecycle` (V19: `--control` on 1.x catalog vs snapshot fails; zero-row parse fails)
+- [ ] `verify` script; `check:release` (runs `check:lifecycle`) as `prepublishOnly` incl. non-empty `[Unreleased]` (V14, each condition induced once)
 - [ ] `engines.node >=20`; `@google/genai ^2.24.0`; TS ^5.9; vitest ^4; `@types/node` ^24
 - [ ] Test count on SDK 2.24 with compile fixes only: ___ (1.3.0: 358)
 
@@ -40,9 +44,8 @@ Companion to [`google-genai-api-2.0-spec-v0_4_0.md`](./google-genai-api-2.0-spec
 - [ ] Veo 3.0/2.0 surface removed (keep `hasAudio`; keep feature-gate branches)
 - [ ] V5 = 0 in src/test/package.json (README handled in P6)
 
-## P3a — catalog, lifecycle, validation (~260 src + 180 test)
-- [ ] `MODELS`, `DEFAULT_IMAGE_MODEL`, `MODEL_CONSTRAINTS` (new shape), `ASPECT_RATIOS`, `IMAGE_SIZES`
-- [ ] `MODEL_DEPRECATIONS` (3 entries) + warn-once + tense + injectable clock (V7)
+## P3a — catalog, validation (~200 src + 160 test)
+- [ ] Catalog current-only: `MODELS` (no `GEMINI`, no `IMAGEN`), `DEFAULT_IMAGE_MODEL`, `MODEL_CONSTRAINTS` (additive), `ASPECT_RATIOS`, `IMAGE_SIZES`, `SUPPORTED_IMAGE_MIME_TYPES`
 - [ ] D3 passthrough, all params sent (V6 + both mutations)
 - [ ] `src/errors.ts` (leaf): `ValidationError`, `Violation`; `getModelViolations` (shape/capability); `validateModelParams` still throws; `isKnownImageModel`
 - [ ] Constraint types kept field-for-field; `imageSizes` added; `'gemini-2.5-flash'` entry kept
@@ -53,7 +56,7 @@ Companion to [`google-genai-api-2.0-spec-v0_4_0.md`](./google-genai-api-2.0-spec
 ## P3b — request shape, errors, wire tests (~200 src + 150 test)
 - [ ] `imageConfig` / `responseModalities`, no casts, no aspect default (V4 + mutation)
 - [ ] `extractGeminiParts({ includeThoughts })`; drop `response.parts`; zero-image warn path
-- [ ] D13 `toPublicError`: gRPC-status discriminator; status-first classification; per-surface sentences; no production `cause`; status-less errors
+- [ ] D13 `toPublicError`: 17 gRPC names discriminator; status/code-first classification; operation errors; non-production = original error + 4 properties; production = new Error, no `cause`
 - [ ] `test/wire.test.ts` image rows of D12 table, exactly-one-fetch, `text/html` 400, Vertex env var (V13 + mutations recorded)
 
 ## P4 — Veo (~150 src + 150 test)
