@@ -96,6 +96,7 @@ await veo.downloadVideo(operation, './cat.mp4');
 | `VeoGenerateParams.seed` | Removed: the Gemini Developer API rejects it (every 1.x call with a seed failed). Passing it throws `ValidationError`. |
 | `VeoModelConstraint.resolution1080p` | Still there, deprecated; use `durationRequired` |
 | Veo polling retried 429/502/503 and any error whose message contained "network" or "timeout" | Retries only a failed poll request (network error, timeout, 408, 429, any 5xx); a job that finished with an error is thrown at once. See [Video generation](#video-generation-veo). |
+| Video upload polling retried any error whose message contained "network", "timeout" or "processing" | Retries only a failed poll request, as Veo does; a 429 still waits 60 s |
 | Production errors: one generic sentence | Category sentence plus Google's own message for rejected requests; `status`, `classification` etc. on every error. See [Errors](#errors). |
 | Types not importable | `import type { GeminiGenerateParams, … } from 'google-genai-api'` |
 | CLI `--imagen`, `-n/--number-of-images` | `--gemini` / `--model <id>`; one image per call |
@@ -292,7 +293,7 @@ Offsets accept `"90s"`, `"90"`, `"1m30s"`, `"1:30"`, `"1:15:30"`. Supported form
 | `status` | HTTP status, for HTTP failures |
 | `code` | gRPC code, for a Veo job that failed |
 | `classification` | `AUTH`, `TRANSIENT`, `USER_ACTIONABLE`, `SAFETY_BLOCKED`, `AUDIO_BLOCKED`, `NETWORK`, `TIMEOUT` |
-| `surface` | `image` or `video` |
+| `surface` | `image` (`GoogleGenAIAPI`), `video` (Veo) or `video-understanding` (`GoogleGenAIVideoAPI`) |
 
 **In production**, the caller gets a new `Error` with the same properties and a message that names the category, for example:
 
@@ -304,7 +305,7 @@ Image generation failed: a temporary error occurred (HTTP 429). Please try again
 
 Only Google's own `error.message` is ever included, and only for rejected requests and safety blocks — never the body's `details` (which can carry project and quota identifiers), never text from a non-Gemini response such as a proxy's HTML page, never for authentication or rate-limit failures, and no `cause` (Node prints cause chains). Validation errors are thrown before any API call and are never rewritten.
 
-This applies to `GoogleGenAIAPI` (images) and `GoogleGenAIVeoAPI`. **`GoogleGenAIVideoAPI` (video understanding) keeps its 1.x error handling:** generic messages in production ("A temporary error occurred…"), and none of the properties above.
+All three clients work this way. One exception, kept from 1.x: when `GoogleGenAIVideoAPI.generateFromVideo` gets a 404, it throws `Video file not found. The file may have expired (files expire after 48 hours) or was deleted.` in every environment, with the properties above set. A poll that runs out of attempts (Veo, or video upload processing) throws the package's own timeout error with `isTimeout: true`, not a rewritten one.
 
 > **Logs are not sanitized.** On failure the clients log the SDK's full error message — including any `details` — at `error` level, in every environment, as 1.x did. That reaches your logs, not your callers. Set the log level (second constructor argument, or `--log-level`) accordingly.
 
@@ -499,7 +500,6 @@ See [Known limitations](#known-limitations) for what the URL checks do not cover
 - **SDK drift is detected weekly, not prevented.** The package depends on `@google/genai ^2.24.0`; a new 2.x minor is tested by the weekly workflow, not at your install.
 - **Every Veo model is a Google preview.**
 - **Logs include full SDK error messages** ([Errors](#errors)).
-- **Video understanding errors are still 1.x-shaped.** `GoogleGenAIVideoAPI` was not moved to the 2.0 error handling; its errors carry no `classification` or `status` ([Errors](#errors)).
 
 ## Troubleshooting
 

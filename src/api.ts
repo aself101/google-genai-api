@@ -299,7 +299,7 @@ export { GoogleGenAIVideoAPI } from './video-api.js';
 
 // Validation errors, from the root as well as ./config (spec D5)
 export { ValidationError } from './errors.js';
-export type { Violation, PublicErrorClass, PublicErrorFields } from './errors.js';
+export type { Violation, PublicErrorClass, PublicErrorFields, PublicErrorSurface } from './errors.js';
 
 // Every parameter, response and constraint type. 1.x's README said these were
 // importable from the root; they were not exported anywhere until 2.0.

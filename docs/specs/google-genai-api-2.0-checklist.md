@@ -96,7 +96,7 @@ Companion to [`google-genai-api-2.0-spec-v0_4_2.md`](./google-genai-api-2.0-spec
 - [x] `test/readme.test.ts` (12): (a) imports resolve against runtime ∪ `.d.ts` exports via the TS compiler API — 74 names checked, asserted > 60 so a parser that stops matching cannot pass empty; control: the 1.x README fails on `extractImagenImages` and root `GoogleGenAIVeoAPI`; (b) generated blocks = fresh render; control: hand-edited cell detected; (c) every `#anchor` resolves; control: renamed heading detected; V15 and V5 as tests
 - [x] `public-interface-validator` read of the rendered README: **76**, 2 HIGH / 3 MEDIUM / 1 LOW, all fixed. Both HIGH were prose true-in-spirit but false against the code — the class the import/anchor tests cannot see:
   - HIGH: Security said downloads are checked "by content type and by magic bytes"; the URL branch of `imageToInlineData` checked the header only (1.x behaviour, untested — the URL branch had zero tests). **Made the claim true** rather than weakening it: `fileTypeFromBuffer` sniff, reject non-image bytes, send the detected MIME. `test/utils-download.test.ts` (4). Mutation (sniff disabled, applied count 1): 2 fail. CHANGELOG Security entry
-  - HIGH: Errors implied every client uses D13; `GoogleGenAIVideoAPI` still uses 1.x `_sanitizeError` (`video-api.ts:164`). Documented in Errors + Known limitations; not migrated in 2.0
+  - HIGH: Errors implied every client uses D13; `GoogleGenAIVideoAPI` still used 1.x `_classifyError`/`_sanitizeError` (message-text matching). **Migrated (Alex, 2026-09-22):** new surface `video-understanding` (`PublicErrorSurface`), upload/generate errors via `toPublicError`, upload polling retries by source (429 keeps its 60 s wait; FAILED never retried), poll timeout thrown as is (as Veo), 1.x 404 "expires after 48 hours" hint kept with D13 fields. Never-public `ErrorClassification` type deleted. 12 helper tests → 11 behaviour tests; 5 mutations (text-retry, timeout passthrough, raw error in prod, wrong surface, no 404 hint), each asserted applied, all killed
   - MEDIUM: CHANGELOG retry wording "adds 408, 500, 504" → 408 + the rest of 5xx (TRANSIENT is `status >= 500`, `errors.ts:121`); "four properties" → up to four (`status`/`code` only when present); Upgrading table gained the Veo polling-retry row
   - LOW: CLI table now states Veo flag defaults (`cli.ts:338-345`)
   - CHANGELOG §3/§6 walk: complete, section order correct
@@ -105,7 +105,7 @@ Companion to [`google-genai-api-2.0-spec-v0_4_2.md`](./google-genai-api-2.0-spec
 - [x] `MIGRATION-PLAN.md` → `docs/archive/MIGRATION-PLAN-1.3.0-typescript.md`
 - [x] **Found in P6 — D5 gap:** `ValidationError` was not exported from the root (D5 says root and `./config`). Fixed, plus `export type *` from `./types` on the root: 1.x's README claimed types were importable from the root and no subpath exported them. Consumer compile check passes; control (nonexistent type) fails TS2305
 - [x] **Found in P6 — false README claims carried by 1.x**, corrected rather than copied: "30-second timeout for all API calls" (none exists; only download 60 s, file delete 30 s); "DNS rebinding prevention … prevents TOCTOU" (resolves once, first address only, fetch re-resolves) — now a Known limitation. Same SSRF gap as the one recorded for bfl-api; not fixed in 2.0 (out of scope), flagged to Alex
-- [x] Tests 418 → **434** (430 + 4 download tests)
+- [x] Tests 418 → **433** (+4 download tests, video errors 12 → 11)
 
 ## P7 — release
 - [ ] `git pull --ff-only`, merged-tree `npm run verify`

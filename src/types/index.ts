@@ -788,16 +788,6 @@ export interface VeoValidationParams {
 // ==================== ERROR TYPES ====================
 
 /**
- * Error classification for retry logic.
- */
-export type ErrorClassification =
-  | 'TRANSIENT'
-  | 'PERMANENT'
-  | 'USER_ACTIONABLE'
-  | 'SAFETY_BLOCKED'
-  | 'AUDIO_BLOCKED';
-
-/**
  * Extended error with classification info.
  */
 export interface ClassifiedError extends Error {

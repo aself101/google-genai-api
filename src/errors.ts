@@ -62,6 +62,8 @@ export type PublicErrorClass =
   | 'NETWORK'
   | 'TIMEOUT';
 
+export type PublicErrorSurface = 'image' | 'video' | 'video-understanding';
+
 /** Properties `toPublicError` guarantees on whatever it returns. */
 export interface PublicErrorFields {
   /** HTTP status, when the failure was an HTTP response */
@@ -69,7 +71,8 @@ export interface PublicErrorFields {
   /** gRPC status code, for a failed Veo operation */
   code?: number;
   classification: PublicErrorClass;
-  surface: 'image' | 'video';
+  /** `image` = GoogleGenAIAPI, `video` = Veo, `video-understanding` = GoogleGenAIVideoAPI */
+  surface: PublicErrorSurface;
 }
 
 // The 17 gRPC canonical status names. Gemini API error bodies always carry one
@@ -143,8 +146,8 @@ function truncate(text: string): string {
   return text.length > VENDOR_MESSAGE_MAX ? `${text.slice(0, VENDOR_MESSAGE_MAX)}…` : text;
 }
 
-function productionMessage(cls: PublicErrorClass, surface: 'image' | 'video', status: number | undefined, detail: string | undefined): string {
-  const Subject = surface === 'image' ? 'Image generation' : 'Video generation';
+function productionMessage(cls: PublicErrorClass, surface: PublicErrorSurface, status: number | undefined, detail: string | undefined): string {
+  const Subject = surface === 'image' ? 'Image generation' : surface === 'video' ? 'Video generation' : 'Video understanding';
   const http = status !== undefined ? ` (HTTP ${status})` : '';
   switch (cls) {
     case 'AUTH':
@@ -188,7 +191,7 @@ function attach(target: object, key: string, value: unknown): void {
  *   `details[]`, non-JSON bodies and `cause` are never exposed: Node prints a
  *   `cause` chain, which would re-expose the full body.
  */
-export function toPublicError(error: unknown, context: { surface: 'image' | 'video' }): Error & PublicErrorFields {
+export function toPublicError(error: unknown, context: { surface: PublicErrorSurface }): Error & PublicErrorFields {
   const err = (error ?? {}) as ErrorLike;
   const status = typeof err.status === 'number' ? err.status : undefined;
   const code = typeof err.operationError?.code === 'number' ? err.operationError.code : undefined;

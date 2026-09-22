@@ -47,13 +47,15 @@ import { GoogleGenAI } from '@google/genai';
 import axios from 'axios';
 import { GoogleGenAIVideoAPI } from '../src/video-api.js';
 import { validateVideoPath, pause } from '../src/utils.js';
-import type { ErrorClassification, FileInfo, GeminiResponse } from '../src/types/index.js';
+import type { FileInfo, GeminiResponse } from '../src/types/index.js';
 
 // Interface for extended error with status
 interface ExtendedError extends Error {
   status?: number;
   response?: { status?: number };
   fileState?: string;
+  classification?: string;
+  surface?: string;
 }
 
 // The API with its private members exposed for testing. Not `extends
@@ -73,8 +75,6 @@ interface MockedVideoInternals {
   };
   logger: { level: string };
   _verifyApiKey: () => void;
-  _classifyError: (error: ExtendedError) => ErrorClassification;
-  _sanitizeError: (error: ExtendedError) => Error;
   _pollFileStatus: (fileName: string, maxAttempts?: number, intervalMs?: number) => Promise<FileInfo>;
 }
 
@@ -119,66 +119,6 @@ describe('GoogleGenAIVideoAPI', () => {
     it('should throw when API key is removed', () => {
       api.apiKey = null;
       expect(() => api._verifyApiKey()).toThrow('API key is not set');
-    });
-  });
-
-  describe('_classifyError', () => {
-    it('should classify network errors as TRANSIENT', () => {
-      const error = new Error('network timeout') as ExtendedError;
-      expect(api._classifyError(error)).toBe('TRANSIENT');
-    });
-
-    it('should classify 429 rate limit as TRANSIENT', () => {
-      const error = new Error('Rate limited') as ExtendedError;
-      error.status = 429;
-      expect(api._classifyError(error)).toBe('TRANSIENT');
-    });
-
-    it('should classify 502/503 as TRANSIENT', () => {
-      const error502 = new Error('Bad gateway') as ExtendedError;
-      error502.status = 502;
-      expect(api._classifyError(error502)).toBe('TRANSIENT');
-
-      const error503 = new Error('Service unavailable') as ExtendedError;
-      error503.status = 503;
-      expect(api._classifyError(error503)).toBe('TRANSIENT');
-    });
-
-    it('should classify 400/401/403 as PERMANENT', () => {
-      const error400 = new Error('Bad request') as ExtendedError;
-      error400.status = 400;
-      expect(api._classifyError(error400)).toBe('PERMANENT');
-
-      const error401 = new Error('Unauthorized') as ExtendedError;
-      error401.status = 401;
-      expect(api._classifyError(error401)).toBe('PERMANENT');
-
-      const error403 = new Error('Forbidden') as ExtendedError;
-      error403.status = 403;
-      expect(api._classifyError(error403)).toBe('PERMANENT');
-    });
-
-    it('should classify 422 as PERMANENT', () => {
-      const error = new Error('Unprocessable entity') as ExtendedError;
-      error.status = 422;
-      expect(api._classifyError(error)).toBe('PERMANENT');
-    });
-
-    it('should classify validation errors as USER_ACTIONABLE', () => {
-      const error = new Error('validation failed') as ExtendedError;
-      expect(api._classifyError(error)).toBe('USER_ACTIONABLE');
-    });
-
-    it('should classify 404 not found as USER_ACTIONABLE', () => {
-      const error = new Error('File not found') as ExtendedError;
-      error.status = 404;
-      expect(api._classifyError(error)).toBe('USER_ACTIONABLE');
-    });
-
-    it('should classify API key errors as USER_ACTIONABLE', () => {
-      api.apiKey = null;
-      const error = new Error('Some error') as ExtendedError;
-      expect(api._classifyError(error)).toBe('USER_ACTIONABLE');
     });
   });
 
@@ -250,6 +190,25 @@ describe('GoogleGenAIVideoAPI', () => {
 
       await expect(api.uploadVideoFile('/path/to/video.mp4')).rejects.toThrow();
     });
+
+    it('rethrows the SDK error with the D13 fields (outside production)', async () => {
+      const sdkError = Object.assign(new Error('{"error":{"code":403,"message":"denied","status":"PERMISSION_DENIED"}}'), { status: 403 });
+      api.client.files.upload.mockRejectedValueOnce(sdkError);
+
+      const thrown = (await api.uploadVideoFile('/path/to/video.mp4').catch((e: unknown) => e)) as ExtendedError;
+      expect(thrown).toBe(sdkError);
+      expect(thrown).toMatchObject({ status: 403, classification: 'AUTH', surface: 'video-understanding' });
+    });
+
+    it('throws the poll timeout as is, with isTimeout', async () => {
+      api.client.files.upload.mockResolvedValueOnce({ name: 'files/test123' });
+      api.client.files.get.mockResolvedValue({ name: 'files/test123', state: 'PROCESSING' });
+
+      const thrown = (await api.uploadVideoFile('/path/to/video.mp4').catch((e: unknown) => e)) as ExtendedError & { isTimeout?: boolean };
+      expect(thrown.message).toMatch(/timed out/);
+      expect(thrown.isTimeout).toBe(true);
+      expect(thrown.classification).toBeUndefined();
+    });
   });
 
   describe('_pollFileStatus', () => {
@@ -306,6 +265,38 @@ describe('GoogleGenAIVideoAPI', () => {
 
       expect(result.state).toBe('ACTIVE');
       expect(pause).toHaveBeenCalledWith(60000); // Extended 60s backoff
+    });
+
+    it('retries a failed poll request (network error, 5xx)', async () => {
+      api.client.files.get
+        .mockRejectedValueOnce(new TypeError('fetch failed'))
+        .mockRejectedValueOnce(Object.assign(new Error('{}'), { status: 500 }))
+        .mockResolvedValueOnce({ name: 'files/test123', state: 'ACTIVE' });
+
+      const result = await api._pollFileStatus('files/test123', 5, 10);
+      expect(result.state).toBe('ACTIVE');
+      expect(api.client.files.get).toHaveBeenCalledTimes(3);
+    });
+
+    it('does not retry by message text (1.x retried anything mentioning "network")', async () => {
+      api.client.files.get.mockRejectedValueOnce(new Error('invalid network configuration'));
+
+      await expect(api._pollFileStatus('files/test123', 5, 10)).rejects.toThrow('invalid network configuration');
+      expect(api.client.files.get).toHaveBeenCalledTimes(1);
+    });
+
+    it('does not retry a FAILED file, even when its message mentions a timeout', async () => {
+      api.client.files.get.mockResolvedValue({ name: 'files/test123', state: 'FAILED', error: { message: 'decoder timeout' } });
+
+      await expect(api._pollFileStatus('files/test123', 5, 10)).rejects.toThrow('Video processing failed: decoder timeout');
+      expect(api.client.files.get).toHaveBeenCalledTimes(1);
+    });
+
+    it('does not retry a 400', async () => {
+      api.client.files.get.mockRejectedValueOnce(Object.assign(new Error('{}'), { status: 400 }));
+
+      await expect(api._pollFileStatus('files/test123', 5, 10)).rejects.toThrow();
+      expect(api.client.files.get).toHaveBeenCalledTimes(1);
     });
 
     it('should use 1.5x exponential backoff between polling attempts', async () => {
@@ -445,18 +436,24 @@ describe('GoogleGenAIVideoAPI', () => {
       ).rejects.toThrow('expired');
     });
 
-    it('should handle 422 content policy error', async () => {
-      const error = new Error('safety policy') as ExtendedError;
-      error.status = 422;
-      api.client.models.generateContent.mockRejectedValue(error);
+    it('carries the D13 fields on the 404 hint', async () => {
+      api.client.models.generateContent.mockRejectedValue(Object.assign(new Error('{}'), { status: 404 }));
 
-      await expect(
-        api.generateFromVideo({
-          prompt: 'Describe this video',
-          fileUri: 'files/test123',
-          mimeType: 'video/mp4',
-        })
-      ).rejects.toThrow('safety policies');
+      const thrown = (await api
+        .generateFromVideo({ prompt: 'Describe', fileUri: 'files/x', mimeType: 'video/mp4' })
+        .catch((e: unknown) => e)) as ExtendedError;
+      expect(thrown.message).toMatch(/expire after 48 hours/);
+      expect(thrown).toMatchObject({ status: 404, classification: 'USER_ACTIONABLE', surface: 'video-understanding' });
+    });
+
+    it('classifies a vendor safety rejection as SAFETY_BLOCKED', async () => {
+      const body = '{"error":{"code":400,"message":"Request blocked by safety policy","status":"INVALID_ARGUMENT"}}';
+      api.client.models.generateContent.mockRejectedValue(Object.assign(new Error(body), { status: 400 }));
+
+      const thrown = (await api
+        .generateFromVideo({ prompt: 'Describe', fileUri: 'files/x', mimeType: 'video/mp4' })
+        .catch((e: unknown) => e)) as ExtendedError;
+      expect(thrown).toMatchObject({ status: 400, classification: 'SAFETY_BLOCKED', surface: 'video-understanding' });
     });
   });
 
@@ -524,44 +521,49 @@ describe('GoogleGenAIVideoAPI', () => {
   });
 });
 
-describe('Error Sanitization', () => {
+describe('Error handling in production (spec D13)', () => {
   let api: MockedVideoAPI;
   const originalEnv = process.env.NODE_ENV;
+  const call = () =>
+    api
+      .generateFromVideo({ prompt: 'Describe', fileUri: 'files/x', mimeType: 'video/mp4' })
+      .then(() => { throw new Error('expected a rejection'); }, (e: unknown) => e as ExtendedError);
 
   beforeEach(() => {
     vi.clearAllMocks();
     api = new GoogleGenAIVideoAPI('test-api-key') as unknown as MockedVideoAPI;
+    process.env.NODE_ENV = 'production';
   });
 
   afterEach(() => {
     process.env.NODE_ENV = originalEnv;
   });
 
-  it('should sanitize errors in production mode', () => {
-    process.env.NODE_ENV = 'production';
+  it('names the category and includes only the vendor message for a rejected request', async () => {
+    const body = '{"error":{"code":400,"message":"Video too long","status":"INVALID_ARGUMENT","details":[{"project":"123"}]}}';
+    const sdkError = Object.assign(new Error(body), { status: 400 });
+    api.client.models.generateContent.mockRejectedValue(sdkError);
 
-    const transientError = new Error('network error') as ExtendedError;
-    const sanitized = api._sanitizeError(transientError);
-
-    expect(sanitized.message).toBe('A temporary error occurred. Please try again.');
+    const thrown = await call();
+    expect(thrown).not.toBe(sdkError);
+    expect(thrown.message).toBe('Video understanding failed (HTTP 400): Video too long');
+    expect(thrown.message).not.toContain('123');
+    expect((thrown as Error & { cause?: unknown }).cause).toBeUndefined();
   });
 
-  it('should not sanitize errors in development mode', () => {
-    process.env.NODE_ENV = 'development';
+  it('never includes vendor text for auth and transient failures', async () => {
+    api.client.models.generateContent.mockRejectedValue(
+      Object.assign(new Error('{"error":{"code":503,"message":"backend xyz overloaded","status":"UNAVAILABLE"}}'), { status: 503 })
+    );
 
-    const error = new Error('Original error message') as ExtendedError;
-    const result = api._sanitizeError(error);
-
-    expect(result.message).toBe('Original error message');
+    const thrown = await call();
+    expect(thrown.message).toBe('Video understanding failed: a temporary error occurred (HTTP 503). Please try again.');
+    expect(thrown).toMatchObject({ classification: 'TRANSIENT', surface: 'video-understanding' });
   });
 
-  it('should sanitize permanent errors differently', () => {
-    process.env.NODE_ENV = 'production';
+  it('keeps the 404 hint in production', async () => {
+    api.client.models.generateContent.mockRejectedValue(Object.assign(new Error('{}'), { status: 404 }));
 
-    const permanentError = new Error('Authentication failed') as ExtendedError;
-    permanentError.status = 401;
-    const sanitized = api._sanitizeError(permanentError);
-
-    expect(sanitized.message).toBe('The request could not be completed. Please check your inputs.');
+    expect((await call()).message).toMatch(/expire after 48 hours/);
   });
 });

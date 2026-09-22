@@ -18,8 +18,8 @@ import winston from 'winston';
 import axios from 'axios';
 import { MODELS, VIDEO_TIMEOUTS, getGoogleGenAIApiKey, redactApiKey } from './config.js';
 import { validateVideoPath, pause } from './utils.js';
+import { toPublicError } from './errors.js';
 import type {
-  ErrorClassification,
   FileInfo,
   GeminiResponse,
   VideoClipMetadata,
@@ -31,6 +31,7 @@ import type {
  * Extended error with additional properties.
  */
 interface ExtendedError extends Error {
+  /** axios errors (deleteVideoFile) */
   response?: { status?: number };
   status?: number;
   fileState?: string;
@@ -102,79 +103,6 @@ export class GoogleGenAIVideoAPI {
   }
 
   /**
-   * Classify error type for retry logic.
-   *
-   * @private
-   * @param error - Error to classify
-   * @returns Error classification
-   *
-   * @example
-   * const type = this._classifyError(error);
-   * if (type === 'TRANSIENT') { // retry }
-   */
-  private _classifyError(error: ExtendedError): ErrorClassification {
-    const status = error.response?.status || error.status;
-    const message = error.message?.toLowerCase() || '';
-
-    // User-actionable errors (require user intervention)
-    if (!this.apiKey || message.includes('api key')) {
-      return 'USER_ACTIONABLE';
-    }
-    if (status === 404 || message.includes('not found')) {
-      return 'USER_ACTIONABLE';
-    }
-    if (message.includes('validation') || message.includes('invalid')) {
-      return 'USER_ACTIONABLE';
-    }
-
-    // Permanent errors (don't retry)
-    if (status === 400 || status === 401 || status === 403 || status === 422) {
-      return 'PERMANENT';
-    }
-    if (message.includes('failed') && !message.includes('network')) {
-      return 'PERMANENT';
-    }
-
-    // Transient errors (retry with backoff)
-    if (status === 429 || status === 502 || status === 503) {
-      return 'TRANSIENT';
-    }
-    if (
-      message.includes('network') ||
-      message.includes('timeout') ||
-      message.includes('econnreset')
-    ) {
-      return 'TRANSIENT';
-    }
-    if (message.includes('processing')) {
-      return 'TRANSIENT';
-    }
-
-    // Default to permanent (safer to not retry unknown errors)
-    return 'PERMANENT';
-  }
-
-  /**
-   * Sanitize error messages for production mode.
-   *
-   * @private
-   * @param error - Error to sanitize
-   * @returns Sanitized error
-   */
-  private _sanitizeError(error: ExtendedError): Error {
-    if (process.env.NODE_ENV === 'production') {
-      const classification = this._classifyError(error);
-      if (classification === 'TRANSIENT') {
-        return new Error('A temporary error occurred. Please try again.');
-      } else if (classification === 'PERMANENT') {
-        return new Error('The request could not be completed. Please check your inputs.');
-      }
-      return new Error('An error occurred. Please check your configuration.');
-    }
-    return error;
-  }
-
-  /**
    * Upload a video file to Google GenAI Files API.
    * Validates the file before upload and polls for processing completion.
    *
@@ -228,9 +156,12 @@ export class GoogleGenAIVideoAPI {
       };
     } catch (error) {
       const err = error as ExtendedError;
-      const errorType = this._classifyError(err);
-      this.logger.error(`Upload failed (${errorType}): ${err.message}`);
-      throw this._sanitizeError(err);
+      // The poll timeout is this package's own message and carries no vendor
+      // data; like Veo's, it is thrown as is (`isTimeout: true`).
+      if (err.isTimeout) throw err;
+      const publicError = toPublicError(err, { surface: 'video-understanding' });
+      this.logger.error(`Upload failed (${publicError.classification}): ${err.message}`);
+      throw publicError;
     }
   }
 
@@ -283,17 +214,24 @@ export class GoogleGenAIVideoAPI {
       } catch (error) {
         const err = error as ExtendedError;
 
+        // A FAILED file is terminal: its error has no status and classifies
+        // USER_ACTIONABLE, so it is never retried.
+        if (err.fileState === 'FAILED') throw err;
+
         // Handle 429 rate limit with extended backoff
-        if (err.response?.status === 429 || err.status === 429) {
+        if (err.status === 429) {
           this.logger.warn('Rate limited, waiting 60 seconds...');
           await pause(60000);
           continue;
         }
 
-        // Handle transient network errors with retry
-        const errorType = this._classifyError(err);
-        if (errorType === 'TRANSIENT' && attempts < maxAttempts) {
-          this.logger.warn(`Transient error, retrying: ${err.message}`);
+        // Retry by source, as Veo polling does (spec D13): only a failed poll
+        // request — network error, timeout, 408/5xx. 1.x also matched message
+        // text ("network", "timeout", "processing"), which retried errors that
+        // merely mentioned those words.
+        const { classification } = toPublicError(err, { surface: 'video-understanding' });
+        if (['TRANSIENT', 'NETWORK', 'TIMEOUT'].includes(classification) && attempts < maxAttempts) {
+          this.logger.warn(`Poll request failed (${classification}), retrying: ${err.message}`);
           await pause(backoffMs);
           backoffMs = Math.min(backoffMs * 1.5, VIDEO_TIMEOUTS.POLL_INTERVAL_MAX);
           continue;
@@ -391,29 +329,18 @@ export class GoogleGenAIVideoAPI {
       return response;
     } catch (error) {
       const err = error as ExtendedError;
-      const errorType = this._classifyError(err);
+      const publicError = toPublicError(err, { surface: 'video-understanding' });
+      this.logger.error(`Generation failed (${publicError.classification}): ${err.message}`);
 
-      // Handle specific error cases
-      if (err.status === 404 || err.message?.includes('not found')) {
-        const notFoundError = new Error(
-          'Video file not found. The file may have expired (files expire after 48 hours) or was deleted.'
+      // The model id is fixed, so a 404 here is the uploaded file. Keep 1.x's
+      // hint (in every environment, as 1.x did), now with the D13 fields.
+      if (publicError.status === 404) {
+        throw Object.assign(
+          new Error('Video file not found. The file may have expired (files expire after 48 hours) or was deleted.'),
+          { status: 404, classification: publicError.classification, surface: publicError.surface }
         );
-        throw this._sanitizeError(notFoundError as ExtendedError);
       }
-
-      if (
-        err.status === 422 ||
-        err.message?.includes('safety') ||
-        err.message?.includes('policy')
-      ) {
-        const policyError = new Error(
-          'Video content was blocked due to safety policies. Please try a different video.'
-        );
-        throw this._sanitizeError(policyError as ExtendedError);
-      }
-
-      this.logger.error(`Generation failed (${errorType}): ${err.message}`);
-      throw this._sanitizeError(err);
+      throw publicError;
     }
   }
 
