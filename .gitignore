@@ -58,3 +58,6 @@ build/
 
 # Vitest
 .vitest/
+
+# Live probe outputs (images/video are regenerable; results are in docs/specs/probes-*.jsonl)
+test-outputs/probes/
