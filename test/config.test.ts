@@ -96,9 +96,9 @@ describe('Configuration Constants', () => {
         const c = MODEL_CONSTRAINTS[m];
         expect(c.promptMaxLength).toBe(10000);
         expect(c.supportedModes).toEqual(Object.values(GEMINI_MODES));
-        expect(c.features.textToImage).toBe(true);
-        expect(c.features.imageToImage).toBe(true);
-        expect(c.features.semanticMasking).toBe(true);
+        expect(c.features!.textToImage).toBe(true);
+        expect(c.features!.imageToImage).toBe(true);
+        expect(c.features!.semanticMasking).toBe(true);
         expect(c.responseFormat).toBe('parts');
         expect(c.inputImagesMax).toBe(14);
       }
@@ -116,7 +116,7 @@ describe('Configuration Constants', () => {
 
     it('keeps the video-understanding entry unchanged', () => {
       const video = MODEL_CONSTRAINTS[MODELS.GEMINI_VIDEO];
-      expect(video.features.videoUnderstanding).toBe(true);
+      expect(video.features!.videoUnderstanding).toBe(true);
       expect(video.responseFormat).toBe('candidates');
       expect(video.imageSizes).toBeUndefined();
     });
@@ -440,7 +440,7 @@ describe('Video Configuration Constants', () => {
       const geminiVideo = MODEL_CONSTRAINTS['gemini-2.5-flash'];
       expect(geminiVideo).toBeDefined();
       expect(geminiVideo.video).toBeDefined();
-      expect(geminiVideo.features.videoUnderstanding).toBe(true);
+      expect(geminiVideo.features!.videoUnderstanding).toBe(true);
     });
 
     it('should support video clipping', () => {

@@ -12,3 +12,7 @@
 {"id": "flat-9:16", "model": "gemini-3.1-flash-image", "prompt": "A red apple on a wooden table", "config": {"aspectRatio": "9:16"}, "ok": true, "images": [{"w": 1408, "h": 768}], "note": "V3 control, 1.x flat shape; ratio ignored"}
 {"id": "imageConfig-9:16", "model": "gemini-3.1-flash-image", "prompt": "A red apple on a wooden table", "config": {"imageConfig": {"aspectRatio": "9:16"}}, "ok": true, "images": [{"w": 768, "h": 1376}], "note": "V3 fix shape"}
 {"id": "a4-3-pro-image-GA", "model": "gemini-3-pro-image", "prompt": "A red apple on a wooden table", "config": {"imageConfig": {"aspectRatio": "4:5", "imageSize": "1K"}}, "ok": true, "note": "A4 GA generation check", "finish": "STOP", "parts": [{"thought": false, "img": true}]}
+{"id":"v16-3.1flash-9:16","finish":"STOP","rawParts":1,"thoughtParts":0,"outputImages":1,"dims":["768x1376"]}
+{"id":"v16-3.1flash-2K","finish":"STOP","rawParts":1,"thoughtParts":0,"outputImages":1,"dims":["2816x1536"]}
+{"id":"p3b-3pro-thoughts","finish":"STOP","rawParts":1,"thoughtParts":0,"outputImages":1,"dims":["928x1152"]}
+{"id":"p3b-lite-default","finish":"STOP","rawParts":1,"thoughtParts":0,"outputImages":1,"dims":["1408x768"]}

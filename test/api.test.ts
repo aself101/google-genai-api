@@ -23,8 +23,10 @@ vi.mock('@google/genai', () => {
   };
 });
 
-// Interface for the mocked API with public access to private members
-interface MockedGoogleGenAIAPI extends GoogleGenAIAPI {
+// The API with its private members exposed for testing. Not `extends
+// GoogleGenAIAPI`: redeclaring private members is a type error (TS2430).
+type MockedGoogleGenAIAPI = Pick<GoogleGenAIAPI, 'generateWithGemini' | 'setLogLevel'> & MockedInternals;
+interface MockedInternals {
   apiKey: string | null;
   client: {
     models: {
@@ -45,7 +47,7 @@ describe('GoogleGenAIAPI Class', () => {
     vi.clearAllMocks();
 
     // Create API instance
-    api = new GoogleGenAIAPI('AIzaSyTest1234567890123456789012345678') as MockedGoogleGenAIAPI;
+    api = new GoogleGenAIAPI('AIzaSyTest1234567890123456789012345678') as unknown as MockedGoogleGenAIAPI;
 
     // Get reference to mocked client
     mockClient = api.client;
@@ -69,13 +71,13 @@ describe('GoogleGenAIAPI Class', () => {
     });
 
     it('should set default log level to info', () => {
-      const defaultApi = new GoogleGenAIAPI('AIzaSyTest1234567890123456789012345678') as MockedGoogleGenAIAPI;
+      const defaultApi = new GoogleGenAIAPI('AIzaSyTest1234567890123456789012345678') as unknown as MockedGoogleGenAIAPI;
       expect(defaultApi.logger).toBeDefined();
       expect(defaultApi.logger.level).toBe('info');
     });
 
     it('should accept custom log level', () => {
-      const debugApi = new GoogleGenAIAPI('AIzaSyTest1234567890123456789012345678', 'debug') as MockedGoogleGenAIAPI;
+      const debugApi = new GoogleGenAIAPI('AIzaSyTest1234567890123456789012345678', 'debug') as unknown as MockedGoogleGenAIAPI;
       expect(debugApi.logger.level).toBe('debug');
     });
 
@@ -147,7 +149,7 @@ describe('GoogleGenAIAPI Class', () => {
       expect(mockClient.models.generateContent).toHaveBeenCalledWith({
         model: DEFAULT_IMAGE_MODEL,
         contents: 'A serene mountain landscape',
-        config: { aspectRatio: '16:9' },
+        config: { responseModalities: ['TEXT', 'IMAGE'], imageConfig: { aspectRatio: '16:9' } },
       });
       expect(result).toEqual(mockResponse);
     });
@@ -175,7 +177,7 @@ describe('GoogleGenAIAPI Class', () => {
       expect(mockClient.models.generateContent).toHaveBeenCalledWith({
         model: DEFAULT_IMAGE_MODEL,
         contents: [{ text: 'Make it sunset' }, { inlineData: { mimeType: 'image/jpeg', data: 'inputbase64' } }],
-        config: { aspectRatio: '1:1' },
+        config: { responseModalities: ['TEXT', 'IMAGE'], imageConfig: { aspectRatio: '1:1' } },
       });
       expect(result).toEqual(mockResponse);
     });
@@ -230,6 +232,25 @@ describe('GoogleGenAIAPI Class', () => {
       expect(mockClient.models.generateContent).toHaveBeenCalledTimes(2);
     });
 
+    it('returns a no-image response unchanged and warns with the finishReason', async () => {
+      const blocked: GeminiResponse = { candidates: [{ content: { parts: [] }, finishReason: 'IMAGE_SAFETY' }] };
+      mockClient.models.generateContent.mockResolvedValue(blocked);
+      const warn = vi.spyOn(api.logger, 'warn').mockImplementation(() => undefined);
+
+      await expect(api.generateWithGemini({ prompt: 'x' })).resolves.toBe(blocked);
+      expect(warn).toHaveBeenCalledWith(expect.stringContaining('returned no image (finishReason: IMAGE_SAFETY)'));
+    });
+
+    it('does not count a thought image as output', async () => {
+      const draftOnly: GeminiResponse = {
+        candidates: [{ content: { parts: [{ thought: true, inlineData: { mimeType: 'image/png', data: 'd' } }] }, finishReason: 'STOP' }],
+      };
+      mockClient.models.generateContent.mockResolvedValue(draftOnly);
+      const warn = vi.spyOn(api.logger, 'warn').mockImplementation(() => undefined);
+      await api.generateWithGemini({ prompt: 'x' });
+      expect(warn).toHaveBeenCalledWith(expect.stringContaining('returned no image'));
+    });
+
     it('should use custom model when provided', async () => {
       const mockResponse: GeminiResponse = {
         candidates: [
@@ -251,7 +272,7 @@ describe('GoogleGenAIAPI Class', () => {
       expect(mockClient.models.generateContent).toHaveBeenCalledWith({
         model: MODELS.GEMINI_3_PRO,
         contents: 'A futuristic cityscape',
-        config: { aspectRatio: '16:9' },
+        config: { responseModalities: ['TEXT', 'IMAGE'], imageConfig: { aspectRatio: '16:9' } },
       });
     });
 
@@ -267,7 +288,7 @@ describe('GoogleGenAIAPI Class', () => {
       expect(mockClient.models.generateContent).toHaveBeenCalledWith({
         model: DEFAULT_IMAGE_MODEL,
         contents: 'Test prompt',
-        config: { aspectRatio: '1:1' },
+        config: { responseModalities: ['TEXT', 'IMAGE'], imageConfig: { aspectRatio: '1:1' } },
       });
     });
   });
@@ -297,7 +318,7 @@ describe('GoogleGenAIAPI Class', () => {
     it("capabilityValidation 'warn': logs the violation and sends the request", async () => {
       const warnApi = new GoogleGenAIAPI('AIzaSyTest1234567890123456789012345678', 'info', {
         capabilityValidation: 'warn',
-      }) as MockedGoogleGenAIAPI;
+      }) as unknown as MockedGoogleGenAIAPI;
       const warn = vi.spyOn(warnApi.logger, 'warn').mockImplementation(() => undefined);
       warnApi.client.models.generateContent.mockResolvedValue(ok);
 
@@ -310,7 +331,7 @@ describe('GoogleGenAIAPI Class', () => {
     it("shape violations throw even under 'warn'", async () => {
       const warnApi = new GoogleGenAIAPI('AIzaSyTest1234567890123456789012345678', 'info', {
         capabilityValidation: 'warn',
-      }) as MockedGoogleGenAIAPI;
+      }) as unknown as MockedGoogleGenAIAPI;
       await expect(
         warnApi.generateWithGemini({ prompt: 'x', inputImages: [{ mimeType: 'image/png', data: '' }] })
       ).rejects.toThrow('has no data');
@@ -372,7 +393,7 @@ describe('Response Extraction Functions', () => {
   describe('extractGeminiParts', () => {
     it('should extract text parts from Gemini response', () => {
       const response: GeminiResponse = {
-        parts: [{ text: 'This is a description of the image' }],
+        candidates: [{ content: { parts: [{ text: 'This is a description of the image' }] } }],
       };
 
       const parts = extractGeminiParts(response);
@@ -386,14 +407,14 @@ describe('Response Extraction Functions', () => {
 
     it('should extract image parts from Gemini response', () => {
       const response: GeminiResponse = {
-        parts: [
+        candidates: [{ content: { parts: [
           {
             inlineData: {
               mimeType: 'image/png',
               data: 'base64imagedata',
             },
           },
-        ],
+        ] } }],
       };
 
       const parts = extractGeminiParts(response);
@@ -408,7 +429,7 @@ describe('Response Extraction Functions', () => {
 
     it('should extract mixed text and image parts', () => {
       const response: GeminiResponse = {
-        parts: [
+        candidates: [{ content: { parts: [
           { text: 'Here is your image:' },
           {
             inlineData: {
@@ -417,7 +438,7 @@ describe('Response Extraction Functions', () => {
             },
           },
           { text: 'Additional description' },
-        ],
+        ] } }],
       };
 
       const parts = extractGeminiParts(response);
@@ -430,13 +451,13 @@ describe('Response Extraction Functions', () => {
 
     it('should use default mimeType if not provided', () => {
       const response: GeminiResponse = {
-        parts: [
+        candidates: [{ content: { parts: [
           {
             inlineData: {
               data: 'base64data',
             },
           },
-        ],
+        ] } }],
       };
 
       const parts = extractGeminiParts(response);
@@ -445,9 +466,35 @@ describe('Response Extraction Functions', () => {
     });
 
     it('should handle empty parts array', () => {
-      const response: GeminiResponse = { parts: [] };
+      const response: GeminiResponse = { candidates: [{ content: { parts: [] } }] };
       const parts = extractGeminiParts(response);
       expect(parts).toEqual([]);
+    });
+
+    it('skips thought parts by default (gemini-3-pro-image draft images are not output)', () => {
+      const response: GeminiResponse = {
+        candidates: [{ content: { parts: [
+          { thought: true, inlineData: { mimeType: 'image/png', data: 'draft' } },
+          { thought: true, text: 'planning the composition' },
+          { inlineData: { mimeType: 'image/png', data: 'final' } },
+        ] } }],
+      };
+      expect(extractGeminiParts(response)).toEqual([{ type: 'image', mimeType: 'image/png', data: 'final' }]);
+    });
+
+    it('includeThoughts: true keeps them, in order', () => {
+      const response: GeminiResponse = {
+        candidates: [{ content: { parts: [
+          { thought: true, inlineData: { mimeType: 'image/png', data: 'draft' } },
+          { inlineData: { mimeType: 'image/png', data: 'final' } },
+        ] } }],
+      };
+      expect(extractGeminiParts(response, { includeThoughts: true }).map((p) => p.data)).toEqual(['draft', 'final']);
+    });
+
+    it('reads candidates[0].content.parts only — the 1.x top-level `parts` fallback is gone', () => {
+      const legacy = { parts: [{ text: 'not an SDK field' }] } as unknown as GeminiResponse;
+      expect(extractGeminiParts(legacy)).toEqual([]);
     });
 
     it('should handle missing parts property', () => {

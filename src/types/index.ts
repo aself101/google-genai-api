@@ -38,6 +38,14 @@ export interface GoogleGenAIVeoApiOptions {
 }
 
 /**
+ * Options for `extractGeminiParts`.
+ */
+export interface ExtractGeminiPartsOptions {
+  /** Include interim "thinking" parts (`thought: true`). Default false: only final output. */
+  includeThoughts?: boolean;
+}
+
+/**
  * Third constructor argument of `GoogleGenAIAPI` and `GoogleGenAIVeoAPI`.
  */
 export interface GoogleGenAIClientOptions {
@@ -239,8 +247,14 @@ export interface GeminiGenerateParams {
   prompt: string;
   /** Input images for editing / reference (per-model limit: `MODEL_CONSTRAINTS[model].inputImagesMax`) */
   inputImages?: InlineData[];
-  /** Aspect ratio */
+  /**
+   * Aspect ratio, sent as `imageConfig.aspectRatio`. Omit it to let the model
+   * choose the framing — which is what every 1.x call actually got, because 1.x
+   * never sent this value (spec §1.4).
+   */
   aspectRatio?: AspectRatio;
+  /** Output size, sent as `imageConfig.imageSize` (per-model: `MODEL_CONSTRAINTS[model].imageSizes`) */
+  imageSize?: ImageSize;
   /** Model to use (default `DEFAULT_IMAGE_MODEL`); unknown ids pass through with a warning */
   model?: ImageModelId;
   /** Override auto-detection mode */
@@ -351,8 +365,6 @@ export interface GeminiPart {
 export interface GeminiResponse {
   /** Response candidates */
   candidates?: GeminiCandidate[];
-  /** Direct parts (alternative format) */
-  parts?: GeminiResponsePart[];
 }
 
 /**
@@ -364,12 +376,16 @@ export interface GeminiCandidate {
     /** Parts array */
     parts?: GeminiResponsePart[];
   };
+  /** Why generation stopped: `STOP`, or e.g. `IMAGE_SAFETY` / `IMAGE_RECITATION` when no image is returned */
+  finishReason?: string;
 }
 
 /**
  * Gemini response part.
  */
 export interface GeminiResponsePart {
+  /** True for an interim "thinking" part (e.g. gemini-3-pro-image's draft images), not final output */
+  thought?: boolean;
   /** Text content */
   text?: string;
   /** Inline data (image) */

@@ -8,10 +8,12 @@
  */
 
 import { GoogleGenAI } from '@google/genai';
+import type { GenerateContentConfig, ImageConfig } from '@google/genai';
 import winston from 'winston';
 import { redactApiKey, DEFAULT_IMAGE_MODEL, MODEL_CONSTRAINTS, detectGeminiMode, getModelViolations } from './config.js';
-import { ValidationError } from './errors.js';
+import { ValidationError, toPublicError } from './errors.js';
 import type {
+  ExtractGeminiPartsOptions,
   GeminiMode,
   GoogleGenAIClientOptions,
   GeminiPart,
@@ -161,25 +163,18 @@ export class GoogleGenAIAPI {
   async generateWithGemini(params: GeminiGenerateParams): Promise<GeminiResponse> {
     this._verifyApiKey();
 
-    const {
-      prompt,
-      inputImages = [],
-      aspectRatio = '1:1',
-      model = DEFAULT_IMAGE_MODEL,
-      mode,
-    } = params;
+    const { prompt, inputImages = [], aspectRatio, imageSize, model = DEFAULT_IMAGE_MODEL, mode } = params;
 
     // Validate before the try below, so a ValidationError reaches the caller
-    // intact rather than through production error sanitization (spec D5).
-    // Only caller-supplied values are checked — not the defaults above.
-    this._checkParams(model, { prompt, aspectRatio: params.aspectRatio, inputImages });
+    // intact rather than through production error handling (spec D5).
+    this._checkParams(model, { prompt, aspectRatio, imageSize, inputImages });
 
     // Detect or use provided mode. The image count was already validated above,
     // whether or not the caller supplied `mode` (1.x skipped the check then).
     const detectedMode: GeminiMode = mode || detectGeminiMode(inputImages);
 
     this.logger.info(
-      `Generating with ${model} (mode: ${detectedMode}, aspectRatio: ${aspectRatio})`
+      `Generating with ${model} (mode: ${detectedMode}, aspectRatio: ${aspectRatio ?? 'model default'}, imageSize: ${imageSize ?? 'model default'})`
     );
     this.logger.debug(`Prompt: "${prompt}"`);
     this.logger.debug(`Input images: ${inputImages.length}`);
@@ -192,29 +187,34 @@ export class GoogleGenAIAPI {
         `Contents type: ${typeof contents === 'string' ? 'string' : 'parts array'}`
       );
 
-      // Call Gemini API
-      // Note: aspectRatio is a valid Gemini config option for image generation
-      const response = (await this.client.models.generateContent({
-        model,
-        contents,
-        config: { aspectRatio } as Record<string, unknown>,
-      })) as GeminiResponse;
+      // Image settings go in `imageConfig` — the SDK's serializer reads them
+      // there and nowhere else. 1.x sent a top-level `aspectRatio`, which the
+      // SDK silently dropped (spec §1.4). Each key is sent only if the caller
+      // set it: an omitted ratio means model-chosen framing, as 1.x delivered.
+      const imageConfig: ImageConfig = {};
+      if (aspectRatio !== undefined) imageConfig.aspectRatio = aspectRatio;
+      if (imageSize !== undefined) imageConfig.imageSize = imageSize;
+      const config: GenerateContentConfig = { responseModalities: ['TEXT', 'IMAGE'] };
+      if (Object.keys(imageConfig).length > 0) config.imageConfig = imageConfig;
 
-      const partsCount =
-        response.candidates?.[0]?.content?.parts?.length || response.parts?.length || 0;
-      this.logger.info(`Gemini generation successful (parts: ${partsCount})`);
+      const response = (await this.client.models.generateContent({ model, contents, config })) as GeminiResponse;
+
+      const candidate = response.candidates?.[0];
+      const parts = candidate?.content?.parts ?? [];
+      const images = parts.filter((p) => p.inlineData && !p.thought).length;
+      if (images === 0) {
+        // Not an error: the caller gets the response and can inspect it (1.x
+        // returned it too). A safety or recitation stop lands here.
+        this.logger.warn(`${model} returned no image (finishReason: ${candidate?.finishReason ?? 'none'})`);
+      } else {
+        this.logger.info(`Gemini generation successful (parts: ${parts.length}, images: ${images})`);
+      }
 
       return response;
     } catch (error) {
       const err = error as Error;
       this.logger.error(`Gemini generation failed: ${err.message}`);
-
-      // Sanitize error in production
-      if (process.env.NODE_ENV === 'production') {
-        throw new Error('Image generation failed. Please try again.');
-      }
-
-      throw error;
+      throw toPublicError(error, { surface: 'image' });
     }
   }
 
@@ -251,10 +251,14 @@ export class GoogleGenAIAPI {
 }
 
 /**
- * Extract parts from Gemini response.
- * Gemini response format: { parts: [{ text }, { inlineData: { mimeType, data } }] }
+ * Extract parts from Gemini response (`candidates[0].content.parts`).
+ *
+ * Skips interim "thinking" parts (`thought: true`) unless `includeThoughts` is
+ * set — gemini-3-pro-image can return draft images there, which 1.x would have
+ * handed back as extra output images.
  *
  * @param response - Gemini API response
+ * @param options - `{ includeThoughts: true }` to keep thought parts
  * @returns Array of parts with type (text or image)
  *
  * @example
@@ -264,13 +268,14 @@ export class GoogleGenAIAPI {
  * //   { type: 'image', mimeType: 'image/png', data: 'base64...' }
  * // ]
  */
-export function extractGeminiParts(response: GeminiResponse): GeminiPart[] {
+export function extractGeminiParts(
+  response: GeminiResponse,
+  { includeThoughts = false }: ExtractGeminiPartsOptions = {}
+): GeminiPart[] {
   const parts: GeminiPart[] = [];
 
-  // Extract parts from response.candidates[0].content.parts
-  const responseParts = response.candidates?.[0]?.content?.parts || response.parts || [];
-
-  for (const part of responseParts) {
+  for (const part of response.candidates?.[0]?.content?.parts ?? []) {
+    if (part.thought && !includeThoughts) continue;
     if (part.text) {
       parts.push({
         type: 'text',

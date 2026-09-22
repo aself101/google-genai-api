@@ -53,7 +53,7 @@
     "google:veo": "tsx src/cli.ts --veo",
     "google:veo:fast": "tsx src/cli.ts --veo --veo-model veo-3.1-fast-generate-preview",
     "prepublishOnly": "npm run check:release",
-    "typecheck": "tsc --noEmit",
+    "typecheck": "tsc --noEmit && tsc -p tsconfig.test.json",
     "verify": "npm run typecheck && npm run build && npm test",
     "check:lifecycle": "tsx scripts/check-lifecycle.mjs",
     "check:release": "node scripts/check-release.mjs"

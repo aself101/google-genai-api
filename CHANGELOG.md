@@ -9,6 +9,10 @@
 - `ValidationError` (extends `Error`; `violations` lists every problem) and `getModelViolations(model, params)`, which returns violations instead of throwing. Each is tagged `shape` (malformed — always enforced) or `capability` (the model's constraint table says no).
 - A third constructor argument, `{ capabilityValidation: 'error' | 'warn' }`. `'warn'` logs a capability violation and sends the request anyway, for when Google accepts something the table does not know yet. Shape violations always throw.
 - `isKnownImageModel(id)` and `isKnownVeoModel(id)` type guards.
+- `imageSize` on `generateWithGemini()` (`'512'`, `'1K'`, `'2K'`, `'4K'`, per model), sent as `imageConfig.imageSize`. It is a resolution tier, not a fixed edge: `'2K'` gave 2048×2048 at 1:1 and 2816×1536 at the model's default framing (live, 2026-09-22).
+- `extractGeminiParts(response, { includeThoughts })`.
+- Errors from `generateWithGemini()` carry `status`, `code`, `classification` (`AUTH`, `TRANSIENT`, `USER_ACTIONABLE`, `SAFETY_BLOCKED`, `AUDIO_BLOCKED`, `NETWORK`, `TIMEOUT`) and `surface` in every environment.
+- `test/wire.test.ts`: tests that run the real SDK serializer against a stubbed `fetch` and assert on the request body. The existing tests mock the SDK, which is how the `aspectRatio` defect below went unseen.
 - `npm run check:lifecycle` — fails if any cataloged model has an announced shutdown on Google's deprecations page, or is missing from it. `--control` proves it can fail against the 1.x catalog.
 - `npm run check:release`, run by `prepublishOnly`: CHANGELOG heading for the version, empty `[Unreleased]`, fresh build, tarball contents, lifecycle.
 - CI on push and pull request (Node 20, 22, 24): typecheck, build, test, production audit, pack check. A weekly workflow runs the suite against the newest `@google/genai` 2.x and the lifecycle check, and opens an issue when either fails.
@@ -22,6 +26,11 @@
 - `detectGeminiMode()` no longer throws on more than one input image; how many a model takes is its `inputImagesMax` (up to 14).
 - `MODELS.GEMINI_3_PRO` is now `'gemini-3-pro-image'` (GA), not the preview id.
 - The SDK client is pinned to the Gemini Developer API (`vertexai: false`) in all three clients. Before, `GOOGLE_GENAI_USE_VERTEXAI` or `GOOGLE_GENAI_USE_ENTERPRISE` in the environment would move requests to a different endpoint and serializer.
+- `generateWithGemini()` has **no default `aspectRatio`** (1.x defaulted to `'1:1'`, but never sent it). Omit it and the model chooses the framing — exactly what every 1.x call received.
+- `generateWithGemini()` sends `responseModalities: ['TEXT', 'IMAGE']` (verified live on all three image models).
+- `extractGeminiParts()` **skips thought parts** (`thought: true`) unless `includeThoughts` is set, and reads only `candidates[0].content.parts`; the non-SDK top-level `response.parts` fallback and `GeminiResponse.parts` are removed.
+- A response with no image (e.g. `finishReason: 'IMAGE_SAFETY'`) is returned unchanged, with a warning that names the finish reason.
+- Outside production, `generateWithGemini()` rethrows the SDK's own error object, as 1.x did, now with the properties above added.
 - CLI: `--gemini` uses `gemini-3.1-flash-image`; `--gemini-3-pro` uses `gemini-3-pro-image`.
 - **Node.js ≥ 20 is required** (was ≥ 18). `@google/genai` has required Node 20 since its 1.0.1, so the 1.x `engines` field already understated it.
 - `@google/genai` `^1.30.0` → `^2.24.0`. SDK 2.0's breaking changes are confined to its Interactions API; this package needed no source change for it.
@@ -35,10 +44,13 @@
 
 ### Fixed
 
+- **`aspectRatio` was never sent.** 1.x put it at the top level of the request config, where the SDK's serializer ignores it; every call got the model's default framing. It now goes in `imageConfig`, and output framing follows the value you pass — which changes the images every caller that passed an `aspectRatio` receives. Verified live through the built package: 9:16 on `gemini-3.1-flash-image` returned 768×1376 (1.x's shape, same prompt: 1408×768).
 - `generateWithGemini()` skipped its input-image count check whenever the caller passed `mode`; the check now always runs.
 - CLI: pre-flight validation used a placeholder input image; it now validates the real decoded image.
 
 ### Security
+
+- Production errors from `generateWithGemini()` were a single generic sentence. They now name the category and, for rejected requests and safety blocks, include Google's own `error.message` (≤300 characters) — never the error body's `details[]` (which can carry project and quota metadata), never text from a non-Gemini body such as a proxy's HTML page, and never for authentication or rate-limit failures. No `cause` is attached in production, because Node prints the cause chain.
 
 - `axios` `^1.6.2` → `^1.20.0` (the locked 1.13.2 carried ~30 advisories, including SSRF and prototype-pollution chains). `file-type` `^19.6.0` → `^21.3.4` (patched; 22.x would require Node ≥ 22). Transitive `jws`, `ws`, `minimatch`, `brace-expansion` updated. `npm audit --omit=dev`: 0 vulnerabilities.
 
