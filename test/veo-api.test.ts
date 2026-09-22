@@ -468,26 +468,6 @@ describe('GoogleGenAIVeoAPI', () => {
       ).rejects.toThrow(/Maximum 3 reference images/);
     });
 
-    it('should reject reference images for Veo 2', async () => {
-      await expect(
-        api.generateWithReferences({
-          prompt: 'Test',
-          referenceImages: mockReferenceImages,
-          model: VEO_MODELS.VEO_2,
-        })
-      ).rejects.toThrow(/reference-images mode is not supported/);
-    });
-
-    it('should reject reference images for Veo 3', async () => {
-      await expect(
-        api.generateWithReferences({
-          prompt: 'Test',
-          referenceImages: mockReferenceImages,
-          model: VEO_MODELS.VEO_3,
-        })
-      ).rejects.toThrow(/reference-images mode is not supported/);
-    });
-
     it('should reject empty reference images array', async () => {
       await expect(
         api.generateWithReferences({
@@ -578,17 +558,6 @@ describe('GoogleGenAIVeoAPI', () => {
       ).rejects.toThrow(/lastFrame with imageBytes and mimeType is required/);
     });
 
-    it('should reject interpolation for Veo 2', async () => {
-      await expect(
-        api.generateWithInterpolation({
-          prompt: 'Test',
-          firstFrame: mockFirstFrame,
-          lastFrame: mockLastFrame,
-          model: VEO_MODELS.VEO_2,
-        })
-      ).rejects.toThrow(/interpolation mode is not supported/);
-    });
-
     it('should work without prompt for interpolation', async () => {
       const mockOperation: VeoOperation = { name: 'test-op', done: false };
       api.client.models.generateVideos = vi.fn().mockResolvedValue(mockOperation);
@@ -653,26 +622,6 @@ describe('GoogleGenAIVeoAPI', () => {
           prompt: 'Test',
         } as { prompt: string; video: { uri: string } })
       ).rejects.toThrow(/video object from a previous Veo generation is required/);
-    });
-
-    it('should reject extension for Veo 2', async () => {
-      await expect(
-        api.extendVideo({
-          prompt: 'Test',
-          video: mockVideo,
-          model: VEO_MODELS.VEO_2,
-        })
-      ).rejects.toThrow(/extension mode is not supported/);
-    });
-
-    it('should reject extension for Veo 3', async () => {
-      await expect(
-        api.extendVideo({
-          prompt: 'Test',
-          video: mockVideo,
-          model: VEO_MODELS.VEO_3,
-        })
-      ).rejects.toThrow(/extension mode is not supported/);
     });
   });
 
@@ -882,9 +831,9 @@ describe('GoogleGenAIVeoAPI', () => {
     });
 
     it('should return model info for specified model', () => {
-      const info = api.getModelInfo(VEO_MODELS.VEO_2);
-      expect(info.model).toBe(VEO_MODELS.VEO_2);
-      expect(info.features.nativeAudio).toBe(false);
+      const info = api.getModelInfo(VEO_MODELS.VEO_3_1_FAST);
+      expect(info.model).toBe(VEO_MODELS.VEO_3_1_FAST);
+      expect(info.features.nativeAudio).toBe(true);
     });
 
     it('should throw for unknown model', () => {
@@ -897,9 +846,6 @@ describe('VEO_MODELS', () => {
   it('should export all Veo models', () => {
     expect(VEO_MODELS.VEO_3_1).toBe('veo-3.1-generate-preview');
     expect(VEO_MODELS.VEO_3_1_FAST).toBe('veo-3.1-fast-generate-preview');
-    expect(VEO_MODELS.VEO_3).toBe('veo-3.0-generate-001');
-    expect(VEO_MODELS.VEO_3_FAST).toBe('veo-3.0-fast-generate-001');
-    expect(VEO_MODELS.VEO_2).toBe('veo-2.0-generate-001');
   });
 });
 

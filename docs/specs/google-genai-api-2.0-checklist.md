@@ -43,9 +43,12 @@ Companion to [`google-genai-api-2.0-spec-v0_4_2.md`](./google-genai-api-2.0-spec
 - [x] Test count on SDK 2.24: **358/358** on Node 24 and Node 20 (1.3.0 baseline: 358/358; SDK 1.30 typecheck clean). Tests mock the SDK — serialization on 2.24 is proven only by P3b wire tests and V16
 
 ## P2 — removals (~60 LOC, net −~900)
-- [ ] Imagen surface removed
-- [ ] Veo 3.0/2.0 surface removed (keep `hasAudio`; keep feature-gate branches)
-- [ ] V5 = 0 in src/test/package.json (README handled in P6)
+- [x] Imagen surface removed: `generateWithImagen`, `extractImagenImages`, `MODELS.IMAGEN`, its constraint + validation branch, `ImagenModel`/`ImagenGenerateParams`/`ImagenResponse`/`ImagenGeneratedImage`, CLI `--imagen`/`-n` + Imagen branch/docs/examples (examples renumbered 1–18), `google:imagen` script, `imagen` keyword
+- [x] Veo 3.0/2.0 surface removed: `VEO_MODELS.VEO_3/VEO_3_FAST/VEO_2`, their durations and constraints, `VeoModel` members, `VeoDuration '5'`, the 1080p aspect-ratio branch (only Veo 3.0 set it). `hasAudio` and the feature-gate branches kept
+- [x] V5 = **0** in src/test/package.json (control at P2 start, same scope: **180**). README (40 remaining hits) is P6
+- [x] Tests **358 → 326** (−32 legacy-model tests); `verify` green; test-typecheck backlog 37 → 33 (errors in deleted tests)
+- [x] **Owed to P4 (Lite):** these negative tests had only Veo 2/3 as targets and were deleted, leaving the feature-gate branches unexercised until Lite exists — recreate against Lite: `validateVeoParams` rejects reference-images mode, extension mode, an unsupported resolution (was 1080p on Veo 2; becomes 4k on Lite); `api.generateWithReferences` rejects; `api.extendVideo` rejects. Interpolation *is* supported on Lite, so the old "interpolation not supported" tests have no successor. The 1080p 16:9 test is gone with its branch
+- [x] **Found in P2:** `src/`, `test/` and `package.json` use CRLF; a Python text-mode rewrite silently converts to LF (whole-file diffs). P1's `package.json` rewrite had done exactly that — restored here. All edits now read/write with `newline=''`. `package-lock.json` is LF because npm 11 writes it so; not fought
 
 ## P3a — catalog, validation (~200 src + 160 test)
 - [ ] Catalog current-only: `MODELS` (no `GEMINI`, no `IMAGEN`), `DEFAULT_IMAGE_MODEL`, `MODEL_CONSTRAINTS` (additive), `ASPECT_RATIOS`, `IMAGE_SIZES`, `SUPPORTED_IMAGE_MIME_TYPES`

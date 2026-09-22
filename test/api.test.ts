@@ -4,9 +4,9 @@
  */
 
 import { describe, it, expect, beforeEach, vi, type Mock } from 'vitest';
-import { GoogleGenAIAPI, extractGeminiParts, extractImagenImages } from '../src/api.js';
+import { GoogleGenAIAPI, extractGeminiParts } from '../src/api.js';
 import { MODELS } from '../src/config.js';
-import type { GeminiResponse, ImagenResponse, InlineData } from '../src/types/index.js';
+import type { GeminiResponse, InlineData } from '../src/types/index.js';
 
 // Mock the @google/genai SDK
 vi.mock('@google/genai', () => {
@@ -16,7 +16,6 @@ vi.mock('@google/genai', () => {
       return {
         models: {
           generateContent: vi.fn(),
-          generateImages: vi.fn(),
         },
       };
     }),
@@ -29,7 +28,6 @@ interface MockedGoogleGenAIAPI extends GoogleGenAIAPI {
   client: {
     models: {
       generateContent: Mock;
-      generateImages: Mock;
     };
   };
   logger: { level: string; info: () => void; error: () => void };
@@ -273,105 +271,6 @@ describe('GoogleGenAIAPI Class', () => {
     });
   });
 
-  describe('generateWithImagen', () => {
-    it('should call SDK with correct parameters', async () => {
-      const mockResponse: ImagenResponse = {
-        generatedImages: [{ image: { imageBytes: 'base64image1' } }],
-      };
-      mockClient.models.generateImages.mockResolvedValue(mockResponse);
-
-      const result = await api.generateWithImagen({
-        prompt: 'Futuristic cityscape',
-        numberOfImages: 1,
-        aspectRatio: '16:9',
-      });
-
-      expect(mockClient.models.generateImages).toHaveBeenCalledWith({
-        model: MODELS.IMAGEN,
-        prompt: 'Futuristic cityscape',
-        config: {
-          numberOfImages: 1,
-          aspectRatio: '16:9',
-        },
-      });
-      expect(result).toEqual(mockResponse);
-    });
-
-    it('should generate multiple images', async () => {
-      const mockResponse: ImagenResponse = {
-        generatedImages: [
-          { image: { imageBytes: 'base64image1' } },
-          { image: { imageBytes: 'base64image2' } },
-          { image: { imageBytes: 'base64image3' } },
-          { image: { imageBytes: 'base64image4' } },
-        ],
-      };
-      mockClient.models.generateImages.mockResolvedValue(mockResponse);
-
-      const result = await api.generateWithImagen({
-        prompt: 'Character designs',
-        numberOfImages: 4,
-        aspectRatio: '1:1',
-      });
-
-      expect(mockClient.models.generateImages).toHaveBeenCalledWith({
-        model: MODELS.IMAGEN,
-        prompt: 'Character designs',
-        config: {
-          numberOfImages: 4,
-          aspectRatio: '1:1',
-        },
-      });
-      expect(result.generatedImages).toHaveLength(4);
-    });
-
-    it('should use default numberOfImages if not provided', async () => {
-      const mockResponse: ImagenResponse = {
-        generatedImages: [{ image: { imageBytes: 'base64' } }],
-      };
-      mockClient.models.generateImages.mockResolvedValue(mockResponse);
-
-      await api.generateWithImagen({
-        prompt: 'Test',
-        aspectRatio: '1:1',
-      });
-
-      expect(mockClient.models.generateImages).toHaveBeenCalledWith({
-        model: MODELS.IMAGEN,
-        prompt: 'Test',
-        config: {
-          numberOfImages: 1,
-          aspectRatio: '1:1',
-        },
-      });
-    });
-
-    it('should throw error if API key not set', async () => {
-      api.apiKey = null;
-
-      await expect(api.generateWithImagen({ prompt: 'Test' })).rejects.toThrow('API key not set');
-    });
-
-    it('should handle SDK errors', async () => {
-      const sdkError = new Error('SDK error');
-      mockClient.models.generateImages.mockRejectedValue(sdkError);
-
-      await expect(api.generateWithImagen({ prompt: 'Test', numberOfImages: 2 })).rejects.toThrow('SDK error');
-    });
-
-    it('should sanitize errors in production mode', async () => {
-      const originalEnv = process.env.NODE_ENV;
-      process.env.NODE_ENV = 'production';
-
-      const sdkError = new Error('Internal error details');
-      mockClient.models.generateImages.mockRejectedValue(sdkError);
-
-      await expect(api.generateWithImagen({ prompt: 'Test' })).rejects.toThrow('Image generation failed');
-
-      process.env.NODE_ENV = originalEnv;
-    });
-  });
-
   describe('setLogLevel', () => {
     it('should change logger level', () => {
       api.setLogLevel('debug');
@@ -480,73 +379,6 @@ describe('Response Extraction Functions', () => {
       const response: GeminiResponse = {};
       const parts = extractGeminiParts(response);
       expect(parts).toEqual([]);
-    });
-  });
-
-  describe('extractImagenImages', () => {
-    it('should extract single image from Imagen response', () => {
-      const response: ImagenResponse = {
-        generatedImages: [
-          {
-            image: {
-              imageBytes: 'base64imagedata1',
-            },
-          },
-        ],
-      };
-
-      const images = extractImagenImages(response);
-
-      expect(images).toHaveLength(1);
-      expect(images[0]).toEqual({
-        type: 'image',
-        mimeType: 'image/png',
-        data: 'base64imagedata1',
-      });
-    });
-
-    it('should extract multiple images from Imagen response', () => {
-      const response: ImagenResponse = {
-        generatedImages: [
-          { image: { imageBytes: 'base64image1' } },
-          { image: { imageBytes: 'base64image2' } },
-          { image: { imageBytes: 'base64image3' } },
-          { image: { imageBytes: 'base64image4' } },
-        ],
-      };
-
-      const images = extractImagenImages(response);
-
-      expect(images).toHaveLength(4);
-      images.forEach((img, idx) => {
-        expect(img.type).toBe('image');
-        expect(img.mimeType).toBe('image/png');
-        expect(img.data).toBe(`base64image${idx + 1}`);
-      });
-    });
-
-    it('should handle empty generatedImages array', () => {
-      const response: ImagenResponse = { generatedImages: [] };
-      const images = extractImagenImages(response);
-      expect(images).toEqual([]);
-    });
-
-    it('should handle missing generatedImages property', () => {
-      const response = {} as ImagenResponse;
-      const images = extractImagenImages(response);
-      expect(images).toEqual([]);
-    });
-
-    it('should always set mimeType to image/png for Imagen', () => {
-      const response: ImagenResponse = {
-        generatedImages: [{ image: { imageBytes: 'data1' } }, { image: { imageBytes: 'data2' } }],
-      };
-
-      const images = extractImagenImages(response);
-
-      images.forEach((img) => {
-        expect(img.mimeType).toBe('image/png');
-      });
     });
   });
 });

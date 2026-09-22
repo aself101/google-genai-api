@@ -43,11 +43,6 @@ describe('Configuration Constants', () => {
       expect(MODELS.GEMINI_3_PRO).toBeDefined();
       expect(MODELS.GEMINI_3_PRO).toBe('gemini-3-pro-image-preview');
     });
-
-    it('should have IMAGEN model defined', () => {
-      expect(MODELS.IMAGEN).toBeDefined();
-      expect(MODELS.IMAGEN).toBe('imagen-4.0-generate-001');
-    });
   });
 
   describe('Aspect Ratios', () => {
@@ -93,19 +88,6 @@ describe('Configuration Constants', () => {
       expect(gemini3Pro.features.imageToImage).toBe(true);
       expect(gemini3Pro.features.semanticMasking).toBe(true);
       expect(gemini3Pro.responseFormat).toBe('parts');
-    });
-
-    it('should have constraints for Imagen model', () => {
-      const imagen = MODEL_CONSTRAINTS[MODELS.IMAGEN];
-      expect(imagen).toBeDefined();
-      expect(imagen.aspectRatios).toEqual(ASPECT_RATIOS);
-      expect(imagen.promptMaxLength).toBe(10000);
-      expect(imagen.numberOfImages!.min).toBe(1);
-      expect(imagen.numberOfImages!.max).toBe(4);
-      expect(imagen.numberOfImages!.default).toBe(1);
-      expect(imagen.features.textToImage).toBe(true);
-      expect(imagen.features.multipleImages).toBe(true);
-      expect(imagen.responseFormat).toBe('generatedImages');
     });
   });
 
@@ -296,57 +278,7 @@ describe('Validation Functions', () => {
             prompt: 'test',
             numberOfImages: 4,
           })
-        ).toThrow('Gemini only generates one image per request');
-      });
-    });
-
-    describe('Imagen-specific validation', () => {
-      it('should accept valid Imagen parameters', () => {
-        expect(() =>
-          validateModelParams(MODELS.IMAGEN, {
-            prompt: 'test',
-            numberOfImages: 4,
-            aspectRatio: '1:1',
-          })
-        ).not.toThrow();
-      });
-
-      it('should accept numberOfImages from 1 to 4', () => {
-        [1, 2, 3, 4].forEach((num) => {
-          expect(() =>
-            validateModelParams(MODELS.IMAGEN, {
-              prompt: 'test',
-              numberOfImages: num,
-            })
-          ).not.toThrow();
-        });
-      });
-
-      it('should throw error for numberOfImages < 1', () => {
-        expect(() =>
-          validateModelParams(MODELS.IMAGEN, {
-            prompt: 'test',
-            numberOfImages: 0,
-          })
-        ).toThrow('numberOfImages must be between 1 and 4');
-      });
-
-      it('should throw error for numberOfImages > 4', () => {
-        expect(() =>
-          validateModelParams(MODELS.IMAGEN, {
-            prompt: 'test',
-            numberOfImages: 5,
-          })
-        ).toThrow('numberOfImages must be between 1 and 4');
-      });
-
-      it('should throw error if input images provided', () => {
-        expect(() =>
-          validateModelParams(MODELS.IMAGEN, {
-            prompt: 'test',
-            inputImages: [{ mimeType: 'image/png', data: 'base64...' }],
-          })
-        ).toThrow('Imagen does not support input images');
+        ).toThrow('Gemini generates one image per request');
       });
     });
   });
@@ -656,12 +588,9 @@ describe('validateVideoParams', () => {
 
 describe('Veo Configuration Constants', () => {
   describe('VEO_MODELS', () => {
-    it('should have all 5 Veo models defined', () => {
+    it('should have the Veo 3.1 models defined', () => {
       expect(VEO_MODELS.VEO_3_1).toBe('veo-3.1-generate-preview');
       expect(VEO_MODELS.VEO_3_1_FAST).toBe('veo-3.1-fast-generate-preview');
-      expect(VEO_MODELS.VEO_3).toBe('veo-3.0-generate-001');
-      expect(VEO_MODELS.VEO_3_FAST).toBe('veo-3.0-fast-generate-001');
-      expect(VEO_MODELS.VEO_2).toBe('veo-2.0-generate-001');
     });
   });
 
@@ -684,10 +613,6 @@ describe('Veo Configuration Constants', () => {
   describe('VEO_DURATIONS', () => {
     it('should have durations for Veo 3.1', () => {
       expect(VEO_DURATIONS[VEO_MODELS.VEO_3_1]).toEqual(['4', '6', '8']);
-    });
-
-    it('should have durations for Veo 2', () => {
-      expect(VEO_DURATIONS[VEO_MODELS.VEO_2]).toEqual(['5', '6', '8']);
     });
   });
 
@@ -723,9 +648,6 @@ describe('Veo Configuration Constants', () => {
     it('should have constraints for all models', () => {
       expect(VEO_MODEL_CONSTRAINTS[VEO_MODELS.VEO_3_1]).toBeDefined();
       expect(VEO_MODEL_CONSTRAINTS[VEO_MODELS.VEO_3_1_FAST]).toBeDefined();
-      expect(VEO_MODEL_CONSTRAINTS[VEO_MODELS.VEO_3]).toBeDefined();
-      expect(VEO_MODEL_CONSTRAINTS[VEO_MODELS.VEO_3_FAST]).toBeDefined();
-      expect(VEO_MODEL_CONSTRAINTS[VEO_MODELS.VEO_2]).toBeDefined();
     });
 
     it('should have Veo 3.1 support all features', () => {
@@ -736,19 +658,6 @@ describe('Veo Configuration Constants', () => {
       expect(constraints.features.interpolation).toBe(true);
       expect(constraints.features.extension).toBe(true);
       expect(constraints.features.nativeAudio).toBe(true);
-    });
-
-    it('should have Veo 3 not support advanced features', () => {
-      const constraints = VEO_MODEL_CONSTRAINTS[VEO_MODELS.VEO_3];
-      expect(constraints.features.referenceImages).toBe(false);
-      expect(constraints.features.interpolation).toBe(false);
-      expect(constraints.features.extension).toBe(false);
-    });
-
-    it('should have Veo 2 support only 720p', () => {
-      const constraints = VEO_MODEL_CONSTRAINTS[VEO_MODELS.VEO_2];
-      expect(constraints.resolutions).toEqual(['720p']);
-      expect(constraints.features.nativeAudio).toBe(false);
     });
   });
 });
@@ -800,12 +709,6 @@ describe('validateVeoParams', () => {
         'Invalid resolution'
       );
     });
-
-    it('should reject 1080p for Veo 2', () => {
-      expect(() => validateVeoParams(VEO_MODELS.VEO_2, { prompt: 'test', resolution: '1080p' })).toThrow(
-        'Invalid resolution'
-      );
-    });
   });
 
   describe('Duration validation', () => {
@@ -813,10 +716,6 @@ describe('validateVeoParams', () => {
       expect(validateVeoParams(VEO_MODELS.VEO_3_1, { prompt: 'test', durationSeconds: '4' })).toBe(true);
       expect(validateVeoParams(VEO_MODELS.VEO_3_1, { prompt: 'test', durationSeconds: '6' })).toBe(true);
       expect(validateVeoParams(VEO_MODELS.VEO_3_1, { prompt: 'test', durationSeconds: '8' })).toBe(true);
-    });
-
-    it('should accept valid durations for Veo 2', () => {
-      expect(validateVeoParams(VEO_MODELS.VEO_2, { prompt: 'test', durationSeconds: '5' })).toBe(true);
     });
 
     it('should reject invalid duration', () => {
@@ -831,44 +730,6 @@ describe('validateVeoParams', () => {
       expect(() =>
         validateVeoParams(VEO_MODELS.VEO_3_1, { prompt: 'test', resolution: '1080p', durationSeconds: '4' })
       ).toThrow('1080p resolution requires 8-second duration');
-    });
-
-    it('should require 16:9 for 1080p on Veo 3', () => {
-      expect(() =>
-        validateVeoParams(VEO_MODELS.VEO_3, {
-          prompt: 'test',
-          resolution: '1080p',
-          durationSeconds: '8',
-          aspectRatio: '9:16',
-        })
-      ).toThrow('1080p resolution requires 16:9 aspect ratio');
-    });
-  });
-
-  describe('Mode-specific validation', () => {
-    it('should reject reference images for Veo 2', () => {
-      const refs: VeoReferenceImage[] = [
-        { image: { imageBytes: 'data', mimeType: 'image/png' }, referenceType: 'asset' },
-      ];
-      expect(() =>
-        validateVeoParams(VEO_MODELS.VEO_2, { prompt: 'test', referenceImages: refs }, VEO_MODES.REFERENCE_IMAGES as VeoMode)
-      ).toThrow('reference-images mode is not supported');
-    });
-
-    it('should reject interpolation for Veo 3', () => {
-      expect(() =>
-        validateVeoParams(
-          VEO_MODELS.VEO_3,
-          { prompt: 'test', firstFrame: {}, lastFrame: {} },
-          VEO_MODES.INTERPOLATION as VeoMode
-        )
-      ).toThrow('interpolation mode is not supported');
-    });
-
-    it('should reject extension for Veo 2', () => {
-      expect(() =>
-        validateVeoParams(VEO_MODELS.VEO_2, { prompt: 'test', video: {} }, VEO_MODES.EXTENSION as VeoMode)
-      ).toThrow('extension mode is not supported');
     });
   });
 

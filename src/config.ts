@@ -57,7 +57,6 @@ if (existsSync(globalConfigPath)) {
 export const MODELS: Models = {
   GEMINI: 'gemini-2.5-flash-image',
   GEMINI_3_PRO: 'gemini-3-pro-image-preview',
-  IMAGEN: 'imagen-4.0-generate-001',
   GEMINI_VIDEO: 'gemini-2.5-flash', // Video analysis uses standard Gemini model
 };
 
@@ -102,7 +101,7 @@ export const VIDEO_TIMEOUTS: VideoTimeouts = {
   POLL_MAX_ATTEMPTS: 120, // Maximum polling attempts
 };
 
-// Valid aspect ratios (common to both models)
+// Valid aspect ratios for Gemini image models
 export const ASPECT_RATIOS: AspectRatio[] = ['1:1', '3:4', '4:3', '9:16', '16:9'];
 
 // Gemini generation modes (detected automatically based on input)
@@ -162,23 +161,6 @@ export const MODEL_CONSTRAINTS: ModelConstraints = {
       videoClipping: true,
     },
     responseFormat: 'candidates',
-  },
-  'imagen-4.0-generate-001': {
-    aspectRatios: ASPECT_RATIOS,
-    numberOfImages: {
-      min: 1,
-      max: 4,
-      default: 1,
-    },
-    promptMaxLength: 10000,
-    features: {
-      textToImage: true,
-      photorealistic: true,
-      typography: true,
-      multipleImages: true,
-    },
-    // Note: Response format is { generatedImages: [{ image: { imageBytes } }] }
-    responseFormat: 'generatedImages',
   },
 };
 
@@ -273,13 +255,13 @@ interface ModelValidationParams {
  * Validate model-specific parameters before making API calls.
  * Catches invalid parameters early to save API credits.
  *
- * @param model - Model name (e.g., 'gemini-2.5-flash-image', 'imagen-4.0-generate-001')
+ * @param model - Model name (e.g., 'gemini-2.5-flash-image')
  * @param params - Parameters to validate
  * @throws Error if validation fails
  *
  * @example
  * validateModelParams('gemini-2.5-flash-image', { prompt: 'a cat', aspectRatio: '1:1' });
- * validateModelParams('imagen-4.0-generate-001', { prompt: 'a dog', numberOfImages: 4 });
+ * validateModelParams('gemini-2.5-flash-image', { prompt: 'a dog', aspectRatio: '16:9' });
  */
 export function validateModelParams(model: string, params: ModelValidationParams): void {
   const constraints = MODEL_CONSTRAINTS[model] as ModelConstraint | undefined;
@@ -309,25 +291,7 @@ export function validateModelParams(model: string, params: ModelValidationParams
   }
 
   // Model-specific validation
-  if (model === MODELS.IMAGEN) {
-    // Validate numberOfImages
-    if (params.numberOfImages !== undefined && constraints.numberOfImages) {
-      const num =
-        typeof params.numberOfImages === 'string'
-          ? parseInt(params.numberOfImages)
-          : params.numberOfImages;
-      if (isNaN(num) || num < constraints.numberOfImages.min || num > constraints.numberOfImages.max) {
-        throw new Error(
-          `numberOfImages must be between ${constraints.numberOfImages.min} and ${constraints.numberOfImages.max}`
-        );
-      }
-    }
-
-    // Imagen doesn't support input images
-    if (params.inputImages && params.inputImages.length > 0) {
-      throw new Error('Imagen does not support input images. Use Gemini for image-to-image generation.');
-    }
-  } else if (model === MODELS.GEMINI || model === MODELS.GEMINI_3_PRO) {
+  if (model === MODELS.GEMINI || model === MODELS.GEMINI_3_PRO) {
     // Validate input images count
     if (
       params.inputImages &&
@@ -339,7 +303,7 @@ export function validateModelParams(model: string, params: ModelValidationParams
 
     // numberOfImages is not supported by Gemini
     if (params.numberOfImages !== undefined && params.numberOfImages !== 1) {
-      throw new Error('Gemini only generates one image per request. Use Imagen for multiple images.');
+      throw new Error('Gemini generates one image per request; call again for more.');
     }
   }
 }
@@ -503,9 +467,6 @@ export function validateVideoParams(params: VideoTimeParams): ParsedTimeOffsets 
 export const VEO_MODELS: VeoModels = {
   VEO_3_1: 'veo-3.1-generate-preview',
   VEO_3_1_FAST: 'veo-3.1-fast-generate-preview',
-  VEO_3: 'veo-3.0-generate-001',
-  VEO_3_FAST: 'veo-3.0-fast-generate-001',
-  VEO_2: 'veo-2.0-generate-001',
 };
 
 /**
@@ -523,13 +484,8 @@ export const VEO_RESOLUTIONS: VeoResolution[] = ['720p', '1080p'];
  * Duration in seconds as strings.
  */
 export const VEO_DURATIONS = {
-  // Veo 3.x supports 4, 6, 8 seconds
   'veo-3.1-generate-preview': ['4', '6', '8'],
   'veo-3.1-fast-generate-preview': ['4', '6', '8'],
-  'veo-3.0-generate-001': ['4', '6', '8'],
-  'veo-3.0-fast-generate-001': ['4', '6', '8'],
-  // Veo 2 supports 5, 6, 8 seconds
-  'veo-2.0-generate-001': ['5', '6', '8'],
 } as Record<VeoModel, string[]>;
 
 /**
@@ -618,63 +574,6 @@ export const VEO_MODEL_CONSTRAINTS: VeoModelConstraints = {
       requiresDuration: '8',
       aspectRatio: null,
     },
-    promptMaxLength: 1024,
-  },
-  [VEO_MODELS.VEO_3]: {
-    aspectRatios: VEO_ASPECT_RATIOS,
-    resolutions: VEO_RESOLUTIONS,
-    durations: VEO_DURATIONS[VEO_MODELS.VEO_3],
-    features: {
-      textToVideo: true,
-      imageToVideo: true,
-      referenceImages: false,
-      interpolation: false,
-      extension: false,
-      nativeAudio: true,
-    },
-    referenceImages: null,
-    extension: null,
-    resolution1080p: {
-      requiresDuration: '8',
-      aspectRatio: '16:9', // 1080p only for 16:9 on Veo 3
-    },
-    promptMaxLength: 1024,
-  },
-  [VEO_MODELS.VEO_3_FAST]: {
-    aspectRatios: VEO_ASPECT_RATIOS,
-    resolutions: VEO_RESOLUTIONS,
-    durations: VEO_DURATIONS[VEO_MODELS.VEO_3_FAST],
-    features: {
-      textToVideo: true,
-      imageToVideo: true,
-      referenceImages: false,
-      interpolation: false,
-      extension: false,
-      nativeAudio: true,
-    },
-    referenceImages: null,
-    extension: null,
-    resolution1080p: {
-      requiresDuration: '8',
-      aspectRatio: '16:9',
-    },
-    promptMaxLength: 1024,
-  },
-  [VEO_MODELS.VEO_2]: {
-    aspectRatios: VEO_ASPECT_RATIOS,
-    resolutions: ['720p'], // 720p only for Veo 2
-    durations: VEO_DURATIONS[VEO_MODELS.VEO_2],
-    features: {
-      textToVideo: true,
-      imageToVideo: true,
-      referenceImages: false,
-      interpolation: false,
-      extension: false,
-      nativeAudio: false, // No audio in Veo 2
-    },
-    referenceImages: null,
-    extension: null,
-    resolution1080p: null, // Not supported
     promptMaxLength: 1024,
   },
 };
@@ -770,7 +669,7 @@ export function validateVeoParams(
 
   // Validate 1080p constraints
   if (params.resolution === '1080p' && constraints.resolution1080p) {
-    const { requiresDuration, aspectRatio } = constraints.resolution1080p;
+    const { requiresDuration } = constraints.resolution1080p;
 
     // Check duration requirement
     if (
@@ -781,14 +680,6 @@ export function validateVeoParams(
       throw new Error(
         `1080p resolution requires ${requiresDuration}-second duration for ${model}. ` +
           `Got: ${params.durationSeconds}s`
-      );
-    }
-
-    // Check aspect ratio requirement (Veo 3.x)
-    if (aspectRatio && params.aspectRatio && params.aspectRatio !== aspectRatio) {
-      throw new Error(
-        `1080p resolution requires ${aspectRatio} aspect ratio for ${model}. ` +
-          `Got: ${params.aspectRatio}`
       );
     }
   }

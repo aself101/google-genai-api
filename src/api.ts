@@ -2,8 +2,7 @@
  * Google GenAI API Wrapper
  *
  * Provides a unified interface for Google GenAI models:
- * - Gemini 2.5 Flash Image: Text-to-image, image-to-image, semantic masking
- * - Imagen 4: High-quality text-to-image with multiple outputs (1-4 images)
+ * - Gemini image models: text-to-image, image-to-image, semantic masking
  *
  * All generated images include SynthID watermarking.
  */
@@ -17,8 +16,6 @@ import type {
   GeminiPart,
   GeminiResponse,
   GeminiGenerateParams,
-  ImagenGenerateParams,
-  ImagenResponse,
   InlineData,
 } from './types/index.js';
 
@@ -29,7 +26,7 @@ type GeminiContents = string | Array<{ text: string } | { inlineData: InlineData
 
 /**
  * Google GenAI API wrapper class.
- * Supports both Gemini and Imagen models with different generation methods.
+ * Image generation and editing with Gemini image models.
  */
 export class GoogleGenAIAPI {
   private client: GoogleGenAI;
@@ -200,67 +197,6 @@ export class GoogleGenAIAPI {
   }
 
   /**
-   * Generate images with Imagen 4 model.
-   * Supports text-to-image with multiple outputs (1-4 images).
-   *
-   * @param params - Generation parameters
-   * @returns Response object with generatedImages array
-   * @throws Error if generation fails
-   *
-   * @example
-   * // Generate single image
-   * const response = await api.generateWithImagen({
-   *   prompt: 'Futuristic cityscape at night',
-   *   aspectRatio: '16:9'
-   * });
-   *
-   * // Generate multiple images
-   * const response = await api.generateWithImagen({
-   *   prompt: 'Robot character designs',
-   *   numberOfImages: 4,
-   *   aspectRatio: '1:1'
-   * });
-   */
-  async generateWithImagen(params: ImagenGenerateParams): Promise<ImagenResponse> {
-    this._verifyApiKey();
-
-    const { prompt, numberOfImages = 1, aspectRatio = '1:1' } = params;
-
-    this.logger.info(
-      `Generating with Imagen (images: ${numberOfImages}, aspectRatio: ${aspectRatio})`
-    );
-    this.logger.debug(`Prompt: "${prompt}"`);
-
-    try {
-      // Call Imagen API
-      const response = (await this.client.models.generateImages({
-        model: MODELS.IMAGEN,
-        prompt,
-        config: {
-          numberOfImages,
-          aspectRatio,
-        },
-      })) as ImagenResponse;
-
-      this.logger.info(
-        `Imagen generation successful (images: ${response.generatedImages?.length || 0})`
-      );
-
-      return response;
-    } catch (error) {
-      const err = error as Error;
-      this.logger.error(`Imagen generation failed: ${err.message}`);
-
-      // Sanitize error in production
-      if (process.env.NODE_ENV === 'production') {
-        throw new Error('Image generation failed. Please try again.');
-      }
-
-      throw error;
-    }
-  }
-
-  /**
    * Set logger level.
    *
    * @param level - Log level (debug, info, warn, error)
@@ -309,34 +245,6 @@ export function extractGeminiParts(response: GeminiResponse): GeminiPart[] {
   }
 
   return parts;
-}
-
-/**
- * Extract images from Imagen response.
- * Imagen response format: { generatedImages: [{ image: { imageBytes } }] }
- *
- * @param response - Imagen API response
- * @returns Array of images with base64 data
- *
- * @example
- * const images = extractImagenImages(response);
- * // [
- * //   { type: 'image', mimeType: 'image/png', data: 'base64...' },
- * //   { type: 'image', mimeType: 'image/png', data: 'base64...' }
- * // ]
- */
-export function extractImagenImages(response: ImagenResponse): GeminiPart[] {
-  const images: GeminiPart[] = [];
-
-  for (const generated of response.generatedImages || []) {
-    images.push({
-      type: 'image',
-      mimeType: 'image/png',
-      data: generated.image.imageBytes,
-    });
-  }
-
-  return images;
 }
 
 // Re-export GoogleGenAIVideoAPI for unified imports

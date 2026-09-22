@@ -2,7 +2,7 @@
  * Google GenAI API Type Definitions
  *
  * Comprehensive TypeScript types for the Google GenAI API wrapper,
- * including Gemini, Imagen, and Veo models.
+ * including Gemini image, video-understanding, and Veo models.
  */
 
 // ==================== API CONFIGURATION TYPES ====================
@@ -48,19 +48,11 @@ export type GeminiModel =
   | 'gemini-2.5-flash';
 
 /**
- * Imagen model identifiers.
- */
-export type ImagenModel = 'imagen-4.0-generate-001';
-
-/**
  * Veo model identifiers.
  */
 export type VeoModel =
   | 'veo-3.1-generate-preview'
-  | 'veo-3.1-fast-generate-preview'
-  | 'veo-3.0-generate-001'
-  | 'veo-3.0-fast-generate-001'
-  | 'veo-2.0-generate-001';
+  | 'veo-3.1-fast-generate-preview';
 
 /**
  * All supported models.
@@ -68,7 +60,6 @@ export type VeoModel =
 export interface Models {
   GEMINI: GeminiModel;
   GEMINI_3_PRO: GeminiModel;
-  IMAGEN: ImagenModel;
   GEMINI_VIDEO: GeminiModel;
 }
 
@@ -78,15 +69,12 @@ export interface Models {
 export interface VeoModels {
   VEO_3_1: VeoModel;
   VEO_3_1_FAST: VeoModel;
-  VEO_3: VeoModel;
-  VEO_3_FAST: VeoModel;
-  VEO_2: VeoModel;
 }
 
 // ==================== ASPECT RATIO & RESOLUTION TYPES ====================
 
 /**
- * Image aspect ratios (common to Gemini and Imagen).
+ * Image aspect ratios for Gemini image models.
  */
 export type AspectRatio = '1:1' | '3:4' | '4:3' | '9:16' | '16:9';
 
@@ -103,7 +91,7 @@ export type VeoResolution = '720p' | '1080p';
 /**
  * Veo video durations (in seconds as strings).
  */
-export type VeoDuration = '4' | '5' | '6' | '8';
+export type VeoDuration = '4' | '6' | '8';
 
 /**
  * Person generation settings for Veo.
@@ -207,18 +195,6 @@ export interface GeminiGenerateParams {
   model?: GeminiModel;
   /** Override auto-detection mode */
   mode?: GeminiMode;
-}
-
-/**
- * Parameters for Imagen image generation.
- */
-export interface ImagenGenerateParams {
-  /** Generation prompt */
-  prompt: string;
-  /** Number of images to generate (1-4) */
-  numberOfImages?: number;
-  /** Aspect ratio */
-  aspectRatio?: AspectRatio;
 }
 
 /**
@@ -352,25 +328,6 @@ export interface GeminiResponsePart {
     mimeType?: string;
     /** Base64 data */
     data?: string;
-  };
-}
-
-/**
- * Imagen API response structure.
- */
-export interface ImagenResponse {
-  /** Generated images array */
-  generatedImages?: ImagenGeneratedImage[];
-}
-
-/**
- * Imagen generated image.
- */
-export interface ImagenGeneratedImage {
-  /** Image object */
-  image: {
-    /** Base64 image bytes */
-    imageBytes: string;
   };
 }
 
@@ -536,14 +493,14 @@ export interface VeoModelInfo {
 // ==================== CONSTRAINT TYPES ====================
 
 /**
- * Model constraint for Gemini/Imagen models.
+ * Model constraint for Gemini models.
  */
 export interface ModelConstraint {
   /** Supported aspect ratios */
   aspectRatios?: AspectRatio[];
   /** Maximum prompt length */
   promptMaxLength?: number;
-  /** Number of images constraints (Imagen) */
+  /** Number of images constraints (1.x field, kept for compatibility; no current model sets it) */
   numberOfImages?: {
     min: number;
     max: number;
@@ -702,7 +659,7 @@ export interface ModelValidationParams {
   prompt: string;
   /** Aspect ratio */
   aspectRatio?: string;
-  /** Number of images (Imagen) */
+  /** Number of images — Gemini generates one per request; any other value is rejected */
   numberOfImages?: number;
   /** Input images (Gemini) */
   inputImages?: InlineData[];
@@ -908,8 +865,6 @@ export interface CliOptions {
   gemini?: boolean;
   /** Use Gemini 3 Pro model */
   gemini3Pro?: boolean;
-  /** Use Imagen model */
-  imagen?: boolean;
   /** Video analysis mode */
   video?: boolean;
   /** Veo video generation mode */
@@ -920,8 +875,6 @@ export interface CliOptions {
   inputImage?: string;
   /** Aspect ratio */
   aspectRatio?: string;
-  /** Number of images (Imagen) */
-  numberOfImages?: string;
   /** Input video path */
   inputVideo?: string;
   /** Video start offset */

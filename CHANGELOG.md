@@ -15,6 +15,8 @@
 
 ### Removed
 
+- **Imagen.** Google shut the Imagen family down on 2026-08-17 (the endpoints return 404; verified 2026-09-22). Removed: `generateWithImagen()`, `extractImagenImages()`, `MODELS.IMAGEN`, the `imagen-4.0-generate-001` entry in `MODEL_CONSTRAINTS`, the `Imagen*` types, and the CLI's `--imagen` and `-n/--number-of-images`. Google's replacement is `gemini-3.1-flash-image` via `generateWithGemini()` — one image per call.
+- **Veo 3.0 and Veo 2.** Shut down 2026-06-30 (404). Removed: `VEO_MODELS.VEO_3`, `VEO_3_FAST`, `VEO_2`, their `VEO_DURATIONS` and `VEO_MODEL_CONSTRAINTS` entries, and duration `'5'` from `VeoDuration` (Veo 2 only). Use `VEO_MODELS.VEO_3_1` / `VEO_3_1_FAST`.
 - semantic-release and its release workflow. Releases are published by hand, gated by `check:release`.
 
 ### Security
