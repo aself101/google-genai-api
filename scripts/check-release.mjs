@@ -60,6 +60,12 @@ try {
   const stray = files.filter((f) => !allowed.test(f));
   if (control) stray.push('control/planted-file.txt');
   if (stray.length) failures.push(`npm pack would ship files outside the allow-list:\n    ${stray.join('\n    ')}`);
+  // The allow-list only stops extra files. The README's upgrade guide links to
+  // CHANGELOG.md, which 2.0.0's first pack left out, so required files are checked too.
+  const required = ['README.md', 'LICENSE', 'CHANGELOG.md', 'dist/api.js', 'dist/api.d.ts', 'dist/cli.js'];
+  if (control) files.splice(files.indexOf('CHANGELOG.md'), 1);
+  const missing = required.filter((f) => !files.includes(f));
+  if (missing.length) failures.push(`npm pack would not ship required file(s): ${missing.join(', ')}`);
 } catch (error) {
   failures.push(`npm pack --dry-run failed: ${error.message}`);
 }

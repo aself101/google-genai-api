@@ -108,13 +108,13 @@ Companion to [`google-genai-api-2.0-spec-v0_4_2.md`](./google-genai-api-2.0-spec
 - [x] Tests 418 → **433** (+4 download tests, video errors 12 → 11)
 
 ## P7 — release
-- [ ] `git pull --ff-only`, merged-tree `npm run verify`
-- [ ] Version 2.0.0; CHANGELOG dated; recheck npm `time` map for 2.0.0
-- [ ] V16 live through built package on SDK 2.24 (9:16 → portrait; 2K → 2048)
-- [ ] V18: sdk-drift green on `@^2`; control dispatch with a broken assertion fails and opens the issue
-- [ ] `npm pack`; darkroom installs the tarball; `npm ls google-genai-api @google/genai` shows 2.0.0 + 2.x
-- [ ] V12 live: Veo Fast T2V, Veo 3.1 + ref image, Veo 3.1 4k/8s (degradable per spec §7: 3 consecutive same-error failures; never on 429/5xx)
-- [ ] V9 (advisory) in darkroom against the tarball: tests + one job per Google model
+- [x] `git fetch`: `origin/master` (3e52d92) is an ancestor of the branch — merge is a fast-forward, merged tree = branch head. `npm run verify` 433 pass
+- [x] Version 2.0.0; CHANGELOG `## [2.0.0] - 2026-09-22` (re-date if publish slips); npm `time` map ends at 1.3.0. `check:release` passes. **Found:** the tarball omitted CHANGELOG.md, which the README's upgrade guide links to (bfl/kling ship it) — added to `files`, and `check:release` now requires README/LICENSE/CHANGELOG/dist entry points; `--control` shows the new failure
+- [x] V16 live through `dist/` on SDK 2.24: 9:16 → 768×1376; 16:9 + 2K → 2752×1536
+- [ ] V18: sdk-drift green on `@^2`; control dispatch with a broken assertion fails and opens the issue — **needs the branch on GitHub** (after Alex's push)
+- [x] `npm pack` (36 files); darkroom (git worktree at 9424bd7, its checkout untouched) installs the tarball; `npm ls` → google-genai-api 2.0.0 → @google/genai 2.24.0
+- [x] V12 live through `dist/`, first attempt each: Fast T2V 720p/4 s → 1280×720, 4.0 s; 3.1 + reference image (`referenceType: 'asset'`, settles the open question) → 1280×720, 8.0 s; 3.1 4k/8 s → 3840×2160, 8.0 s (353 s render). Dimensions read from the mp4 `tkhd`/`mvhd` boxes (no ffprobe); three jobs, three distinct expected values
+- [x] V9 in darkroom against the tarball: `npm test` 345 pass / 0 fail / 1 skip (MySQL contract, needs a DB); live through darkroom's own `ADAPTERS.google`: 3.1 Flash 4:5, 3 Pro with `aspectRatio: ''` (darkroom's default → `undefined`), Flash edit with an input image, Veo 3.1 Fast 720p/4 s — all ok. Veo 3.1 (non-fast) covered by V12
 - [ ] Branch rename `master` → `main` (Alex: push + GitHub default)
 - [ ] `npm publish` (Alex); tag `v2.0.0`; GitHub release
 - [ ] darkroom: `google-genai-api@^2.0.0` from npmjs; no `file:`/`localhost:4873` for it in the lockfile; resolved URL 200

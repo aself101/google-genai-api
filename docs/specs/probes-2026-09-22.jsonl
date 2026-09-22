@@ -16,3 +16,12 @@
 {"id":"v16-3.1flash-2K","finish":"STOP","rawParts":1,"thoughtParts":0,"outputImages":1,"dims":["2816x1536"]}
 {"id":"p3b-3pro-thoughts","finish":"STOP","rawParts":1,"thoughtParts":0,"outputImages":1,"dims":["928x1152"]}
 {"id":"p3b-lite-default","finish":"STOP","rawParts":1,"thoughtParts":0,"outputImages":1,"dims":["1408x768"]}
+{"at": "2026-09-22T23:49:26.493Z", "id": "v16-9x16", "ok": true, "h": 1376, "w": 768, "mimeType": "image/jpeg", "phase": "P7 release probe (built package)"}
+{"at": "2026-09-22T23:49:40.281Z", "id": "v16-2K", "ok": true, "h": 1536, "w": 2752, "mimeType": "image/jpeg", "phase": "P7 release probe (built package)"}
+{"at": "2026-09-22T23:50:12.854Z", "id": "v12-3.1-ref", "ok": true, "secs": 33, "bytes": 5080233, "w": 1280, "h": 720, "seconds": 8, "phase": "P7 release probe (built package)"}
+{"at": "2026-09-22T23:50:22.805Z", "id": "v12-fast-t2v", "ok": true, "secs": 43, "bytes": 2958927, "w": 1280, "h": 720, "seconds": 4, "phase": "P7 release probe (built package)"}
+{"at": "2026-09-22T23:55:33.067Z", "id": "v12-3.1-4k", "ok": true, "secs": 353, "bytes": 32641160, "w": 3840, "h": 2160, "seconds": 8, "phase": "P7 release probe (built package)"}
+{"id": "v9-flash", "ok": true, "secs": 9, "outputs": [{"mime": "image/jpeg", "bytes": 1168631}], "phase": "P7 V9 darkroom adapters (tarball)"}
+{"id": "v9-pro", "ok": true, "secs": 16, "outputs": [{"mime": "image/jpeg", "bytes": 822172}], "phase": "P7 V9 darkroom adapters (tarball)"}
+{"id": "v9-flash-edit", "ok": true, "secs": 7, "outputs": [{"mime": "image/jpeg", "bytes": 959196}], "phase": "P7 V9 darkroom adapters (tarball)"}
+{"id": "v9-veo-fast", "ok": true, "secs": 43, "outputs": [{"mime": "video/mp4", "bytes": 2639060}], "phase": "P7 V9 darkroom adapters (tarball)"}
