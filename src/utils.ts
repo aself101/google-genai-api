@@ -11,7 +11,7 @@ import winston from 'winston';
 import axios from 'axios';
 import { lookup } from 'dns/promises';
 import { isIPv4, isIPv6 } from 'net';
-import { fileTypeFromFile } from 'file-type';
+import { fileTypeFromBuffer, fileTypeFromFile } from 'file-type';
 import { VIDEO_MIME_TYPES, VIDEO_SIZE_LIMITS } from './config.js';
 import type {
   InlineData,
@@ -266,7 +266,18 @@ export async function imageToInlineData(imagePathOrUrl: string): Promise<InlineD
       );
     }
 
-    mimeType = contentType;
+    // The header is the server's claim; the bytes are what Gemini will receive.
+    // 1.x checked only the header, so a server labelling any payload image/png
+    // passed it through. Sniff the buffer and send the detected type.
+    const sniffed = await fileTypeFromBuffer(buffer);
+    if (!sniffed || !allowedMimeTypes.includes(sniffed.mime)) {
+      throw new Error(
+        `Downloaded content is not a valid image: Content-Type says ${contentType}, ` +
+          `bytes are ${sniffed?.mime ?? 'unrecognised'}. Expected png, jpeg, webp or gif`
+      );
+    }
+
+    mimeType = sniffed.mime;
   } else {
     // Local file: Read with validation
     await validateImagePath(imagePathOrUrl);
