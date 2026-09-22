@@ -23,7 +23,7 @@ Companion to [`google-genai-api-2.0-spec-v0_3_0.md`](./google-genai-api-2.0-spec
 - [x] V5 control (pre-removal, `-i`, src+test+package.json+README): **220**
 - [x] V15 controls: `default: 1:1` **8** · 1.x ratio list **9** · hardcoded test stats **7**
 
-## P1 — tooling / release (~120 LOC)
+## P1 — tooling / release (~140 LOC)
 - [ ] Remove `.releaserc.json`, `.github/workflows/release.yml`, semantic-release devDeps + script
 - [ ] `.github/workflows/ci.yml` (Node 20/22/24, `npm ci && npm run verify`)
 - [ ] `.github/workflows/sdk-drift.yml` (weekly + dispatch; `@google/genai@latest --no-save`; wire tests only)
@@ -87,4 +87,4 @@ Companion to [`google-genai-api-2.0-spec-v0_3_0.md`](./google-genai-api-2.0-spec
 ## Cross-phase invariants
 - Subpath exports, class names, constructors (third arg optional), Veo method signatures unchanged (darkroom surface).
 - No `as Record<string, unknown>` / `as unknown as` on SDK request objects.
-- Every caller-supplied parameter reaches the wire for unknown models (D3).
+- Every *declared* parameter reaches the wire for unknown models; SDK-unknown `extraConfig` keys are the stated exception (D3).
