@@ -83,10 +83,12 @@ Companion to [`google-genai-api-2.0-spec-v0_4_2.md`](./google-genai-api-2.0-spec
 - [x] `check:lifecycle` live: 7 ids incl. Lite, all "No shutdown date announced"
 
 ## P5 — CLI (~110 src + 150 test)
-- [ ] `tsc -p tsconfig.test.json` = 0 errors and added to `verify` (baseline 37 at P1)
-- [ ] `--gemini` kept as mode flag with new help text; `--model`, aliases, repeatable `--input-image`, `--image-size`, no aspect default, Veo `4k`; remove `--imagen`/`-n`
-- [ ] CLI pre-flight via `get*Violations` on real inputs; `_N` kept (after thought filter); metadata filename fix; zero-image error exit
-- [ ] `test/cli.test.ts` via `--import test/helpers/fetch-replay.mjs`, temp `HOME`, fail on unexpected request, `dist/` built in `globalSetup`
+- [x] `tsc -p tsconfig.test.json` = **0 errors**, every test file included (baseline 37 at P1; joined `verify` in P3b, Veo in P4, video-api here)
+- [x] `--gemini` kept as mode flag with new help text; `--model` (implies image mode; conflicts with a different `--gemini-3-pro`), `--gemini-3-pro` alias, repeatable `--input-image` (commander collector), `--image-size`, `--capability-validation` (value checked), no aspect default, Veo `4k` + Lite in help/examples; `--imagen`/`-n` gone (unknown-option test). Examples rewritten + renumbered (1–20)
+- [x] **Deviation from D5's wording, recorded:** the CLI no longer pre-validates at all — the clients validate every request before any network call, so a CLI pre-flight would double every `'warn'` message and, being throwing, would defeat `--capability-validation warn`. Single source of validation. `_N` naming applies after the thought filter (test); metadata `outputs` = files actually written, plus `finishReason` and text parts; zero images → exit 1 naming `finishReason`, metadata still written
+- [x] `test/cli.test.ts` (14): `--import test/helpers/fetch-replay.mjs` (serves fixtures in order, logs every request, exits 97 on an unexpected one), temp `HOME` + cwd, fake key; `dist/` built in vitest `globalSetup`. Covers validation exits with zero requests, image flags on the wire, `_1`/`_2` + metadata, no-image exit, `warn`, unknown `--model`, vendor 400, and a full Veo run (submit → already-done op → download via `files/{name}:download`) with no polling
+- [x] **CLI mutation controls** (each asserted to apply, suite red, restored): C1 1.x metadata filenames → 1 failed; C2 exit 0 on no image → 1; C3 drop `--image-size` pass-through → 3; C4 client skips validation → 2; C5 `--input-image` not repeatable → 1. **Two false "survivals" on the first pass:** C1 and C4 as first written did not compile, so `globalSetup`'s build failed and vitest printed no count, which the runner read as "all passed". The runner now distinguishes failed / passed / broken run; both reruns compile and fail. Also: C1 would have survived against a single-image test (1.x's regenerated name matches when saved in the same second) — the multi-image test now asserts metadata filenames
+- [x] Tests 404 → **418**; `verify` green
 
 ## P6 — docs
 - [ ] README rewritten top to bottom (spec §8 P6 method; floor list covered)

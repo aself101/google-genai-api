@@ -2,6 +2,9 @@ import { defineConfig } from 'vitest/config';
 
 export default defineConfig({
   test: {
+    // Builds dist/ first: test/cli.test.ts runs the built CLI (spec D8)
+    globalSetup: ['test/global-setup.ts'],
+
     // Test environment
     environment: 'node',
     pool: 'threads',

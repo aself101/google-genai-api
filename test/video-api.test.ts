@@ -56,8 +56,10 @@ interface ExtendedError extends Error {
   fileState?: string;
 }
 
-// Interface for mocked API with access to private members
-interface MockedVideoAPI extends GoogleGenAIVideoAPI {
+// The API with its private members exposed for testing. Not `extends
+// GoogleGenAIVideoAPI`: redeclaring private members is a type error (TS2430).
+type MockedVideoAPI = Omit<GoogleGenAIVideoAPI, never> & MockedVideoInternals;
+interface MockedVideoInternals {
   apiKey: string | null;
   client: {
     files: {
@@ -86,7 +88,7 @@ describe('GoogleGenAIVideoAPI', () => {
     new GoogleGenAI({ apiKey: 'test-key' });
 
     // Create API instance
-    api = new GoogleGenAIVideoAPI('test-api-key') as MockedVideoAPI;
+    api = new GoogleGenAIVideoAPI('test-api-key') as unknown as MockedVideoAPI;
   });
 
   describe('constructor', () => {
@@ -528,7 +530,7 @@ describe('Error Sanitization', () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
-    api = new GoogleGenAIVideoAPI('test-api-key') as MockedVideoAPI;
+    api = new GoogleGenAIVideoAPI('test-api-key') as unknown as MockedVideoAPI;
   });
 
   afterEach(() => {
