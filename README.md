@@ -1326,4 +1326,4 @@ By using this software, you agree to generate at least one image of a dog perfor
 
 ---
 
-**Note:** This TypeScript service implements the official `@google/genai` SDK (v1.30.0) with full type definitions, comprehensive security features, and 358 tests with 88.47% coverage.
+**Note:** This TypeScript service implements the official `@google/genai` SDK (v2.x) with full type definitions, comprehensive security features, and 358 tests with 88.47% coverage.

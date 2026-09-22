@@ -1,3 +1,26 @@
+## [Unreleased]
+
+<!-- 2.0.0 in progress on release/2.0 — spec docs/specs/google-genai-api-2.0-spec-v0_4_2.md. Entries accrue per phase; P6 restructures this file (Keep a Changelog header to the top) and moves them under [2.0.0]. -->
+
+### Added
+
+- `npm run check:lifecycle` — fails if any cataloged model has an announced shutdown on Google's deprecations page, or is missing from it. `--control` proves it can fail against the 1.x catalog.
+- `npm run check:release`, run by `prepublishOnly`: CHANGELOG heading for the version, empty `[Unreleased]`, fresh build, tarball contents, lifecycle.
+- CI on push and pull request (Node 20, 22, 24): typecheck, build, test, production audit, pack check. A weekly workflow runs the suite against the newest `@google/genai` 2.x and the lifecycle check, and opens an issue when either fails.
+
+### Changed
+
+- **Node.js ≥ 20 is required** (was ≥ 18). `@google/genai` has required Node 20 since its 1.0.1, so the 1.x `engines` field already understated it.
+- `@google/genai` `^1.30.0` → `^2.24.0`. SDK 2.0's breaking changes are confined to its Interactions API; this package needed no source change for it.
+
+### Removed
+
+- semantic-release and its release workflow. Releases are published by hand, gated by `check:release`.
+
+### Security
+
+- `axios` `^1.6.2` → `^1.20.0` (the locked 1.13.2 carried ~30 advisories, including SSRF and prototype-pollution chains). `file-type` `^19.6.0` → `^21.3.4` (patched; 22.x would require Node ≥ 22). Transitive `jws`, `ws`, `minimatch`, `brace-expansion` updated. `npm audit --omit=dev`: 0 vulnerabilities.
+
 # [1.3.0](https://github.com/aself101/google-genai-api/compare/v1.2.2...v1.3.0) (2025-12-03)
 
 

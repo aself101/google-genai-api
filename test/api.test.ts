@@ -11,7 +11,8 @@ import type { GeminiResponse, ImagenResponse, InlineData } from '../src/types/in
 // Mock the @google/genai SDK
 vi.mock('@google/genai', () => {
   return {
-    GoogleGenAI: vi.fn().mockImplementation(() => {
+    // A `function`, not an arrow: vitest 4 refuses `new` on arrow implementations.
+    GoogleGenAI: vi.fn().mockImplementation(function () {
       return {
         models: {
           generateContent: vi.fn(),

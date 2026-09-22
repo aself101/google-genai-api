@@ -1,0 +1,35 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+    branches:
+      - main
+      - master # until the master → main rename (spec D10, P7)
+
+# Publishing is manual (spec D10: `npm publish` runs check:release via
+# prepublishOnly). CI verifies; it never publishes.
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # engines.node is >=20; 24 is tested because the range permits it.
+        node: [20, 22, 24]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+          cache: npm
+
+      - run: npm ci
+
+      # typecheck + build + test
+      - run: npm run verify
+
+      - run: npm audit --omit=dev
+
+      - run: npm pack --dry-run

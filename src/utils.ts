@@ -256,7 +256,9 @@ export async function imageToInlineData(imagePathOrUrl: string): Promise<InlineD
 
     // Validate Content-Type header
     const allowedMimeTypes = ['image/png', 'image/jpeg', 'image/webp', 'image/gif'];
-    const contentType = response.headers['content-type']?.split(';')[0].trim();
+    // String(): axios ≥1.20 types header values as string | number | boolean | string[] | AxiosHeaders.
+    // A missing header becomes '' and fails the check below, as before.
+    const contentType = String(response.headers['content-type'] ?? '').split(';')[0].trim();
 
     if (!contentType || !allowedMimeTypes.includes(contentType)) {
       throw new Error(

@@ -31,13 +31,16 @@ Companion to [`google-genai-api-2.0-spec-v0_4_2.md`](./google-genai-api-2.0-spec
 - [x] V15 controls: `default: 1:1` **8** · 1.x ratio list **9** · hardcoded test stats **7**
 
 ## P1 — tooling / release (~140 LOC)
-- [ ] Remove `.releaserc.json`, `.github/workflows/release.yml`, semantic-release devDeps + script
-- [ ] `.github/workflows/ci.yml` (Node 20/22/24, `npm ci && npm run verify`)
-- [ ] `.github/workflows/sdk-drift.yml` (weekly + dispatch; `@google/genai@^2 --no-save`; full `verify`; opens `sdk-drift` issue on failure)
-- [ ] `scripts/check-lifecycle.mjs` + `check:lifecycle` (V19: `--control` on 1.x catalog vs snapshot fails; zero-row parse fails; unfound id fails unless allowlisted; `--offline`)
-- [ ] `verify` script; `check:release` (runs `check:lifecycle`) as `prepublishOnly` incl. non-empty `[Unreleased]` (V14, each condition induced once)
-- [ ] `engines.node >=20`; `@google/genai ^2.24.0`; TS ^5.9; vitest ^4; `@types/node` ^24
-- [ ] Test count on SDK 2.24 with compile fixes only: ___ (1.3.0: 358)
+- [x] Remove `.releaserc.json`, `.github/workflows/release.yml`, semantic-release (7 devDeps) + script
+- [x] `.github/workflows/ci.yml` (push + PR to main/master; Node 20/22/24; `npm ci`, `verify`, `npm audit --omit=dev`, `npm pack --dry-run`)
+- [x] `.github/workflows/sdk-drift.yml`: two jobs — `sdk-drift` (`@google/genai@^2 --no-save`, full `verify`, `sdk-drift` issue on failure) and `model-lifecycle` (`--control` then live, `model-lifecycle` issue on failure); weekly Mon 06:17 UTC + dispatch; 60-day note in the file. First real run needs the push (V18, P7)
+- [x] `scripts/check-lifecycle.mjs` + `check:lifecycle`. Verified 2026-09-22 (exit codes captured without pipes): `--control` → 6 expected failures (2.5-flash-image, 3-pro-image-preview, imagen-4.0, veo-3.0 ×2, veo-2.0); 2.0 target catalog vs snapshot → exit 0; + an unknown id → exit 1; empty page → exit 1. Live run on the current tree fails on the same 6 — correct until P2/P3a remove them (V19 is a P7 gate)
+- [x] `verify` = typecheck (src) + build + test; `check:release` as `prepublishOnly` (runs `check:lifecycle`, `--offline` passthrough). `--control` → fails on missing heading, missing `[Unreleased]`, planted tarball file. Real run fails today on the 1.x CHANGELOG format and lifecycle — correct until P6/P3a. Heading format is Keep a Changelog `## [x.y.z] - YYYY-MM-DD` (hyphen, as openai), not the em dash spec D10 wrote. `dist/` is gitignored here, so the gate builds fresh instead of diffing a committed `dist/` as `prepublishOnly` incl. non-empty `[Unreleased]` (V14, each condition induced once)
+- [x] `engines.node >=20.0.0`; `@google/genai ^2.24.0` (2.24.0); TS ^5.9.3; vitest ^4.1.11 (+ coverage/ui); `@types/node` ^24.13.6. Newer majors exist (TS 7, vitest 5) — spec D9 chose sibling parity
+- [x] **Found in P1, not in spec:** vitest 4 refuses `new` on arrow-function mock implementations — 146 tests failed until the three `GoogleGenAI` mocks became `function` implementations (`test/api.test.ts`, `veo-api.test.ts`, `video-api.test.ts`). SDK 2.24 needed **zero** source changes, as its changelog said
+- [x] **Found in P1:** `npm audit --omit=dev` (a CI step) failed — axios 1.13.2 (≈30 advisories incl. SSRF), `file-type` 19.6.0, transitive `jws`/`ws`/`minimatch`/`brace-expansion`. Fixed: axios ^1.20.0 (+ `String()` coercion at `utils.ts:259` for its widened header type — missing header still fails the check), `file-type` ^21.3.4 (22.x needs Node ≥22; 21.3.4 is patched and supports ≥20), `npm audit fix` for transitives. Audit: 0 vulnerabilities
+- [x] **Deferred:** test files have 37 pre-existing type errors (`tsconfig.test.json`, baseline 2026-09-22, unchanged by P1). P2–P5 rewrite most of those tests; `tsc -p tsconfig.test.json` joins `verify` at P5 exit, target 0
+- [x] Test count on SDK 2.24: **358/358** on Node 24 and Node 20 (1.3.0 baseline: 358/358; SDK 1.30 typecheck clean). Tests mock the SDK — serialization on 2.24 is proven only by P3b wire tests and V16
 
 ## P2 — removals (~60 LOC, net −~900)
 - [ ] Imagen surface removed
@@ -67,6 +70,7 @@ Companion to [`google-genai-api-2.0-spec-v0_4_2.md`](./google-genai-api-2.0-spec
 - [ ] Wire tests (video) incl. no SDK deprecation `console.warn`; Lite gating unit tests; legacy negative tests repointed at Lite
 
 ## P5 — CLI (~110 src + 150 test)
+- [ ] `tsc -p tsconfig.test.json` = 0 errors and added to `verify` (baseline 37 at P1)
 - [ ] `--gemini` kept as mode flag with new help text; `--model`, aliases, repeatable `--input-image`, `--image-size`, no aspect default, Veo `4k`; remove `--imagen`/`-n`
 - [ ] CLI pre-flight via `get*Violations` on real inputs; `_N` kept (after thought filter); metadata filename fix; zero-image error exit
 - [ ] `test/cli.test.ts` via `--import test/helpers/fetch-replay.mjs`, temp `HOME`, fail on unexpected request, `dist/` built in `globalSetup`

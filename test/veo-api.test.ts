@@ -7,17 +7,20 @@ import { describe, it, expect, beforeEach, afterEach, vi, type Mock } from 'vite
 
 // Mock @google/genai SDK
 vi.mock('@google/genai', () => ({
-  GoogleGenAI: vi.fn().mockImplementation(() => ({
-    models: {
-      generateVideos: vi.fn(),
-    },
-    operations: {
-      getVideosOperation: vi.fn(),
-    },
-    files: {
-      download: vi.fn(),
-    },
-  })),
+  // A `function`, not an arrow: vitest 4 refuses `new` on arrow implementations.
+  GoogleGenAI: vi.fn().mockImplementation(function () {
+    return {
+      models: {
+        generateVideos: vi.fn(),
+      },
+      operations: {
+        getVideosOperation: vi.fn(),
+      },
+      files: {
+        download: vi.fn(),
+      },
+    };
+  }),
 }));
 
 import { GoogleGenAI } from '@google/genai';

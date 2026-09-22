@@ -1,0 +1,82 @@
+name: SDK drift and model lifecycle
+
+# Detection, not prevention (spec D9, D16). A library ships no lockfile, so a
+# consumer resolves whatever @google/genai 2.x minor is current at install time;
+# regular CI runs on the lockfile and never sees it. This job does, weekly.
+# It also checks Google's deprecations page for cataloged models that have been
+# given a shutdown date (the package catalogs current models only, spec D2).
+#
+# GitHub disables scheduled workflows in public repos after 60 days without
+# repository activity, and runs them only from the default branch. If this job
+# has gone quiet, re-enable it under Actions → this workflow → Enable.
+
+on:
+  schedule:
+    - cron: '17 6 * * 1' # Mondays 06:17 UTC
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  sdk-drift:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      # The newest version a ^2.24.0 consumer can install — not @latest, which
+      # moves to 3.x at Google's next major.
+      - name: Install newest @google/genai 2.x
+        run: npm install @google/genai@^2 --no-save
+
+      - name: Record resolved SDK version
+        run: node -p "'@google/genai ' + require('@google/genai/package.json').version"
+
+      - run: npm run verify
+
+      - name: Open or update an issue on failure
+        if: failure()
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          body="Scheduled SDK-drift run failed against the newest @google/genai 2.x: ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
+          gh label create sdk-drift --color B60205 --force
+          n=$(gh issue list --label sdk-drift --state open --json number --jq '.[0].number')
+          if [ -n "$n" ]; then gh issue comment "$n" --body "$body"; else gh issue create --title "SDK drift: tests fail on newest @google/genai 2.x" --label sdk-drift --body "$body"; fi
+
+  model-lifecycle:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # check:lifecycle --control reads the 1.x catalog from git history
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      # Proves the gate can fire before trusting a pass.
+      - run: npm run -s check:lifecycle -- --control
+
+      - run: npm run -s check:lifecycle
+
+      - name: Open or update an issue on failure
+        if: failure()
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          body="A cataloged model has an announced shutdown or is missing from Google's deprecations page — drop it per spec D2: ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
+          gh label create model-lifecycle --color FBCA04 --force
+          n=$(gh issue list --label model-lifecycle --state open --json number --jq '.[0].number')
+          if [ -n "$n" ]; then gh issue comment "$n" --body "$body"; else gh issue create --title "Model lifecycle: cataloged model has a shutdown date" --label model-lifecycle --body "$body"; fi

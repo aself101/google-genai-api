@@ -7,16 +7,19 @@ import { describe, it, expect, beforeEach, afterEach, vi, type Mock } from 'vite
 
 // Mock @google/genai SDK
 vi.mock('@google/genai', () => ({
-  GoogleGenAI: vi.fn().mockImplementation(() => ({
-    files: {
-      upload: vi.fn(),
-      get: vi.fn(),
-      list: vi.fn(),
-    },
-    models: {
-      generateContent: vi.fn(),
-    },
-  })),
+  // A `function`, not an arrow: vitest 4 refuses `new` on arrow implementations.
+  GoogleGenAI: vi.fn().mockImplementation(function () {
+    return {
+      files: {
+        upload: vi.fn(),
+        get: vi.fn(),
+        list: vi.fn(),
+      },
+      models: {
+        generateContent: vi.fn(),
+      },
+    };
+  }),
 }));
 
 // Mock axios for deleteVideoFile
