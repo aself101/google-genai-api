@@ -11,6 +11,9 @@
 - `isKnownImageModel(id)` and `isKnownVeoModel(id)` type guards.
 - `imageSize` on `generateWithGemini()` (`'512'`, `'1K'`, `'2K'`, `'4K'`, per model), sent as `imageConfig.imageSize`. It is a resolution tier, not a fixed edge: `'2K'` gave 2048×2048 at 1:1 and 2816×1536 at the model's default framing (live, 2026-09-22).
 - `extractGeminiParts(response, { includeThoughts })`.
+- **Veo 3.1 Lite** (`VEO_MODELS.VEO_3_1_LITE`, `veo-3.1-lite-generate-preview`): text-to-video, image-to-video and interpolation at 720p/1080p. It does not take reference images (rejected live, 2026-09-22), extension, or 4k; the client rejects those before any call.
+- **4k** for Veo 3.1 and 3.1 Fast (`VEO_RESOLUTIONS` gains `'4k'`); like 1080p it requires an 8-second duration.
+- `VeoModelConstraint.durationRequired` (e.g. `{ '1080p': '8', '4k': '8' }`) and `getVeoViolations(model, params, mode)`. `GoogleGenAIVeoAPI` takes the same third constructor argument (`capabilityValidation`) as the image client.
 - Errors from `generateWithGemini()` carry `status`, `code`, `classification` (`AUTH`, `TRANSIENT`, `USER_ACTIONABLE`, `SAFETY_BLOCKED`, `AUDIO_BLOCKED`, `NETWORK`, `TIMEOUT`) and `surface` in every environment.
 - `test/wire.test.ts`: tests that run the real SDK serializer against a stubbed `fetch` and assert on the request body. The existing tests mock the SDK, which is how the `aspectRatio` defect below went unseen.
 - `npm run check:lifecycle` — fails if any cataloged model has an announced shutdown on Google's deprecations page, or is missing from it. `--control` proves it can fail against the 1.x catalog.
@@ -31,6 +34,10 @@
 - `extractGeminiParts()` **skips thought parts** (`thought: true`) unless `includeThoughts` is set, and reads only `candidates[0].content.parts`; the non-SDK top-level `response.parts` fallback and `GeminiResponse.parts` are removed.
 - A response with no image (e.g. `finishReason: 'IMAGE_SAFETY'`) is returned unchanged, with a warning that names the finish reason.
 - Outside production, `generateWithGemini()` rethrows the SDK's own error object, as 1.x did, now with the properties above added.
+- **Veo requests use the SDK's `source` argument** for the prompt and input image/video (the top-level form is deprecated in SDK 2.x and logs a warning). Request bodies are unchanged; verified against the real serializer.
+- **Veo validation follows the image rules:** unknown Veo model ids are sent with a one-time warning; `validateVeoParams()` no longer throws for an unknown id and throws `ValidationError`; `aspectRatio`/`resolution` on Veo params accept any string, so a model this package does not know can be given values the catalog does not list.
+- **Veo errors** go through the same public-error handling as image errors: outside production the SDK's error is rethrown with `status`, `code`, `classification`, `surface`; in production the message names the category and includes only Google's own message.
+- **Veo polling retries by where a failure came from.** Only a failed poll request (network error, timeout, 408/429/5xx) is retried. 1.x retried 429/502/503 and messages containing "network"/"timeout"; 2.0 adds 408, 500, 504 and real network/timeout errors, and no longer matches message text.
 - CLI: `--gemini` uses `gemini-3.1-flash-image`; `--gemini-3-pro` uses `gemini-3-pro-image`.
 - **Node.js ≥ 20 is required** (was ≥ 18). `@google/genai` has required Node 20 since its 1.0.1, so the 1.x `engines` field already understated it.
 - `@google/genai` `^1.30.0` → `^2.24.0`. SDK 2.0's breaking changes are confined to its Interactions API; this package needed no source change for it.
@@ -38,6 +45,7 @@
 ### Removed
 
 - **Imagen.** Google shut the Imagen family down on 2026-08-17 (the endpoints return 404; verified 2026-09-22). Removed: `generateWithImagen()`, `extractImagenImages()`, `MODELS.IMAGEN`, the `imagen-4.0-generate-001` entry in `MODEL_CONSTRAINTS`, the `Imagen*` types, and the CLI's `--imagen` and `-n/--number-of-images`. Google's replacement is `gemini-3.1-flash-image` via `generateWithGemini()` — one image per call.
+- **Veo `seed`.** Both SDK versions reject it on the Gemini Developer API before sending anything ("seed parameter is not supported in Gemini API" / "…only supported in Gemini Enterprise Agent Platform mode"), so every 1.x call that passed it failed. Removed from `VeoGenerateParams`; passing it now throws a `ValidationError` that says so.
 - **Veo 3.0 and Veo 2.** Shut down 2026-06-30 (404). Removed: `VEO_MODELS.VEO_3`, `VEO_3_FAST`, `VEO_2`, their `VEO_DURATIONS` and `VEO_MODEL_CONSTRAINTS` entries, and duration `'5'` from `VeoDuration` (Veo 2 only). Use `VEO_MODELS.VEO_3_1` / `VEO_3_1_FAST`.
 - **`gemini-2.5-flash-image`, `gemini-3-pro-image-preview` and `gemini-3.1-flash-image-preview` leave the catalog**, with `MODELS.GEMINI` (which pointed at `gemini-2.5-flash-image`) and their `MODEL_CONSTRAINTS` entries. The package now catalogs only models with no announced shutdown. The ids still work — pass them as `model` and they are sent with a warning, for as long as Google serves them. `MODELS.GEMINI` was removed rather than pointed at a new model, so code that used it fails visibly instead of silently switching models. `MODEL_CONSTRAINTS` is string-keyed: a lookup of a removed id compiles and returns `undefined` — check `isKnownImageModel()` first.
 - semantic-release and its release workflow. Releases are published by hand, gated by `check:release`.
@@ -45,6 +53,7 @@
 ### Fixed
 
 - **`aspectRatio` was never sent.** 1.x put it at the top level of the request config, where the SDK's serializer ignores it; every call got the model's default framing. It now goes in `imageConfig`, and output framing follows the value you pass — which changes the images every caller that passed an `aspectRatio` receives. Verified live through the built package: 9:16 on `gemini-3.1-flash-image` returned 768×1376 (1.x's shape, same prompt: 1408×768).
+- **A finished Veo job that failed is reported at once.** 1.x threw it inside the polling retry loop, so a failed job whose message mentioned "network" or "timeout" was re-polled for up to ten minutes before the caller heard about it.
 - `generateWithGemini()` skipped its input-image count check whenever the caller passed `mode`; the check now always runs.
 - CLI: pre-flight validation used a placeholder input image; it now validates the real decoded image.
 

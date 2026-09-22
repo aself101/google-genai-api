@@ -14,6 +14,7 @@
  */
 
 import { GoogleGenAI } from '@google/genai';
+import type { GenerateVideosConfig, GenerateVideosSource, VideoGenerationReferenceType } from '@google/genai';
 import winston from 'winston';
 import fs from 'fs/promises';
 import path from 'path';
@@ -24,15 +25,17 @@ import {
   VEO_MODEL_CONSTRAINTS,
   getGoogleGenAIApiKey,
   redactApiKey,
-  validateVeoParams,
+  getVeoViolations,
 } from './config.js';
+import { ValidationError, toPublicError } from './errors.js';
 import type {
-  ErrorClassification,
+  GoogleGenAIClientOptions,
   VeoDownloadResult,
   VeoExtendParams,
   VeoExtractedVideo,
   VeoGenerateParams,
   VeoImageToVideoParams,
+  VeoMode,
   VeoInterpolationParams,
   VeoModel,
   VeoModelInfo,
@@ -71,15 +74,20 @@ export class GoogleGenAIVeoAPI {
   private client: GoogleGenAI;
   private defaultModel: VeoModel;
   private logger: winston.Logger;
+  private capabilityValidation: 'error' | 'warn';
+  /** Unknown model ids already warned about by this instance (spec D3: once per id). */
+  private warnedUnknownModels = new Set<string>();
 
   /**
    * Create a new GoogleGenAIVeoAPI instance.
    *
    * @param apiKey - Google GenAI API key
    * @param logLevel - Logging level (debug, info, warn, error)
+   * @param options - `capabilityValidation: 'warn'` to log, not throw, when a
+   *   known model's constraint table rejects a parameter
    * @throws Error if API key is not provided
    */
-  constructor(apiKey: string, logLevel = 'info') {
+  constructor(apiKey: string, logLevel = 'info', options: GoogleGenAIClientOptions = {}) {
     if (!apiKey) {
       throw new Error('API key is required');
     }
@@ -88,6 +96,7 @@ export class GoogleGenAIVeoAPI {
     // Pinned to the Gemini Developer API (spec D5; see api.ts).
     this.client = new GoogleGenAI({ apiKey, vertexai: false });
     this.defaultModel = VEO_MODELS.VEO_3_1;
+    this.capabilityValidation = options.capabilityValidation ?? 'error';
 
     // Configure logger
     this.logger = winston.createLogger({
@@ -116,79 +125,59 @@ export class GoogleGenAIVeoAPI {
   }
 
   /**
-   * Classify error type for handling.
-   *
+   * Apply spec D3/D5 before any network call: warn once per unknown model id;
+   * throw on shape violations; throw or warn on capability violations per
+   * `capabilityValidation`.
    * @private
-   * @param error - Error to classify
-   * @returns Error classification
    */
-  private _classifyError(error: ExtendedError): ErrorClassification {
-    const status = error.response?.status || error.status;
-    const message = error.message?.toLowerCase() || '';
-
-    // Safety/content blocks
-    if (message.includes('safety') || message.includes('blocked') || message.includes('policy')) {
-      if (message.includes('audio')) {
-        return 'AUDIO_BLOCKED';
-      }
-      return 'SAFETY_BLOCKED';
+  private _checkParams(model: string, params: Parameters<typeof getVeoViolations>[1], mode: VeoMode): void {
+    if (!Object.prototype.hasOwnProperty.call(VEO_MODEL_CONSTRAINTS, model) && !this.warnedUnknownModels.has(model)) {
+      this.warnedUnknownModels.add(model);
+      this.logger.warn(`Model '${model}' is not in this package's catalog; sending without capability validation`);
     }
-
-    // User-actionable errors
-    if (!this.apiKey || message.includes('api key')) {
-      return 'USER_ACTIONABLE';
-    }
-    if (status === 404 || message.includes('not found')) {
-      return 'USER_ACTIONABLE';
-    }
-    if (message.includes('validation') || message.includes('invalid')) {
-      return 'USER_ACTIONABLE';
-    }
-
-    // Permanent errors
-    if (status === 400 || status === 401 || status === 403 || status === 422) {
-      return 'PERMANENT';
-    }
-
-    // Transient errors (retry-able)
-    if (status === 429 || status === 502 || status === 503) {
-      return 'TRANSIENT';
-    }
-    if (
-      message.includes('network') ||
-      message.includes('timeout') ||
-      message.includes('econnreset')
-    ) {
-      return 'TRANSIENT';
-    }
-
-    return 'PERMANENT';
+    const violations = getVeoViolations(model, params, mode);
+    const shape = violations.filter((v) => v.kind === 'shape');
+    if (shape.length > 0) throw new ValidationError(shape);
+    if (violations.length === 0) return;
+    if (this.capabilityValidation === 'error') throw new ValidationError(violations);
+    for (const v of violations) this.logger.warn(`${v.message} (sending anyway: capabilityValidation is 'warn')`);
   }
 
   /**
-   * Sanitize error messages for production mode.
-   *
+   * Submit a generation request. The prompt and input media go in `source`
+   * (SDK 2.14+; the top-level prompt/image/video form is deprecated and warns),
+   * settings in `config` (spec D7). Failures go through `toPublicError` (D13).
    * @private
-   * @param error - Error to sanitize
-   * @returns Sanitized error
    */
-  private _sanitizeError(error: ExtendedError): Error {
-    if (process.env.NODE_ENV === 'production') {
-      const classification = this._classifyError(error);
-      switch (classification) {
-        case 'TRANSIENT':
-          return new Error('A temporary error occurred. Please try again.');
-        case 'SAFETY_BLOCKED':
-          return new Error('Video generation was blocked due to content safety policies.');
-        case 'AUDIO_BLOCKED':
-          return new Error('Video generation was blocked due to audio processing issues.');
-        case 'PERMANENT':
-          return new Error('The request could not be completed. Please check your inputs.');
-        default:
-          return new Error('An error occurred. Please check your configuration.');
-      }
+  private async _submit(model: string, source: GenerateVideosSource, config: GenerateVideosConfig, label: string): Promise<VeoOperation> {
+    try {
+      const operation = (await this.client.models.generateVideos({
+        model,
+        source,
+        config: Object.keys(config).length > 0 ? config : undefined,
+      })) as unknown as VeoOperation;
+      this.logger.info(`${label} started (operation: ${operation.name})`);
+      return operation;
+    } catch (error) {
+      this.logger.error(`${label} failed: ${(error as Error).message}`);
+      throw toPublicError(error, { surface: 'video' });
     }
-    return error;
+  }
+
+  /**
+   * Settings shared by text-to-video and image-to-video — every declared
+   * param, mapped (spec D3). `durationSeconds` is a string in this API and a
+   * number on the wire.
+   * @private
+   */
+  private _baseConfig(params: VeoGenerateParams): GenerateVideosConfig {
+    const config: GenerateVideosConfig = {};
+    if (params.negativePrompt) config.negativePrompt = params.negativePrompt;
+    if (params.aspectRatio) config.aspectRatio = params.aspectRatio;
+    if (params.resolution) config.resolution = params.resolution;
+    if (params.durationSeconds) config.durationSeconds = Number(params.durationSeconds);
+    if (params.personGeneration) config.personGeneration = params.personGeneration;
+    return config;
   }
 
   /**
@@ -208,40 +197,15 @@ export class GoogleGenAIVeoAPI {
   async generateVideo(params: VeoGenerateParams): Promise<VeoOperation> {
     this._verifyApiKey();
 
-    const model = (params.model || this.defaultModel) as VeoModel;
+    const model: string = params.model || this.defaultModel;
 
     // Validate parameters
-    validateVeoParams(model, params, VEO_MODES.TEXT_TO_VIDEO);
+    this._checkParams(model, params, VEO_MODES.TEXT_TO_VIDEO);
 
     this.logger.info(`Starting text-to-video generation with ${model}`);
     this.logger.debug(`Prompt: "${params.prompt.substring(0, 100)}..."`);
 
-    // Build config object
-    const config: Record<string, unknown> = {};
-    if (params.negativePrompt) config.negativePrompt = params.negativePrompt;
-    if (params.aspectRatio) config.aspectRatio = params.aspectRatio;
-    if (params.resolution) config.resolution = params.resolution;
-    if (params.durationSeconds) config.durationSeconds = Number(params.durationSeconds);
-    if (params.personGeneration) config.personGeneration = params.personGeneration;
-    if (params.seed !== undefined) config.seed = params.seed;
-
-    try {
-      const operation = (await this.client.models.generateVideos({
-        model,
-        prompt: params.prompt,
-        config: Object.keys(config).length > 0 ? config : undefined,
-      })) as unknown as VeoOperation;
-
-      this.logger.info(`Video generation started (operation: ${operation.name})`);
-      this.logger.debug(`Operation: ${JSON.stringify(operation, null, 2)}`);
-
-      return operation;
-    } catch (error) {
-      const err = error as ExtendedError;
-      const errorType = this._classifyError(err);
-      this.logger.error(`Generation failed (${errorType}): ${err.message}`);
-      throw this._sanitizeError(err);
-    }
+    return this._submit(model, { prompt: params.prompt }, this._baseConfig(params), 'Video generation');
   }
 
   /**
@@ -263,7 +227,7 @@ export class GoogleGenAIVeoAPI {
   async generateFromImage(params: VeoImageToVideoParams): Promise<VeoOperation> {
     this._verifyApiKey();
 
-    const model = (params.model || this.defaultModel) as VeoModel;
+    const model: string = params.model || this.defaultModel;
 
     // Validate image object
     if (!params.image) {
@@ -277,36 +241,12 @@ export class GoogleGenAIVeoAPI {
     }
 
     // Validate parameters
-    validateVeoParams(model, params, VEO_MODES.IMAGE_TO_VIDEO);
+    this._checkParams(model, params, VEO_MODES.IMAGE_TO_VIDEO);
 
     this.logger.info(`Starting image-to-video generation with ${model}`);
     this.logger.debug(`Prompt: "${params.prompt.substring(0, 100)}..."`);
 
-    // Build config object
-    const config: Record<string, unknown> = {};
-    if (params.negativePrompt) config.negativePrompt = params.negativePrompt;
-    if (params.aspectRatio) config.aspectRatio = params.aspectRatio;
-    if (params.resolution) config.resolution = params.resolution;
-    if (params.durationSeconds) config.durationSeconds = Number(params.durationSeconds);
-    if (params.personGeneration) config.personGeneration = params.personGeneration;
-
-    try {
-      const operation = (await this.client.models.generateVideos({
-        model,
-        prompt: params.prompt,
-        image: params.image,
-        config: Object.keys(config).length > 0 ? config : undefined,
-      })) as unknown as VeoOperation;
-
-      this.logger.info(`Image-to-video generation started (operation: ${operation.name})`);
-
-      return operation;
-    } catch (error) {
-      const err = error as ExtendedError;
-      const errorType = this._classifyError(err);
-      this.logger.error(`Generation failed (${errorType}): ${err.message}`);
-      throw this._sanitizeError(err);
-    }
+    return this._submit(model, { prompt: params.prompt, image: params.image }, this._baseConfig(params), 'Image-to-video generation');
   }
 
   /**
@@ -328,44 +268,32 @@ export class GoogleGenAIVeoAPI {
   async generateWithReferences(params: VeoReferenceParams): Promise<VeoOperation> {
     this._verifyApiKey();
 
-    const model = (params.model || this.defaultModel) as VeoModel;
+    const model: string = params.model || this.defaultModel;
 
     // Validate parameters
-    validateVeoParams(model, params, VEO_MODES.REFERENCE_IMAGES);
+    this._checkParams(model, params, VEO_MODES.REFERENCE_IMAGES);
 
     this.logger.info(
       `Starting reference-images generation with ${model} (${params.referenceImages.length} references)`
     );
     this.logger.debug(`Prompt: "${params.prompt.substring(0, 100)}..."`);
 
-    // Build config with reference images
-    // Duration must be 8 for reference images
-    const config: Record<string, unknown> = {
+    // Mode constants kept from 1.x: duration is always 8 with reference images;
+    // resolution and personGeneration are not sent in this mode.
+    const config: GenerateVideosConfig = {
       durationSeconds: 8,
       referenceImages: params.referenceImages.map((ref) => ({
         image: ref.image,
-        referenceType: ref.referenceType,
+        // Sent as given ('asset'), as 1.x did and as Google's own REST/JS docs
+        // do; the SDK types this as its 'ASSET'/'STYLE' enum but passes the
+        // value through unchanged. Live-checked in V12.
+        referenceType: ref.referenceType as VideoGenerationReferenceType,
       })),
     };
     if (params.negativePrompt) config.negativePrompt = params.negativePrompt;
     if (params.aspectRatio) config.aspectRatio = params.aspectRatio;
 
-    try {
-      const operation = (await this.client.models.generateVideos({
-        model,
-        prompt: params.prompt,
-        config,
-      })) as unknown as VeoOperation;
-
-      this.logger.info(`Reference-images generation started (operation: ${operation.name})`);
-
-      return operation;
-    } catch (error) {
-      const err = error as ExtendedError;
-      const errorType = this._classifyError(err);
-      this.logger.error(`Generation failed (${errorType}): ${err.message}`);
-      throw this._sanitizeError(err);
-    }
+    return this._submit(model, { prompt: params.prompt }, config, 'Reference-images generation');
   }
 
   /**
@@ -385,7 +313,7 @@ export class GoogleGenAIVeoAPI {
   async generateWithInterpolation(params: VeoInterpolationParams): Promise<VeoOperation> {
     this._verifyApiKey();
 
-    const model = (params.model || this.defaultModel) as VeoModel;
+    const model: string = params.model || this.defaultModel;
 
     // Validate frame images
     if (!params.firstFrame || !params.firstFrame.imageBytes || !params.firstFrame.mimeType) {
@@ -396,39 +324,23 @@ export class GoogleGenAIVeoAPI {
     }
 
     // Validate parameters
-    validateVeoParams(model, params as unknown as VeoGenerateParams, VEO_MODES.INTERPOLATION);
+    this._checkParams(model, params, VEO_MODES.INTERPOLATION);
 
     this.logger.info(`Starting interpolation generation with ${model}`);
     if (params.prompt) {
       this.logger.debug(`Prompt: "${params.prompt.substring(0, 100)}..."`);
     }
 
-    // Build config with last frame
-    // Duration must be 8 for interpolation
-    const config: Record<string, unknown> = {
+    // Mode constants kept from 1.x: duration is always 8; resolution and
+    // personGeneration are not sent. firstFrame goes as the source image.
+    const config: GenerateVideosConfig = {
       durationSeconds: 8,
       lastFrame: params.lastFrame,
     };
     if (params.negativePrompt) config.negativePrompt = params.negativePrompt;
     if (params.aspectRatio) config.aspectRatio = params.aspectRatio;
 
-    try {
-      const operation = (await this.client.models.generateVideos({
-        model,
-        prompt: params.prompt || '',
-        image: params.firstFrame,
-        config,
-      })) as unknown as VeoOperation;
-
-      this.logger.info(`Interpolation generation started (operation: ${operation.name})`);
-
-      return operation;
-    } catch (error) {
-      const err = error as ExtendedError;
-      const errorType = this._classifyError(err);
-      this.logger.error(`Generation failed (${errorType}): ${err.message}`);
-      throw this._sanitizeError(err);
-    }
+    return this._submit(model, { prompt: params.prompt || '', image: params.firstFrame }, config, 'Interpolation generation');
   }
 
   /**
@@ -453,7 +365,7 @@ export class GoogleGenAIVeoAPI {
   async extendVideo(params: VeoExtendParams): Promise<VeoOperation> {
     this._verifyApiKey();
 
-    const model = (params.model || this.defaultModel) as VeoModel;
+    const model: string = params.model || this.defaultModel;
 
     // Validate video object
     if (!params.video) {
@@ -461,36 +373,20 @@ export class GoogleGenAIVeoAPI {
     }
 
     // Validate parameters (extension requires 720p)
-    validateVeoParams(model, { ...params, resolution: '720p' }, VEO_MODES.EXTENSION);
+    this._checkParams(model, { ...params, resolution: '720p' }, VEO_MODES.EXTENSION);
 
     this.logger.info(`Starting video extension with ${model}`);
     this.logger.debug(`Prompt: "${params.prompt.substring(0, 100)}..."`);
 
-    // Build config for extension
-    // Resolution must be 720p, numberOfVideos is 1
-    const config: Record<string, unknown> = {
+    // Mode constants kept from 1.x: 720p, one video; aspectRatio, duration and
+    // personGeneration are not sent.
+    const config: GenerateVideosConfig = {
       numberOfVideos: 1,
       resolution: '720p',
     };
     if (params.negativePrompt) config.negativePrompt = params.negativePrompt;
 
-    try {
-      const operation = (await this.client.models.generateVideos({
-        model,
-        prompt: params.prompt,
-        video: params.video,
-        config,
-      })) as unknown as VeoOperation;
-
-      this.logger.info(`Video extension started (operation: ${operation.name})`);
-
-      return operation;
-    } catch (error) {
-      const err = error as ExtendedError;
-      const errorType = this._classifyError(err);
-      this.logger.error(`Extension failed (${errorType}): ${err.message}`);
-      throw this._sanitizeError(err);
-    }
+    return this._submit(model, { prompt: params.prompt, video: params.video }, config, 'Video extension');
   }
 
   /**
@@ -536,47 +432,46 @@ export class GoogleGenAIVeoAPI {
       // Wait before checking
       await new Promise((resolve) => setTimeout(resolve, intervalMs));
 
+      // Retry by SOURCE, not by code (spec D13 step 4): only a failure of the
+      // poll request itself is retried. A finished operation that carries an
+      // error is terminal — in 1.x its throw sat inside this try, so a job that
+      // failed with a "network"/"timeout" message was re-polled for up to ten
+      // minutes before the caller heard about it.
       try {
-        // Refresh operation status
         // SDK types differ from our simplified VeoOperation interface
         operation = (await this.client.operations.getVideosOperation({
           operation: operation as unknown as Parameters<typeof this.client.operations.getVideosOperation>[0]['operation'],
         })) as unknown as VeoOperation;
-
-        this.logger.debug(
-          `Poll attempt ${attempts}/${maxAttempts} (${(elapsedMs / 1000).toFixed(0)}s elapsed)`
-        );
-
-        // Call progress callback if provided
-        if (onProgress) {
-          onProgress(operation, elapsedMs);
-        }
-
-        // Check if done
-        if (operation.done) {
-          const totalTime = (Date.now() - startTime) / 1000;
-          this.logger.info(`Video generation completed in ${totalTime.toFixed(1)}s`);
-
-          // Check for error in response
-          if (operation.error) {
-            const error = new Error(
-              operation.error.message || 'Video generation failed'
-            ) as ExtendedError;
-            error.operationError = operation.error;
-            throw error;
-          }
-
-          return operation;
-        }
       } catch (error) {
-        const err = error as ExtendedError;
-        // Handle transient errors with retry
-        const errorType = this._classifyError(err);
-        if (errorType === 'TRANSIENT' && attempts < maxAttempts) {
-          this.logger.warn(`Transient error, retrying: ${err.message}`);
+        const publicError = toPublicError(error, { surface: 'video' });
+        const retryable = ['TRANSIENT', 'NETWORK', 'TIMEOUT'].includes(publicError.classification);
+        if (retryable && attempts < maxAttempts) {
+          this.logger.warn(`Poll request failed (${publicError.classification}), retrying: ${(error as Error).message}`);
           continue;
         }
-        throw this._sanitizeError(err);
+        throw publicError;
+      }
+
+      this.logger.debug(
+        `Poll attempt ${attempts}/${maxAttempts} (${(elapsedMs / 1000).toFixed(0)}s elapsed)`
+      );
+
+      // Call progress callback if provided
+      if (onProgress) {
+        onProgress(operation, elapsedMs);
+      }
+
+      if (operation.done) {
+        const totalTime = (Date.now() - startTime) / 1000;
+        this.logger.info(`Video generation completed in ${totalTime.toFixed(1)}s`);
+
+        if (operation.error) {
+          const error = new Error(operation.error.message || 'Video generation failed') as ExtendedError;
+          error.operationError = operation.error;
+          throw toPublicError(error, { surface: 'video' });
+        }
+
+        return operation;
       }
     }
 
@@ -639,9 +534,8 @@ export class GoogleGenAIVeoAPI {
         video,
       };
     } catch (error) {
-      const err = error as ExtendedError;
-      this.logger.error(`Download failed: ${err.message}`);
-      throw this._sanitizeError(err);
+      this.logger.error(`Download failed: ${(error as Error).message}`);
+      throw toPublicError(error, { surface: 'video' });
     }
   }
 

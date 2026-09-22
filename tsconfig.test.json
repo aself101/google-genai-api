@@ -1,13 +1,13 @@
 {
   // Typechecks tests with the sources. vitest does not typecheck, so a test
   // that references a removed export passes silently (15 did, in P3a).
-  // veo-api and video-api tests join when P4/P5 clear their pre-existing
-  // errors (20 at P3b); remove them from "exclude" then.
+  // video-api tests join when P5 clears their pre-existing errors (3 at P4);
+  // remove them from "exclude" then.
   "extends": "./tsconfig.json",
   "compilerOptions": {
     "noEmit": true,
     "rootDir": "."
   },
   "include": ["src/**/*", "test/**/*"],
-  "exclude": ["node_modules", "dist", "test/veo-api.test.ts", "test/video-api.test.ts"]
+  "exclude": ["node_modules", "dist", "test/video-api.test.ts"]
 }

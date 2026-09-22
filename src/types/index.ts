@@ -88,7 +88,14 @@ export type ImageModelId = GeminiModel | (string & {});
  */
 export type VeoModel =
   | 'veo-3.1-generate-preview'
-  | 'veo-3.1-fast-generate-preview';
+  | 'veo-3.1-fast-generate-preview'
+  | 'veo-3.1-lite-generate-preview';
+
+/**
+ * Any Veo model id. Known ids autocomplete; any other string is accepted and
+ * sent with shape checks only (spec D3) — every Veo model is preview-class.
+ */
+export type VeoModelId = VeoModel | (string & {});
 
 /**
  * All supported models.
@@ -106,6 +113,7 @@ export interface Models {
 export interface VeoModels {
   VEO_3_1: VeoModel;
   VEO_3_1_FAST: VeoModel;
+  VEO_3_1_LITE: VeoModel;
 }
 
 // ==================== ASPECT RATIO & RESOLUTION TYPES ====================
@@ -144,7 +152,7 @@ export type VeoAspectRatio = '16:9' | '9:16';
 /**
  * Veo video resolutions.
  */
-export type VeoResolution = '720p' | '1080p';
+export type VeoResolution = '720p' | '1080p' | '4k';
 
 /**
  * Veo video durations (in seconds as strings).
@@ -267,20 +275,18 @@ export interface GeminiGenerateParams {
 export interface VeoGenerateParams {
   /** Generation prompt */
   prompt: string;
-  /** Veo model to use */
-  model?: VeoModel;
-  /** Video aspect ratio */
-  aspectRatio?: VeoAspectRatio;
-  /** Video resolution */
-  resolution?: VeoResolution;
-  /** Video duration in seconds */
-  durationSeconds?: VeoDuration | string;
+  /** Veo model to use (default `veo-3.1-generate-preview`); unknown ids pass through with a warning */
+  model?: VeoModelId;
+  /** Video aspect ratio (known values autocomplete; others pass to unknown models, spec D3) */
+  aspectRatio?: VeoAspectRatio | (string & {});
+  /** Video resolution (known values autocomplete; others pass to unknown models, spec D3) */
+  resolution?: VeoResolution | (string & {});
+  /** Video duration in seconds; sent as a number */
+  durationSeconds?: VeoDuration | string | number;
   /** Negative prompt (what to avoid) */
   negativePrompt?: string;
   /** Person generation setting */
   personGeneration?: VeoPersonGeneration;
-  /** Seed for reproducibility */
-  seed?: number;
 }
 
 /**
@@ -550,8 +556,13 @@ export interface VeoModelInfo {
   referenceImages?: { max: number } | null;
   /** Extension constraints */
   extension?: VeoExtensionConstraints | null;
-  /** 1080p constraints */
+  /**
+   * 1080p constraints.
+   * @deprecated Use `durationRequired`.
+   */
   resolution1080p?: Veo1080pConstraints | null;
+  /** Duration each resolution requires */
+  durationRequired?: Partial<Record<VeoResolution, VeoDuration>>;
   /** Maximum prompt length in tokens */
   promptMaxLength: number;
 }
@@ -632,8 +643,13 @@ export interface VeoModelConstraint {
   referenceImages?: { max: number } | null;
   /** Extension constraints (Veo 3.1 only) */
   extension?: VeoExtensionConstraints | null;
-  /** 1080p-specific constraints */
+  /**
+   * 1080p-specific constraints.
+   * @deprecated Use `durationRequired`, which also covers 4k. Still populated.
+   */
   resolution1080p?: Veo1080pConstraints | null;
+  /** Duration each resolution requires, e.g. `{ '1080p': '8', '4k': '8' }` */
+  durationRequired?: Partial<Record<VeoResolution, VeoDuration>>;
   /** Maximum prompt length in tokens */
   promptMaxLength: number;
 }

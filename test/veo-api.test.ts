@@ -3,7 +3,7 @@
  * Tests for GoogleGenAIVeoAPI class
  */
 
-import { describe, it, expect, beforeEach, afterEach, vi, type Mock } from 'vitest';
+import { describe, it, expect, beforeEach, vi, type Mock } from 'vitest';
 
 // Mock @google/genai SDK
 vi.mock('@google/genai', () => ({
@@ -26,7 +26,6 @@ vi.mock('@google/genai', () => ({
 import { GoogleGenAI } from '@google/genai';
 import { GoogleGenAIVeoAPI, VEO_MODELS, VEO_MODES } from '../src/veo-api.js';
 import type {
-  ErrorClassification,
   VeoModel,
   VeoOperation,
   VeoImage,
@@ -34,14 +33,10 @@ import type {
   VeoWaitOptions,
 } from '../src/types/index.js';
 
-// Interface for extended error with status
-interface ExtendedError extends Error {
-  status?: number;
-  response?: { status?: number };
-}
-
-// Interface for mocked API with access to private members
-interface MockedVeoAPI extends GoogleGenAIVeoAPI {
+// The API with its private members exposed for testing. Not `extends
+// GoogleGenAIVeoAPI`: redeclaring private members is a type error (TS2430).
+type MockedVeoAPI = Omit<GoogleGenAIVeoAPI, never> & MockedVeoInternals;
+interface MockedVeoInternals {
   apiKey: string | null;
   defaultModel: VeoModel;
   client: {
@@ -55,10 +50,8 @@ interface MockedVeoAPI extends GoogleGenAIVeoAPI {
       download: Mock;
     };
   };
-  logger: { level: string };
+  logger: { level: string; warn: (msg: string) => void };
   _verifyApiKey: () => void;
-  _classifyError: (error: ExtendedError) => ErrorClassification;
-  _sanitizeError: (error: ExtendedError) => Error;
 }
 
 describe('GoogleGenAIVeoAPI', () => {
@@ -71,7 +64,7 @@ describe('GoogleGenAIVeoAPI', () => {
     new GoogleGenAI({ apiKey: 'test-key' });
 
     // Create API instance
-    api = new GoogleGenAIVeoAPI('test-api-key') as MockedVeoAPI;
+    api = new GoogleGenAIVeoAPI('test-api-key') as unknown as MockedVeoAPI;
   });
 
   describe('constructor', () => {
@@ -94,7 +87,7 @@ describe('GoogleGenAIVeoAPI', () => {
     });
 
     it('should set default model to Veo 3.1', () => {
-      const instance = new GoogleGenAIVeoAPI('test-key') as MockedVeoAPI;
+      const instance = new GoogleGenAIVeoAPI('test-key') as unknown as MockedVeoAPI;
       expect(instance.defaultModel).toBe(VEO_MODELS.VEO_3_1);
     });
   });
@@ -107,119 +100,6 @@ describe('GoogleGenAIVeoAPI', () => {
     it('should throw when API key is removed', () => {
       api.apiKey = null;
       expect(() => api._verifyApiKey()).toThrow('API key is not set');
-    });
-  });
-
-  describe('_classifyError', () => {
-    it('should classify network errors as TRANSIENT', () => {
-      const error = new Error('network timeout') as ExtendedError;
-      expect(api._classifyError(error)).toBe('TRANSIENT');
-    });
-
-    it('should classify 429 rate limit as TRANSIENT', () => {
-      const error = new Error('Rate limited') as ExtendedError;
-      error.status = 429;
-      expect(api._classifyError(error)).toBe('TRANSIENT');
-    });
-
-    it('should classify 502/503 as TRANSIENT', () => {
-      const error502 = new Error('Bad gateway') as ExtendedError;
-      error502.status = 502;
-      expect(api._classifyError(error502)).toBe('TRANSIENT');
-
-      const error503 = new Error('Service unavailable') as ExtendedError;
-      error503.status = 503;
-      expect(api._classifyError(error503)).toBe('TRANSIENT');
-    });
-
-    it('should classify 400/401/403 as PERMANENT', () => {
-      const error400 = new Error('Bad request') as ExtendedError;
-      error400.status = 400;
-      expect(api._classifyError(error400)).toBe('PERMANENT');
-
-      const error401 = new Error('Unauthorized') as ExtendedError;
-      error401.status = 401;
-      expect(api._classifyError(error401)).toBe('PERMANENT');
-
-      const error403 = new Error('Forbidden') as ExtendedError;
-      error403.status = 403;
-      expect(api._classifyError(error403)).toBe('PERMANENT');
-    });
-
-    it('should classify 422 as PERMANENT', () => {
-      const error = new Error('Unprocessable entity') as ExtendedError;
-      error.status = 422;
-      expect(api._classifyError(error)).toBe('PERMANENT');
-    });
-
-    it('should classify safety errors as SAFETY_BLOCKED', () => {
-      const error = new Error('Content blocked by safety filter') as ExtendedError;
-      expect(api._classifyError(error)).toBe('SAFETY_BLOCKED');
-    });
-
-    it('should classify audio errors as AUDIO_BLOCKED', () => {
-      const error = new Error('Audio processing blocked due to safety') as ExtendedError;
-      expect(api._classifyError(error)).toBe('AUDIO_BLOCKED');
-    });
-
-    it('should classify validation errors as USER_ACTIONABLE', () => {
-      const error = new Error('validation failed') as ExtendedError;
-      expect(api._classifyError(error)).toBe('USER_ACTIONABLE');
-    });
-
-    it('should classify 404 not found as USER_ACTIONABLE', () => {
-      const error = new Error('File not found') as ExtendedError;
-      error.status = 404;
-      expect(api._classifyError(error)).toBe('USER_ACTIONABLE');
-    });
-
-    it('should classify API key errors as USER_ACTIONABLE', () => {
-      api.apiKey = null;
-      const error = new Error('Some error') as ExtendedError;
-      expect(api._classifyError(error)).toBe('USER_ACTIONABLE');
-    });
-  });
-
-  describe('_sanitizeError', () => {
-    const originalEnv = process.env.NODE_ENV;
-
-    afterEach(() => {
-      process.env.NODE_ENV = originalEnv;
-    });
-
-    it('should return original error in development', () => {
-      process.env.NODE_ENV = 'development';
-      const error = new Error('Detailed internal error') as ExtendedError;
-      expect(api._sanitizeError(error)).toBe(error);
-    });
-
-    it('should return generic message for TRANSIENT in production', () => {
-      process.env.NODE_ENV = 'production';
-      const error = new Error('network timeout') as ExtendedError;
-      const sanitized = api._sanitizeError(error);
-      expect(sanitized.message).toBe('A temporary error occurred. Please try again.');
-    });
-
-    it('should return safety message for SAFETY_BLOCKED in production', () => {
-      process.env.NODE_ENV = 'production';
-      const error = new Error('Content blocked by safety') as ExtendedError;
-      const sanitized = api._sanitizeError(error);
-      expect(sanitized.message).toBe('Video generation was blocked due to content safety policies.');
-    });
-
-    it('should return audio message for AUDIO_BLOCKED in production', () => {
-      process.env.NODE_ENV = 'production';
-      const error = new Error('Audio blocked') as ExtendedError;
-      const sanitized = api._sanitizeError(error);
-      expect(sanitized.message).toBe('Video generation was blocked due to audio processing issues.');
-    });
-
-    it('should return generic message for PERMANENT in production', () => {
-      process.env.NODE_ENV = 'production';
-      const error = new Error('Bad request') as ExtendedError;
-      error.status = 400;
-      const sanitized = api._sanitizeError(error);
-      expect(sanitized.message).toBe('The request could not be completed. Please check your inputs.');
     });
   });
 
@@ -238,7 +118,7 @@ describe('GoogleGenAIVeoAPI', () => {
 
       expect(api.client.models.generateVideos).toHaveBeenCalledWith({
         model: VEO_MODELS.VEO_3_1,
-        prompt: 'A cat playing in the garden',
+        source: { prompt: 'A cat playing in the garden' },
         config: undefined,
       });
       expect(operation.name).toBe('operations/test-op-123');
@@ -258,7 +138,7 @@ describe('GoogleGenAIVeoAPI', () => {
 
       expect(api.client.models.generateVideos).toHaveBeenCalledWith({
         model: VEO_MODELS.VEO_3_1,
-        prompt: 'A sunset over the ocean',
+        source: { prompt: 'A sunset over the ocean' },
         config: {
           aspectRatio: '16:9',
           resolution: '1080p',
@@ -349,8 +229,7 @@ describe('GoogleGenAIVeoAPI', () => {
 
       expect(api.client.models.generateVideos).toHaveBeenCalledWith({
         model: VEO_MODELS.VEO_3_1,
-        prompt: 'A cat waking up',
-        image: mockImage,
+        source: { prompt: 'A cat waking up', image: mockImage },
         config: undefined,
       });
     });
@@ -426,7 +305,7 @@ describe('GoogleGenAIVeoAPI', () => {
 
       expect(api.client.models.generateVideos).toHaveBeenCalledWith({
         model: VEO_MODELS.VEO_3_1,
-        prompt: 'A woman in a flamingo dress',
+        source: { prompt: 'A woman in a flamingo dress' },
         config: expect.objectContaining({
           durationSeconds: 8,
           referenceImages: mockReferenceImages,
@@ -512,8 +391,7 @@ describe('GoogleGenAIVeoAPI', () => {
 
       expect(api.client.models.generateVideos).toHaveBeenCalledWith({
         model: VEO_MODELS.VEO_3_1,
-        prompt: 'A ghost fading away',
-        image: mockFirstFrame,
+        source: { prompt: 'A ghost fading away', image: mockFirstFrame },
         config: expect.objectContaining({
           durationSeconds: 8,
           lastFrame: mockLastFrame,
@@ -569,7 +447,7 @@ describe('GoogleGenAIVeoAPI', () => {
 
       expect(api.client.models.generateVideos).toHaveBeenCalledWith(
         expect.objectContaining({
-          prompt: '',
+          source: { prompt: '', image: mockFirstFrame },
         })
       );
     });
@@ -589,8 +467,7 @@ describe('GoogleGenAIVeoAPI', () => {
 
       expect(api.client.models.generateVideos).toHaveBeenCalledWith({
         model: VEO_MODELS.VEO_3_1,
-        prompt: 'A butterfly lands on the flower',
-        video: mockVideo,
+        source: { prompt: 'A butterfly lands on the flower', video: mockVideo },
         config: expect.objectContaining({
           numberOfVideos: 1,
           resolution: '720p',
@@ -628,6 +505,7 @@ describe('GoogleGenAIVeoAPI', () => {
   describe('waitForCompletion', () => {
     it('should return immediately if operation is done', async () => {
       const doneOperation: VeoOperation = {
+        name: 'op',
         done: true,
         response: {
           generatedVideos: [{ video: { uri: 'test' } }],
@@ -707,24 +585,54 @@ describe('GoogleGenAIVeoAPI', () => {
       ).rejects.toThrow(/timed out/);
     });
 
-    it('should retry on transient errors', async () => {
-      let callCount = 0;
-      api.client.operations.getVideosOperation = vi.fn().mockImplementation(() => {
-        callCount++;
-        if (callCount === 1) {
-          const error = new Error('network timeout');
-          throw error;
-        }
-        return { done: true, response: { generatedVideos: [{ video: {} }] } };
-      });
+    it('retries a poll request that failed at the network (fetch TypeError)', async () => {
+      const poll = vi.fn()
+        .mockRejectedValueOnce(new TypeError('fetch failed'))
+        .mockResolvedValueOnce({ done: true, response: { generatedVideos: [{ video: {} }] } });
+      api.client.operations.getVideosOperation = poll;
 
-      const operation: VeoOperation = { name: 'test-op', done: false };
-      const result = await api.waitForCompletion(operation, {
-        maxAttempts: 5,
-        intervalMs: 10,
-      });
-
+      const result = await api.waitForCompletion({ name: 'test-op', done: false }, { maxAttempts: 5, intervalMs: 10 });
       expect(result.done).toBe(true);
+      expect(poll).toHaveBeenCalledTimes(2);
+    });
+
+    it('retries a poll request that got a 503', async () => {
+      const unavailable = Object.assign(new Error('{"error":{"code":503,"status":"UNAVAILABLE","message":"try later"}}'), { status: 503 });
+      const poll = vi.fn()
+        .mockRejectedValueOnce(unavailable)
+        .mockResolvedValueOnce({ done: true, response: { generatedVideos: [{ video: {} }] } });
+      api.client.operations.getVideosOperation = poll;
+
+      await expect(api.waitForCompletion({ name: 'test-op', done: false }, { maxAttempts: 5, intervalMs: 10 })).resolves.toMatchObject({ done: true });
+      expect(poll).toHaveBeenCalledTimes(2);
+    });
+
+    it('does not retry a poll request that got a 400', async () => {
+      const bad = Object.assign(new Error('{"error":{"code":400,"status":"INVALID_ARGUMENT","message":"bad name"}}'), { status: 400 });
+      const poll = vi.fn().mockRejectedValue(bad);
+      api.client.operations.getVideosOperation = poll;
+
+      await expect(api.waitForCompletion({ name: 'test-op', done: false }, { maxAttempts: 5, intervalMs: 10 })).rejects.toBe(bad);
+      expect(poll).toHaveBeenCalledTimes(1);
+    });
+
+    it('a finished operation that failed is terminal: thrown on the first poll, never re-polled — whatever its code', async () => {
+      // RESOURCE_EXHAUSTED (8) classifies as TRANSIENT, and 1.x re-polled a finished
+      // job whose message mentioned "network"/"timeout" for up to ten minutes.
+      const poll = vi.fn().mockResolvedValue({
+        name: 'test-op',
+        done: true,
+        error: { code: 8, message: 'Quota exceeded; network timeout while reserving capacity' },
+      });
+      api.client.operations.getVideosOperation = poll;
+
+      const err = await api.waitForCompletion({ name: 'test-op', done: false }, { maxAttempts: 60, intervalMs: 10 }).catch((e) => e);
+      expect(poll).toHaveBeenCalledTimes(1);
+      expect(err.message).toContain('Quota exceeded');
+      expect(err.operationError).toEqual({ code: 8, message: 'Quota exceeded; network timeout while reserving capacity' });
+      expect(err.code).toBe(8);
+      expect(err.classification).toBe('TRANSIENT');
+      expect(err.surface).toBe('video');
     });
   });
 
@@ -733,6 +641,7 @@ describe('GoogleGenAIVeoAPI', () => {
       api.client.files.download = vi.fn().mockResolvedValue(undefined);
 
       const operation: VeoOperation = {
+        name: 'op',
         done: true,
         response: {
           generatedVideos: [
@@ -753,13 +662,14 @@ describe('GoogleGenAIVeoAPI', () => {
     });
 
     it('should throw if operation is not complete', async () => {
-      const operation: VeoOperation = { done: false };
+      const operation: VeoOperation = { name: 'op', done: false };
 
       await expect(api.downloadVideo(operation, '/tmp/test.mp4')).rejects.toThrow(/operation is not complete/);
     });
 
     it('should throw if no video in response', async () => {
       const operation: VeoOperation = {
+        name: 'op',
         done: true,
         response: {},
       };
@@ -771,6 +681,7 @@ describe('GoogleGenAIVeoAPI', () => {
       api.client.files.download = vi.fn().mockRejectedValue(new Error('Download failed'));
 
       const operation: VeoOperation = {
+        name: 'op',
         done: true,
         response: {
           generatedVideos: [{ video: {} }],
@@ -784,6 +695,7 @@ describe('GoogleGenAIVeoAPI', () => {
   describe('extractVideo', () => {
     it('should extract video from completed operation', () => {
       const operation: VeoOperation = {
+        name: 'op',
         done: true,
         response: {
           generatedVideos: [
@@ -801,13 +713,13 @@ describe('GoogleGenAIVeoAPI', () => {
     });
 
     it('should throw if operation not complete', () => {
-      const operation: VeoOperation = { done: false };
+      const operation: VeoOperation = { name: 'op', done: false };
 
       expect(() => api.extractVideo(operation)).toThrow(/operation is not complete/);
     });
 
     it('should throw if no video in response', () => {
-      const operation: VeoOperation = { done: true, response: {} };
+      const operation: VeoOperation = { name: 'op', done: true, response: {} };
 
       expect(() => api.extractVideo(operation)).toThrow(/No video found/);
     });
@@ -838,6 +750,67 @@ describe('GoogleGenAIVeoAPI', () => {
 
     it('should throw for unknown model', () => {
       expect(() => api.getModelInfo('unknown-model' as VeoModel)).toThrow(/Unknown model/);
+    });
+  });
+
+  describe('model validation in the client (spec D3/D5)', () => {
+    const img: VeoImage = { imageBytes: 'data', mimeType: 'image/png' };
+    const op: VeoOperation = { name: 'op', done: false };
+
+    it('Lite: generateWithReferences is rejected before any call (owed from P2)', async () => {
+      await expect(
+        api.generateWithReferences({ prompt: 'x', model: VEO_MODELS.VEO_3_1_LITE, referenceImages: [{ image: img, referenceType: 'asset' }] })
+      ).rejects.toThrow('reference-images mode is not supported by veo-3.1-lite-generate-preview');
+      expect(api.client.models.generateVideos).not.toHaveBeenCalled();
+    });
+
+    it('Lite: extendVideo is rejected before any call (owed from P2)', async () => {
+      await expect(api.extendVideo({ prompt: 'x', model: VEO_MODELS.VEO_3_1_LITE, video: { uri: 'v' } })).rejects.toThrow(
+        'extension mode is not supported'
+      );
+      expect(api.client.models.generateVideos).not.toHaveBeenCalled();
+    });
+
+    it('Lite: 4k is rejected; interpolation is accepted', async () => {
+      await expect(api.generateVideo({ prompt: 'x', model: VEO_MODELS.VEO_3_1_LITE, resolution: '4k', durationSeconds: '8' })).rejects.toThrow(
+        "Invalid resolution '4k'"
+      );
+      api.client.models.generateVideos = vi.fn().mockResolvedValue(op);
+      await api.generateWithInterpolation({ model: VEO_MODELS.VEO_3_1_LITE, firstFrame: img, lastFrame: img });
+      expect(api.client.models.generateVideos).toHaveBeenCalledTimes(1);
+    });
+
+    it("capabilityValidation 'warn': logs and sends", async () => {
+      const warnApi = new GoogleGenAIVeoAPI('test-key', 'info', { capabilityValidation: 'warn' }) as unknown as MockedVeoAPI;
+      const warn = vi.spyOn(warnApi.logger, 'warn').mockImplementation(() => undefined);
+      warnApi.client.models.generateVideos = vi.fn().mockResolvedValue(op);
+
+      await warnApi.generateVideo({ prompt: 'x', model: VEO_MODELS.VEO_3_1_LITE, resolution: '4k' });
+
+      expect(warnApi.client.models.generateVideos).toHaveBeenCalledTimes(1);
+      expect(warn.mock.calls.map((c) => c[0]).join('\n')).toMatch(/Invalid resolution '4k'.*sending anyway/);
+    });
+
+    it("shape violations still throw under 'warn' (seed, spec D15)", async () => {
+      const warnApi = new GoogleGenAIVeoAPI('test-key', 'info', { capabilityValidation: 'warn' }) as unknown as MockedVeoAPI;
+      await expect(warnApi.generateVideo({ prompt: 'x', seed: 1 } as never)).rejects.toThrow('seed was removed in 2.0');
+      expect(warnApi.client.models.generateVideos).not.toHaveBeenCalled();
+    });
+
+    it('unknown Veo id: one warning per id, request sent', async () => {
+      const warn = vi.spyOn(api.logger, 'warn').mockImplementation(() => undefined);
+      api.client.models.generateVideos = vi.fn().mockResolvedValue(op);
+
+      await api.generateVideo({ prompt: 'x', model: 'veo-9-imaginary', resolution: '8k' });
+      await api.generateVideo({ prompt: 'y', model: 'veo-9-imaginary' });
+
+      expect(warn.mock.calls.filter((c) => String(c[0]).includes("'veo-9-imaginary' is not in this package's catalog"))).toHaveLength(1);
+      expect(api.client.models.generateVideos).toHaveBeenCalledTimes(2);
+    });
+
+    it('getModelInfo keeps its 1.x contract: throws for an unknown id; Lite info carries durationRequired', () => {
+      expect(() => api.getModelInfo('veo-9-imaginary')).toThrow(/Unknown model/);
+      expect(api.getModelInfo(VEO_MODELS.VEO_3_1_LITE).durationRequired).toEqual({ '1080p': '8' });
     });
   });
 });

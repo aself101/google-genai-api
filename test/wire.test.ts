@@ -15,7 +15,8 @@
 
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { GoogleGenAIAPI } from '../src/api.js';
-import { DEFAULT_IMAGE_MODEL, MODELS } from '../src/config.js';
+import { GoogleGenAIVeoAPI } from '../src/veo-api.js';
+import { DEFAULT_IMAGE_MODEL, MODELS, VEO_MODELS } from '../src/config.js';
 
 interface Captured {
   url: URL;
@@ -232,5 +233,104 @@ describe('image errors from the wire (spec D13)', () => {
       expect(err.message).not.toContain('Quota');
       expect(err.classification).toBe('TRANSIENT');
     });
+  });
+});
+
+describe('Veo request on the wire (spec D7, D12)', () => {
+  const OP = { name: 'models/veo/operations/op1', done: false };
+  const img = { imageBytes: 'SU1H', mimeType: 'image/png' };
+  const lastFrame = { imageBytes: 'TEFTVA==', mimeType: 'image/png' };
+  let sdkWarnings: string[];
+
+  beforeEach(() => {
+    nextResponse = respondJson(200, OP);
+    sdkWarnings = [];
+    vi.spyOn(console, 'warn').mockImplementation((...args: unknown[]) => {
+      sdkWarnings.push(args.map(String).join(' '));
+    });
+  });
+
+  afterEach(() => {
+    // The SDK warns when prompt/image/video are passed top-level instead of in
+    // `source` (2.24 index.mjs:15469). Using `source` must never trigger it.
+    expect(sdkWarnings.filter((w) => w.includes('deprecated'))).toEqual([]);
+    vi.restoreAllMocks();
+  });
+
+  const veo = () => new GoogleGenAIVeoAPI('test-key', 'error');
+  const instance = () => only().body.instances[0];
+  const parameters = () => only().body.parameters;
+
+  it('model id in the URL: …/models/{model}:predictLongRunning', async () => {
+    await veo().generateVideo({ prompt: 'x', model: VEO_MODELS.VEO_3_1_LITE });
+    expect(only().url.pathname).toBe('/v1beta/models/veo-3.1-lite-generate-preview:predictLongRunning');
+    expect(only().url.host).toBe(GEMINI_HOST);
+  });
+
+  it('text-to-video: prompt → instances[0].prompt; settings → parameters (durationSeconds numeric)', async () => {
+    await veo().generateVideo({
+      prompt: 't2v',
+      aspectRatio: '9:16',
+      resolution: '4k',
+      durationSeconds: '8',
+      negativePrompt: 'blur',
+      personGeneration: 'allow_all',
+    });
+    expect(instance()).toEqual({ prompt: 't2v' });
+    expect(parameters()).toEqual({
+      aspectRatio: '9:16',
+      resolution: '4k',
+      durationSeconds: 8,
+      negativePrompt: 'blur',
+      personGeneration: 'allow_all',
+    });
+  });
+
+  it('image-to-video: image → instances[0].image', async () => {
+    await veo().generateFromImage({ prompt: 'i2v', image: img });
+    expect(instance()).toEqual({ prompt: 'i2v', image: { bytesBase64Encoded: 'SU1H', mimeType: 'image/png' } });
+  });
+
+  it("reference images → instances[0].referenceImages, referenceType sent as given ('asset')", async () => {
+    await veo().generateWithReferences({ prompt: 'refs', referenceImages: [{ image: img, referenceType: 'asset' }] });
+    expect(instance().referenceImages).toEqual([
+      { image: { bytesBase64Encoded: 'SU1H', mimeType: 'image/png' }, referenceType: 'asset' },
+    ]);
+    expect(parameters()).toEqual({ durationSeconds: 8 });
+  });
+
+  it('interpolation: firstFrame → instances[0].image, lastFrame → instances[0].lastFrame, duration 8', async () => {
+    await veo().generateWithInterpolation({ prompt: 'interp', firstFrame: img, lastFrame });
+    expect(instance()).toEqual({
+      prompt: 'interp',
+      image: { bytesBase64Encoded: 'SU1H', mimeType: 'image/png' },
+      lastFrame: { bytesBase64Encoded: 'TEFTVA==', mimeType: 'image/png' },
+    });
+    expect(parameters()).toEqual({ durationSeconds: 8 });
+  });
+
+  it('extension: video → instances[0].video; sampleCount 1, 720p', async () => {
+    await veo().extendVideo({ prompt: 'ext', video: { uri: 'https://example.test/v.mp4' } });
+    expect(instance()).toEqual({ prompt: 'ext', video: { uri: 'https://example.test/v.mp4' } });
+    expect(parameters()).toEqual({ sampleCount: 1, resolution: '720p' });
+  });
+
+  it('unknown Veo id: sent with every declared param (spec D3)', async () => {
+    await veo().generateVideo({ prompt: 'x', model: 'veo-9-imaginary', resolution: '8k', durationSeconds: '30' });
+    expect(only().url.pathname).toBe('/v1beta/models/veo-9-imaginary:predictLongRunning');
+    expect(parameters()).toEqual({ resolution: '8k', durationSeconds: 30 });
+  });
+
+  it('seed never reaches the network (spec D15)', async () => {
+    await expect(veo().generateVideo({ prompt: 'x', seed: 42 } as never)).rejects.toThrow('seed was removed in 2.0');
+    expect(calls).toHaveLength(0);
+  });
+
+  it('Vertex environment variables do not reroute Veo either', async () => {
+    vi.stubEnv('GOOGLE_GENAI_USE_VERTEXAI', 'true');
+    vi.stubEnv('GOOGLE_CLOUD_PROJECT', 'some-project');
+    vi.stubEnv('GOOGLE_CLOUD_LOCATION', 'us-central1');
+    await veo().generateVideo({ prompt: 'x' });
+    expect(only().url.host).toBe(GEMINI_HOST);
   });
 });

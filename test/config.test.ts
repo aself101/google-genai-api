@@ -36,6 +36,7 @@ import {
   parseTimeOffset,
   validateVideoParams,
   validateVeoParams,
+  getVeoViolations,
 } from '../src/config.js';
 import type { InlineData, VeoReferenceImage, VeoPersonGeneration, VeoMode } from '../src/types/index.js';
 
@@ -675,9 +676,7 @@ describe('Veo Configuration Constants', () => {
 
   describe('VEO_RESOLUTIONS', () => {
     it('should have supported resolutions', () => {
-      expect(VEO_RESOLUTIONS).toContain('720p');
-      expect(VEO_RESOLUTIONS).toContain('1080p');
-      expect(VEO_RESOLUTIONS.length).toBe(2);
+      expect(VEO_RESOLUTIONS).toEqual(['720p', '1080p', '4k']);
     });
   });
 
@@ -739,8 +738,95 @@ describe('validateVeoParams', () => {
       expect(validateVeoParams(VEO_MODELS.VEO_3_1, { prompt: 'test' })).toBe(true);
     });
 
-    it('should throw for unknown model', () => {
-      expect(() => validateVeoParams('unknown-model', { prompt: 'test' })).toThrow('Unknown Veo model');
+    it('no longer throws for an unknown model id (spec D3); shape rules still apply', () => {
+      expect(validateVeoParams('veo-9-imaginary', { prompt: 'test', resolution: '8k', durationSeconds: '30' })).toBe(true);
+      expect(() => validateVeoParams('veo-9-imaginary', {})).toThrow('Prompt is required');
+    });
+
+    it('throws ValidationError, returns true (1.x contract kept)', () => {
+      expect(validateVeoParams(VEO_MODELS.VEO_3_1_LITE, { prompt: 'x' })).toBe(true);
+      expect(() => validateVeoParams(VEO_MODELS.VEO_3_1_LITE, { prompt: 'x', resolution: '4k' })).toThrow(ValidationError);
+    });
+  });
+
+  describe('Veo 3.1 Lite (spec §2.2; owed from P2 — the feature-gate branches have a model again)', () => {
+    const ref: VeoReferenceImage[] = [{ image: { imageBytes: 'data', mimeType: 'image/png' }, referenceType: 'asset' }];
+
+    it('is cataloged with 720p/1080p, no refs, no extension, interpolation yes', () => {
+      const c = VEO_MODEL_CONSTRAINTS[VEO_MODELS.VEO_3_1_LITE];
+      expect(VEO_MODELS.VEO_3_1_LITE).toBe('veo-3.1-lite-generate-preview');
+      expect(c.resolutions).toEqual(['720p', '1080p']);
+      expect(c.features).toMatchObject({ referenceImages: false, extension: false, interpolation: true, nativeAudio: true });
+      expect(c.referenceImages).toBeNull();
+      expect(c.extension).toBeNull();
+      expect(c.durationRequired).toEqual({ '1080p': '8' });
+    });
+
+    it('rejects reference-images mode (was: Veo 2/3)', () => {
+      expect(() =>
+        validateVeoParams(VEO_MODELS.VEO_3_1_LITE, { prompt: 'x', referenceImages: ref }, VEO_MODES.REFERENCE_IMAGES as VeoMode)
+      ).toThrow('reference-images mode is not supported by veo-3.1-lite-generate-preview');
+    });
+
+    it('rejects extension mode (was: Veo 2/3)', () => {
+      expect(() =>
+        validateVeoParams(VEO_MODELS.VEO_3_1_LITE, { prompt: 'x', video: {} }, VEO_MODES.EXTENSION as VeoMode)
+      ).toThrow('extension mode is not supported');
+    });
+
+    it('rejects an unsupported resolution — 4k (was: 1080p on Veo 2)', () => {
+      expect(() => validateVeoParams(VEO_MODELS.VEO_3_1_LITE, { prompt: 'x', resolution: '4k' })).toThrow(
+        "Invalid resolution '4k' for veo-3.1-lite-generate-preview"
+      );
+    });
+
+    it('accepts interpolation', () => {
+      expect(
+        validateVeoParams(
+          VEO_MODELS.VEO_3_1_LITE,
+          { firstFrame: { imageBytes: 'a', mimeType: 'image/png' }, lastFrame: { imageBytes: 'b', mimeType: 'image/png' } },
+          VEO_MODES.INTERPOLATION as VeoMode
+        )
+      ).toBe(true);
+    });
+  });
+
+  describe('4k and durationRequired', () => {
+    it('3.1 and Fast accept 4k at 8s and reject it at 4s', () => {
+      for (const m of [VEO_MODELS.VEO_3_1, VEO_MODELS.VEO_3_1_FAST]) {
+        expect(validateVeoParams(m, { prompt: 'x', resolution: '4k', durationSeconds: '8' })).toBe(true);
+        expect(() => validateVeoParams(m, { prompt: 'x', resolution: '4k', durationSeconds: '4' })).toThrow(
+          '4k resolution requires 8-second duration'
+        );
+      }
+    });
+
+    it('keeps the deprecated resolution1080p populated alongside durationRequired', () => {
+      for (const m of Object.values(VEO_MODELS)) {
+        expect(VEO_MODEL_CONSTRAINTS[m].resolution1080p).toEqual({ requiresDuration: '8', aspectRatio: null });
+        expect(VEO_MODEL_CONSTRAINTS[m].durationRequired!['1080p']).toBe('8');
+      }
+    });
+  });
+
+  describe('getVeoViolations — shape vs capability', () => {
+    it('seed is a shape violation, for every id (spec D15)', () => {
+      for (const m of [VEO_MODELS.VEO_3_1, 'veo-9-imaginary']) {
+        expect(getVeoViolations(m, { prompt: 'x', seed: 42 }).map((v) => [v.kind, v.param])).toContainEqual(['shape', 'seed']);
+      }
+    });
+
+    it('malformed values are shape; well-formed but unlisted values are capability', () => {
+      expect(getVeoViolations(VEO_MODELS.VEO_3_1, { prompt: 'x', resolution: '4K' })).toMatchObject([{ kind: 'shape', param: 'resolution' }]);
+      expect(getVeoViolations(VEO_MODELS.VEO_3_1, { prompt: 'x', resolution: '8k' })).toMatchObject([{ kind: 'capability', param: 'resolution' }]);
+      expect(getVeoViolations(VEO_MODELS.VEO_3_1, { prompt: 'x', personGeneration: 'Allow All' })).toMatchObject([{ kind: 'shape' }]);
+      expect(getVeoViolations(VEO_MODELS.VEO_3_1, { prompt: 'x', personGeneration: 'allow_robots' })).toMatchObject([{ kind: 'capability' }]);
+    });
+
+    it('an unknown id gets no capability violations — a future 8k or new personGeneration value reaches the vendor', () => {
+      expect(
+        getVeoViolations('veo-9-imaginary', { prompt: 'x', resolution: '8k', durationSeconds: '30', aspectRatio: '1:1', personGeneration: 'allow_robots' })
+      ).toEqual([]);
     });
   });
 

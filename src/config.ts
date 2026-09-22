@@ -572,6 +572,7 @@ export function validateVideoParams(params: VideoTimeParams): ParsedTimeOffsets 
 export const VEO_MODELS: VeoModels = {
   VEO_3_1: 'veo-3.1-generate-preview',
   VEO_3_1_FAST: 'veo-3.1-fast-generate-preview',
+  VEO_3_1_LITE: 'veo-3.1-lite-generate-preview',
 };
 
 /**
@@ -582,7 +583,7 @@ export const VEO_ASPECT_RATIOS: VeoAspectRatio[] = ['16:9', '9:16'];
 /**
  * Veo supported resolutions.
  */
-export const VEO_RESOLUTIONS: VeoResolution[] = ['720p', '1080p'];
+export const VEO_RESOLUTIONS: VeoResolution[] = ['720p', '1080p', '4k'];
 
 /**
  * Veo generation durations by model.
@@ -591,6 +592,7 @@ export const VEO_RESOLUTIONS: VeoResolution[] = ['720p', '1080p'];
 export const VEO_DURATIONS = {
   'veo-3.1-generate-preview': ['4', '6', '8'],
   'veo-3.1-fast-generate-preview': ['4', '6', '8'],
+  'veo-3.1-lite-generate-preview': ['4', '6', '8'],
 } as Record<VeoModel, string[]>;
 
 /**
@@ -653,6 +655,7 @@ export const VEO_MODEL_CONSTRAINTS: VeoModelConstraints = {
       requiresDuration: '8', // 1080p requires 8-second duration
       aspectRatio: null, // All aspect ratios supported
     },
+    durationRequired: { '1080p': '8', '4k': '8' },
     promptMaxLength: 1024, // Max prompt length in tokens
   },
   [VEO_MODELS.VEO_3_1_FAST]: {
@@ -679,6 +682,31 @@ export const VEO_MODEL_CONSTRAINTS: VeoModelConstraints = {
       requiresDuration: '8',
       aspectRatio: null,
     },
+    durationRequired: { '1080p': '8', '4k': '8' },
+    promptMaxLength: 1024,
+  },
+  // Lite: no 4k and no extension (model page + veo.md); reference images
+  // rejected live — "`referenceImages` isn't supported by this model"
+  // (2026-09-22). Interpolation supported.
+  [VEO_MODELS.VEO_3_1_LITE]: {
+    aspectRatios: VEO_ASPECT_RATIOS,
+    resolutions: ['720p', '1080p'],
+    durations: VEO_DURATIONS[VEO_MODELS.VEO_3_1_LITE],
+    features: {
+      textToVideo: true,
+      imageToVideo: true,
+      referenceImages: false,
+      interpolation: true,
+      extension: false,
+      nativeAudio: true,
+    },
+    referenceImages: null,
+    extension: null,
+    resolution1080p: {
+      requiresDuration: '8',
+      aspectRatio: null,
+    },
+    durationRequired: { '1080p': '8' },
     promptMaxLength: 1024,
   },
 };
@@ -690,22 +718,138 @@ interface VeoValidationParams {
   prompt?: string;
   aspectRatio?: string;
   resolution?: string;
-  durationSeconds?: string;
+  durationSeconds?: string | number;
   referenceImages?: VeoReferenceImage[];
   video?: VeoVideoObject;
   firstFrame?: { imageBytes: string; mimeType: string };
   lastFrame?: { imageBytes: string; mimeType: string };
   personGeneration?: string;
+  /** Removed in 2.0 (spec D15); present only so a caller who passes it is told why it fails. */
+  seed?: unknown;
+}
+
+const VEO_FEATURE_FOR_MODE: Record<string, keyof VeoModelConstraint['features']> = {
+  'text-to-video': 'textToVideo',
+  'image-to-video': 'imageToVideo',
+  'reference-images': 'referenceImages',
+  interpolation: 'interpolation',
+  extension: 'extension',
+};
+const VEO_ASPECT_SHAPE = /^\d+:\d+$/;
+const VEO_RESOLUTION_SHAPE = /^\d+(p|k)$/;
+const VEO_DURATION_SHAPE = /^\d+$/;
+const PERSON_GENERATION_SHAPE = /^[a-z_]+$/;
+const VEO_PROMPT_MAX_TOKENS = 1024;
+
+/**
+ * Check Veo parameters against the shape rules and, for a known model, its
+ * constraint table (spec D3/D5). Pure: never throws, never logs. Violations are
+ * in the order 1.x threw its errors, so `validateVeoParams`' message matches 1.x
+ * for the rules 1.x had.
+ */
+export function getVeoViolations(
+  model: string,
+  params: VeoValidationParams,
+  mode: VeoMode = VEO_MODES.TEXT_TO_VIDEO
+): Violation[] {
+  const v: Violation[] = [];
+  const c = Object.prototype.hasOwnProperty.call(VEO_MODEL_CONSTRAINTS, model)
+    ? (VEO_MODEL_CONSTRAINTS[model] as VeoModelConstraint)
+    : undefined;
+  const shape = (param: string, value: unknown, message: string): void => {
+    v.push({ kind: 'shape', param, value, message });
+  };
+  const cap = (param: string, value: unknown, message: string, allowed?: readonly unknown[]): void => {
+    v.push({ kind: 'capability', param, value, message, ...(allowed && { allowed }) });
+  };
+
+  // ---- shape: every id ----
+  if (params.seed !== undefined) {
+    shape('seed', params.seed, 'seed was removed in 2.0: the Gemini Developer API does not support it for Veo');
+  }
+  if (mode !== VEO_MODES.EXTENSION && mode !== VEO_MODES.INTERPOLATION) {
+    if (!params.prompt || typeof params.prompt !== 'string') {
+      shape('prompt', params.prompt, 'Prompt is required and must be a string');
+    } else {
+      // promptMaxLength is in tokens; ~4 characters per token as a rough bound
+      const maxTokens = c?.promptMaxLength ?? VEO_PROMPT_MAX_TOKENS;
+      if (params.prompt.length > maxTokens * 4) {
+        shape('prompt', params.prompt.length, `Prompt exceeds maximum length of approximately ${maxTokens} tokens`);
+      }
+    }
+  }
+  const aspectOk = params.aspectRatio === undefined || VEO_ASPECT_SHAPE.test(String(params.aspectRatio));
+  if (!aspectOk) shape('aspectRatio', params.aspectRatio, `Invalid aspect ratio '${params.aspectRatio}': expected W:H, e.g. '16:9'`);
+  const resolutionOk = params.resolution === undefined || VEO_RESOLUTION_SHAPE.test(String(params.resolution));
+  if (!resolutionOk) shape('resolution', params.resolution, `Invalid resolution '${params.resolution}': expected e.g. '720p', '1080p', '4k'`);
+  const durationOk = params.durationSeconds === undefined || VEO_DURATION_SHAPE.test(String(params.durationSeconds));
+  if (!durationOk) shape('durationSeconds', params.durationSeconds, `Invalid duration '${params.durationSeconds}': expected whole seconds, e.g. '8'`);
+  if (mode === VEO_MODES.REFERENCE_IMAGES && params.referenceImages !== undefined) {
+    if (!Array.isArray(params.referenceImages)) {
+      shape('referenceImages', params.referenceImages, 'referenceImages must be an array');
+    } else if (params.referenceImages.length === 0) {
+      shape('referenceImages', 0, 'At least one reference image is required');
+    } else {
+      params.referenceImages.forEach((ref, i) => {
+        if (!ref.image) shape(`referenceImages[${i}].image`, undefined, `Reference image ${i + 1} is missing 'image' property`);
+        if (!ref.referenceType) shape(`referenceImages[${i}].referenceType`, undefined, `Reference image ${i + 1} is missing 'referenceType' property`);
+      });
+    }
+  }
+  if (mode === VEO_MODES.INTERPOLATION) {
+    if (!params.firstFrame) shape('firstFrame', undefined, 'firstFrame image is required for interpolation mode');
+    if (!params.lastFrame) shape('lastFrame', undefined, 'lastFrame image is required for interpolation mode');
+  }
+  if (mode === VEO_MODES.EXTENSION && !params.video) {
+    shape('video', undefined, 'video object is required for extension mode');
+  }
+  const personOk = params.personGeneration === undefined || PERSON_GENERATION_SHAPE.test(String(params.personGeneration));
+  if (!personOk) shape('personGeneration', params.personGeneration, `Invalid personGeneration value: '${params.personGeneration}'`);
+
+  if (!c) return v;
+
+  // ---- capability: known ids only ----
+  if (params.aspectRatio !== undefined && aspectOk && !c.aspectRatios.includes(params.aspectRatio as VeoAspectRatio)) {
+    cap('aspectRatio', params.aspectRatio, `Invalid aspect ratio '${params.aspectRatio}' for ${model}. Must be one of: ${c.aspectRatios.join(', ')}`, c.aspectRatios);
+  }
+  if (params.resolution !== undefined && resolutionOk && !c.resolutions.includes(params.resolution as VeoResolution)) {
+    cap('resolution', params.resolution, `Invalid resolution '${params.resolution}' for ${model}. Must be one of: ${c.resolutions.join(', ')}`, c.resolutions);
+  }
+  if (params.durationSeconds !== undefined && durationOk && !c.durations.includes(String(params.durationSeconds))) {
+    cap('durationSeconds', params.durationSeconds, `Invalid duration '${params.durationSeconds}' for ${model}. Must be one of: ${c.durations.join(', ')}`, c.durations);
+  }
+  const required = params.resolution ? c.durationRequired?.[params.resolution as VeoResolution] : undefined;
+  if (required && params.durationSeconds !== undefined && String(params.durationSeconds) !== required) {
+    cap('durationSeconds', params.durationSeconds, `${params.resolution} resolution requires ${required}-second duration for ${model}. Got: ${params.durationSeconds}s`, [required]);
+  }
+  const feature = VEO_FEATURE_FOR_MODE[mode];
+  if (feature && !c.features[feature]) {
+    cap('mode', mode, `${mode} mode is not supported by ${model}.`);
+  }
+  if (mode === VEO_MODES.REFERENCE_IMAGES && Array.isArray(params.referenceImages) && c.referenceImages
+      && params.referenceImages.length > c.referenceImages.max) {
+    cap('referenceImages', params.referenceImages.length, `Maximum ${c.referenceImages.max} reference images allowed. Got: ${params.referenceImages.length}`);
+  }
+  if (mode === VEO_MODES.EXTENSION && params.resolution && resolutionOk && params.resolution !== '720p') {
+    cap('resolution', params.resolution, `Video extension requires 720p resolution. Got: ${params.resolution}`, ['720p']);
+  }
+  const validPerson = Object.values(VEO_PERSON_GENERATION) as string[];
+  if (params.personGeneration !== undefined && personOk && !validPerson.includes(params.personGeneration)) {
+    cap('personGeneration', params.personGeneration, `Invalid personGeneration value: '${params.personGeneration}'. Must be one of: ${validPerson.join(', ')}`, validPerson);
+  }
+  return v;
 }
 
 /**
- * Validate Veo generation parameters before making API calls.
- * Catches invalid parameters early to save API credits.
+ * Validate Veo generation parameters before making API calls. Same contract
+ * as 1.x — throws on the first problem, returns `true` otherwise — now as
+ * `ValidationError`. Unlike 1.x, an id with no constraint entry is not rejected:
+ * it gets shape checks only (spec D3).
  *
  * @param model - Veo model name
  * @param params - Parameters to validate
  * @param mode - Generation mode
- * @throws Error if validation fails
+ * @throws ValidationError if validation fails
  *
  * @example
  * validateVeoParams('veo-3.1-generate-preview', {
@@ -720,155 +864,7 @@ export function validateVeoParams(
   params: VeoValidationParams,
   mode: VeoMode = VEO_MODES.TEXT_TO_VIDEO
 ): boolean {
-  const constraints = VEO_MODEL_CONSTRAINTS[model] as VeoModelConstraint | undefined;
-
-  // Validate model exists
-  if (!constraints) {
-    const validModels = Object.values(VEO_MODELS).join(', ');
-    throw new Error(`Unknown Veo model: ${model}. Valid models: ${validModels}`);
-  }
-
-  // Validate prompt (required for most modes)
-  if (mode !== VEO_MODES.EXTENSION && mode !== VEO_MODES.INTERPOLATION) {
-    if (!params.prompt || typeof params.prompt !== 'string') {
-      throw new Error('Prompt is required and must be a string');
-    }
-    // Note: promptMaxLength is in tokens, but we'll do a rough character check
-    // Token limit is ~1024, so we'll allow ~4000 characters as rough estimate
-    if (params.prompt.length > constraints.promptMaxLength * 4) {
-      throw new Error(
-        `Prompt exceeds maximum length of approximately ${constraints.promptMaxLength} tokens`
-      );
-    }
-  }
-
-  // Validate aspect ratio
-  if (
-    params.aspectRatio &&
-    !constraints.aspectRatios.includes(params.aspectRatio as VeoAspectRatio)
-  ) {
-    throw new Error(
-      `Invalid aspect ratio '${params.aspectRatio}' for ${model}. ` +
-        `Must be one of: ${constraints.aspectRatios.join(', ')}`
-    );
-  }
-
-  // Validate resolution
-  if (
-    params.resolution &&
-    !constraints.resolutions.includes(params.resolution as VeoResolution)
-  ) {
-    throw new Error(
-      `Invalid resolution '${params.resolution}' for ${model}. ` +
-        `Must be one of: ${constraints.resolutions.join(', ')}`
-    );
-  }
-
-  // Validate duration
-  if (params.durationSeconds && !constraints.durations.includes(String(params.durationSeconds))) {
-    throw new Error(
-      `Invalid duration '${params.durationSeconds}' for ${model}. ` +
-        `Must be one of: ${constraints.durations.join(', ')}`
-    );
-  }
-
-  // Validate 1080p constraints
-  if (params.resolution === '1080p' && constraints.resolution1080p) {
-    const { requiresDuration } = constraints.resolution1080p;
-
-    // Check duration requirement
-    if (
-      requiresDuration &&
-      params.durationSeconds &&
-      String(params.durationSeconds) !== requiresDuration
-    ) {
-      throw new Error(
-        `1080p resolution requires ${requiresDuration}-second duration for ${model}. ` +
-          `Got: ${params.durationSeconds}s`
-      );
-    }
-  }
-
-  // Validate mode-specific features
-  const featureMap = {
-    'text-to-video': 'textToVideo',
-    'image-to-video': 'imageToVideo',
-    'reference-images': 'referenceImages',
-    'interpolation': 'interpolation',
-    'extension': 'extension',
-  } as Record<VeoMode, keyof typeof constraints.features>;
-
-  const requiredFeature = featureMap[mode];
-  if (requiredFeature && !constraints.features[requiredFeature]) {
-    throw new Error(
-      `${mode} mode is not supported by ${model}. ` +
-        `This feature requires Veo 3.1 or Veo 3.1 Fast.`
-    );
-  }
-
-  // Validate reference images count
-  if (mode === VEO_MODES.REFERENCE_IMAGES && params.referenceImages) {
-    if (!constraints.referenceImages) {
-      throw new Error(`Reference images are not supported by ${model}`);
-    }
-    if (!Array.isArray(params.referenceImages)) {
-      throw new Error('referenceImages must be an array');
-    }
-    if (params.referenceImages.length === 0) {
-      throw new Error('At least one reference image is required');
-    }
-    if (params.referenceImages.length > constraints.referenceImages.max) {
-      throw new Error(
-        `Maximum ${constraints.referenceImages.max} reference images allowed. ` +
-          `Got: ${params.referenceImages.length}`
-      );
-    }
-    // Validate each reference image has required fields
-    for (let i = 0; i < params.referenceImages.length; i++) {
-      const ref = params.referenceImages[i];
-      if (!ref.image) {
-        throw new Error(`Reference image ${i + 1} is missing 'image' property`);
-      }
-      if (!ref.referenceType) {
-        throw new Error(`Reference image ${i + 1} is missing 'referenceType' property`);
-      }
-    }
-  }
-
-  // Validate interpolation parameters
-  if (mode === VEO_MODES.INTERPOLATION) {
-    if (!params.firstFrame) {
-      throw new Error('firstFrame image is required for interpolation mode');
-    }
-    if (!params.lastFrame) {
-      throw new Error('lastFrame image is required for interpolation mode');
-    }
-  }
-
-  // Validate extension parameters
-  if (mode === VEO_MODES.EXTENSION) {
-    if (!constraints.extension) {
-      throw new Error(`Video extension is not supported by ${model}`);
-    }
-    if (!params.video) {
-      throw new Error('video object is required for extension mode');
-    }
-    // Extension requires 720p
-    if (params.resolution && params.resolution !== '720p') {
-      throw new Error(`Video extension requires 720p resolution. Got: ${params.resolution}`);
-    }
-  }
-
-  // Validate person generation setting
-  if (params.personGeneration) {
-    const validSettings = Object.values(VEO_PERSON_GENERATION);
-    if (!validSettings.includes(params.personGeneration as (typeof validSettings)[number])) {
-      throw new Error(
-        `Invalid personGeneration value: '${params.personGeneration}'. ` +
-          `Must be one of: ${validSettings.join(', ')}`
-      );
-    }
-  }
-
+  const violations = getVeoViolations(model, params, mode);
+  if (violations.length > 0) throw new ValidationError(violations);
   return true;
 }
