@@ -50,6 +50,7 @@ Spec: `docs/specs/google-genai-api-2.0-spec-v0_4_2.md`. Google shut down Imagen 
 - `saveMetadata()` takes any `object` (was `Record<string, unknown>`, which interfaces without an index signature, such as `VeoSavedMetadata`, could not satisfy without a cast). Widening only; every 1.x call still compiles.
 - `generateWithGemini()` has **no default `aspectRatio`** (1.x defaulted to `'1:1'`, but never sent it). Omit it and the model chooses the framing — exactly what every 1.x call received.
 - `generateWithGemini()` sends `responseModalities: ['TEXT', 'IMAGE']` (verified live on all three image models).
+- `extractGeminiParts()` skips an `inlineData` part that carries no bytes instead of returning `{ type: 'image', data: undefined }`, which made a caller's `Buffer.from(part.data, 'base64')` throw (the CLI asserted `data` non-null and would have).
 - `extractGeminiParts()` **skips thought parts** (`thought: true`) unless `includeThoughts` is set, and reads only `candidates[0].content.parts`; the non-SDK top-level `response.parts` fallback and `GeminiResponse.parts` are removed.
 - A response with no image (e.g. `finishReason: 'IMAGE_SAFETY'`) is returned unchanged, with a warning that names the finish reason.
 - Outside production, `generateWithGemini()` rethrows the SDK's own error object, as 1.x did, now with the properties above added.

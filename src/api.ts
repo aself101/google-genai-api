@@ -280,7 +280,9 @@ export function extractGeminiParts(
         type: 'text',
         content: part.text,
       });
-    } else if (part.inlineData) {
+    } else if (part.inlineData?.data) {
+      // An inlineData part with no bytes is skipped, not returned as an image
+      // with `data: undefined` (callers' Buffer.from(data) would throw).
       parts.push({
         type: 'image',
         mimeType: part.inlineData.mimeType || 'image/png',

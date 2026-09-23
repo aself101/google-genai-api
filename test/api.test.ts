@@ -206,6 +206,13 @@ describe('GoogleGenAIAPI Class', () => {
       await expect(api.generateWithGemini({ prompt: 'Test' })).rejects.toThrow('SDK API error');
     });
 
+    it('extractGeminiParts skips an inlineData part that carries no bytes', () => {
+      const parts = extractGeminiParts({
+        candidates: [{ content: { parts: [{ inlineData: { mimeType: 'image/png' } }, { inlineData: { mimeType: 'image/png', data: 'AAAA' } }] } }],
+      });
+      expect(parts).toEqual([{ type: 'image', mimeType: 'image/png', data: 'AAAA' }]);
+    });
+
     it('a non-Error rejection (null) reaches the caller classified, not as a TypeError from the catch block', async () => {
       // `catch` receives unknown; 1.x-style `(error as Error).message` threw here and
       // replaced the failure with "Cannot read properties of null".

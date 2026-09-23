@@ -828,18 +828,6 @@ export function createVeoSpinner(initialMessage: string): VeoSpinnerObject {
 }
 
 /**
- * Parse operation metadata from saved JSON file.
- * Used for video extension to load previous operation.
- *
- * @param metadataPath - Path to metadata JSON file
- * @returns Parsed metadata with operation details
- * @throws Error if file doesn't exist or is invalid
- *
- * @example
- * const metadata = await parseVeoMetadata('./previous-video.json');
- * // Use for video extension
- */
-/**
  * Why a parsed metadata file is not a `VeoSavedMetadata`, or undefined if it is.
  * 1.x checked only `operation_name` and returned the rest unchecked under the
  * full type. Messages start with the 1.x one (`missing operation_name`).
@@ -864,6 +852,19 @@ function isVeoSavedMetadata(value: unknown): value is VeoSavedMetadata {
   return veoMetadataProblem(value) === undefined;
 }
 
+/**
+ * Load metadata written by `saveVeoMetadata()`, checking every field of
+ * `VeoSavedMetadata`.
+ *
+ * @param metadataPath - Path to metadata JSON file
+ * @returns Parsed metadata with operation details
+ * @throws Error if the file is missing, is not JSON, or lacks a field
+ *
+ * @example
+ * // Pick a job up again by name (it does not need the original operation object)
+ * const metadata = await parseVeoMetadata('./previous-video.json');
+ * const op = await veo.waitForCompletion({ name: metadata.operation_name, done: false });
+ */
 export async function parseVeoMetadata(metadataPath: string): Promise<VeoSavedMetadata> {
   try {
     const content = await fs.readFile(metadataPath, 'utf8');

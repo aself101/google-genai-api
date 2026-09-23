@@ -476,7 +476,7 @@ async function handleVideoMode(apiKey: string, prompts: string[], inputVideo: st
     // ========================================================================
     // UPLOAD PHASE (ONCE, OUTSIDE PROMPT LOOP)
     // ========================================================================
-    logger.info(`Uploading video: ${options.inputVideo}`);
+    logger.info(`Uploading video: ${inputVideo}`);
 
     const uploadSpinner = createSpinner('Uploading and processing video...');
     uploadSpinner.start();
@@ -806,12 +806,12 @@ async function main(): Promise<void> {
 
       let imageCount = 0;
       const savedFiles: string[] = [];
-      const totalImages = parts.filter((p) => p.type === 'image').length;
+      const totalImages = parts.filter((p) => p.type === 'image' && p.data).length;
 
       for (let partIndex = 0; partIndex < parts.length; partIndex++) {
         const part = parts[partIndex];
 
-        if (part.type === 'image') {
+        if (part.type === 'image' && part.data) {
           imageCount++;
 
           // Generate filename with unique suffix for multiple images
@@ -829,7 +829,7 @@ async function main(): Promise<void> {
           const imagePath = path.join(outputDirPath, filename);
 
           // Save image
-          await saveBase64Image(part.data!, imagePath, part.mimeType);
+          await saveBase64Image(part.data, imagePath, part.mimeType);
           savedFiles.push(filename);
 
           console.log(`✓ Saved image: ${imagePath}`);

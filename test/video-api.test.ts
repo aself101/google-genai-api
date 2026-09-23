@@ -232,10 +232,14 @@ describe('GoogleGenAIVideoAPI', () => {
       });
     });
 
-    it('rejects an ACTIVE file with no uri instead of returning an unusable one', async () => {
-      api.client.files.get.mockResolvedValue({ name: 'files/test123', state: 'ACTIVE', mimeType: 'video/mp4' });
+    it.each([
+      ['uri', { name: 'files/test123', mimeType: 'video/mp4' }],
+      ['name', { uri: 'https://x.test/files/test123', mimeType: 'video/mp4' }],
+      ['mimeType', { name: 'files/test123', uri: 'https://x.test/files/test123' }],
+    ])('rejects an ACTIVE file with no %s instead of returning an unusable one', async (_field, file) => {
+      api.client.files.get.mockResolvedValue({ ...file, state: 'ACTIVE' });
 
-      await expect(api._pollFileStatus('files/test123', 3, 10)).rejects.toThrow('without a uri');
+      await expect(api._pollFileStatus('files/test123', 3, 10)).rejects.toThrow('without a uri, name or mimeType');
     });
 
     it('should throw when state is FAILED', async () => {

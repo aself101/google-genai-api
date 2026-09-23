@@ -5,7 +5,7 @@
  */
 
 import { describe, it, expect, afterEach, vi } from 'vitest';
-import { toPublicError, ValidationError } from '../src/errors.js';
+import { errorMessage, thrownFields, toPublicError, ValidationError } from '../src/errors.js';
 
 /** What the SDK throws for an HTTP error: message = JSON.stringify(body), status = HTTP. */
 function apiError(status: number, body: unknown): Error & { status: number } {
@@ -162,3 +162,29 @@ describe('ValidationError', () => {
     expect(e.violations).toHaveLength(2);
   });
 });
+
+describe('reading whatever was thrown (errorMessage, thrownFields)', () => {
+  it('errorMessage: an Error or error-like object gives its message', () => {
+    expect(errorMessage(new Error('boom'))).toBe('boom');
+    expect(errorMessage({ message: 'plain object' })).toBe('plain object');
+  });
+
+  it.each([
+    ['null', null, 'null'],
+    ['undefined', undefined, 'undefined'],
+    ['a string', 'oops', 'oops'],
+    ['an object with a non-string message', { message: 42 }, '[object Object]'],
+  ])('errorMessage: %s does not throw', (_case, value, expected) => {
+    expect(errorMessage(value)).toBe(expected);
+  });
+
+  it('thrownFields: fields of an object, {} for null, undefined and primitives', () => {
+    const err = Object.assign(new Error('x'), { code: 'ENOENT', status: 404 });
+    expect(thrownFields(err).code).toBe('ENOENT');
+    expect(thrownFields(err).status).toBe(404);
+    expect(thrownFields(null)).toEqual({});
+    expect(thrownFields(undefined)).toEqual({});
+    expect(thrownFields('ENOENT')).toEqual({});
+  });
+});
+
