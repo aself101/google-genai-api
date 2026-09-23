@@ -163,6 +163,12 @@ Companion to [`google-genai-api-2.0-spec-v0_4_2.md`](./google-genai-api-2.0-spec
 - [x] Its wording findings fixed: **N1** the README live-coverage paragraph claimed Veo 1080p — no probe row shows one; removed, and the unexercised paths (1080p, extension, clipping offsets, CLI `--video`, 429 and long-processing polls) are now listed. **N2** Google's 403 wording covers "gone" *and* "not yours"; the 403 message now says both instead of asserting expiry; CHANGELOG hedged and states the wording dependency (N4). **N3** commit subject amended to name the `259f0aa` tarball. **N5** `deleteVideoFile` treats 403 like 404; stale JSDoc about SDK 0.3.0 corrected (2.x has `files.delete`; moving to it stays out of scope)
 - [x] Declined: **N7** (README describes sdk-drift opening an issue in the present tense) — true from the first scheduled run after the push; tracked here as V18 rather than written into the README as a transient
 
+## Ship pipeline — stage 6
+- [x] security-analyst on `d26660a`: **93 SECURE** (gate 85; auth category N/A, rescaled 74/80). Auto-fails clear: no secrets in src or history, no exec/eval, `npm audit --omit=dev` 0.
+- [x] **HIGH, fixed:** the stage-4 SSRF fix still missed IPv6 forms that embed IPv4 other than `::ffff:` — IPv4-compatible `::169.254.169.254` (`::/96`) and 6to4 `2002:a9fe:a9fe::` — both allowed by `validateImageUrl` (reproduced from dist). Node skips `lookup` for IP literals, so the pre-check is the only check there. Added `::/96`, `2002::/16`, Teredo `2001::/32`; public IPv4/IPv6 and `2001:4860::` verified still allowed. Mutation (first-version ranges) → 6 tests fail. README's "in any spelling" replaced by the list of forms
+- [x] LOW, fixed: `encodeURIComponent` on the Files API delete path segment; `permissions: contents: read` on ci.yml
+- [x] Declined: making production-style error redaction the default instead of `NODE_ENV === 'production'` — D13 keeps 1.x's contract (the SDK's own error object outside production, as 1.x rethrew it); switching would change every non-production caller's errors. Documented in README Errors
+
 ## Cross-phase invariants
 - Subpath exports, class names, constructors (third arg optional), Veo method signatures unchanged (darkroom surface).
 - No `as Record<string, unknown>` / `as unknown as` on SDK request objects.

@@ -200,6 +200,8 @@ describe('Image Validation (Security)', () => {
       ['NAT64 of the metadata address', 'https://[64:ff9b::a9fe:a9fe]/x.png'],
       ['hex-octet loopback 0x7f.1', 'https://0x7f.1/x.png'],
       ['decimal loopback 2130706433', 'https://2130706433/x.png'],
+      ['IPv4-compatible IPv6 of the metadata address', 'https://[::169.254.169.254]/x.png'],
+      ['6to4 of the metadata address', 'https://[2002:a9fe:a9fe::]/x.png'],
     ])('rejects %s', async (_case, url) => {
       await expect(validateImageUrl(url)).rejects.toThrow('private');
       expect(mockLookup).not.toHaveBeenCalled();

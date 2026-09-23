@@ -7,6 +7,10 @@ on:
       - main
       - master # until the master → main rename (spec D10, P7)
 
+# Read-only: CI checks out, installs, builds and tests; it writes nothing.
+permissions:
+  contents: read
+
 # Publishing is manual (spec D10: `npm publish` runs check:release via
 # prepublishOnly). CI verifies; it never publishes.
 jobs:

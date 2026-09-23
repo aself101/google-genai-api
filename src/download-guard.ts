@@ -9,6 +9,11 @@
  *   only the dotted form was ever caught by the pre-parse regex.
  * - Most of fc00::/7: `/^fc00:/` and `/^fd00:/` are two addresses' prefixes,
  *   not the range.
+ * - IPv6 forms that embed an IPv4 address other than `::ffff:` —
+ *   IPv4-compatible (`::169.254.169.254`), 6to4, Teredo — found by the ship
+ *   security review after the first version of this module missed them.
+ *   Node calls `lookup` only for hostnames, so for an IP-literal URL the
+ *   `validateImageUrl` pre-check (and `checkRedirect`) is the only check.
  * - Every DNS answer after the first, and a second resolution by the
  *   download itself (DNS rebinding).
  * - Redirects: axios followed them unchecked, including https → http.
@@ -41,9 +46,10 @@ for (const [network, prefix] of [
   BLOCKED.addSubnet(network, prefix, 'ipv4');
 }
 for (const [network, prefix] of [
-  ['::', 128], // unspecified
-  ['::1', 128], // loopback
+  ['::', 96], // unspecified, loopback, and IPv4-compatible (::a.b.c.d, deprecated)
   ['64:ff9b::', 96], // NAT64: reaches IPv4 space through a gateway
+  ['2001::', 32], // Teredo: IPv4 tunnelled in IPv6
+  ['2002::', 16], // 6to4: 2002:a9fe:a9fe:: is 169.254.169.254
   ['fc00::', 7], // unique local
   ['fe80::', 10], // link-local
   ['ff00::', 8], // multicast

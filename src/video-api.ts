@@ -414,7 +414,7 @@ export class GoogleGenAIVideoAPI {
 
     try {
       // SDK doesn't expose delete(), use direct HTTP call
-      const url = `https://generativelanguage.googleapis.com/v1beta/files/${fileName}`;
+      const url = `https://generativelanguage.googleapis.com/v1beta/files/${encodeURIComponent(fileName ?? '')}`;
 
       await axios.delete(url, {
         headers: {

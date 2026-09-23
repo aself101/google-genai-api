@@ -77,11 +77,15 @@ describe('guardedLookup, called by the socket at connect time', () => {
 });
 
 describe('isBlockedAddress', () => {
-  it.each(['127.0.0.1', '::1', '::ffff:7f00:1', '::ffff:169.254.169.254', 'fd12::1', 'fe80::1', '100.64.0.1', '255.255.255.255', '[::1]'])(
+  it.each([
+    '127.0.0.1', '::1', '::ffff:7f00:1', '::ffff:169.254.169.254', 'fd12::1', 'fe80::1', '100.64.0.1', '255.255.255.255', '[::1]',
+    // IPv4 embedded in IPv6 other than ::ffff: (ship security review): IPv4-compatible, 6to4, Teredo
+    '::169.254.169.254', '::a9fe:a9fe', '2002:a9fe:a9fe::', '2001:0:4136:e378:8000:63bf:3fff:fdd2',
+  ])(
     'blocks %s',
     (a) => expect(isBlockedAddress(a)).toBe(true)
   );
-  it.each(['8.8.8.8', '93.184.216.34', '2606:4700::1111', '::ffff:808:808', 'example.com'])('allows %s', (a) =>
+  it.each(['8.8.8.8', '93.184.216.34', '2606:4700::1111', '2001:4860:4860::8888', '::ffff:808:808', 'example.com'])('allows %s', (a) =>
     expect(isBlockedAddress(a)).toBe(false)
   );
 });
