@@ -145,6 +145,14 @@ Companion to [`google-genai-api-2.0-spec-v0_4_2.md`](./google-genai-api-2.0-spec
 - [x] Fixes: local guard for `prompts`; upload with no name throws; SAFETY comment on referenceType; JSDoc + README state the frozen-error exception instead of changing D13. **`test/type-hygiene.test.ts` replaces the grep:** parses src/ with the TS compiler and fails on any non-null or `as X as Y`, with a control that must find 4 in `[x!]`, `f(y!)`, `z!.q`, `as unknown as`. Mutations: `options.prompt!` restored → hygiene test fails; name guard removed → new upload test fails. Tests 469 → 473
 - [x] Declined again: `noUncheckedIndexedAccess` (27 bounded-index errors; backlog)
 
+## Ship pipeline — stage 3 closed, stage 4
+- [x] type-safety round 4 on `1ab0dd2`: **93 SAFE**, no auto-fail. Follow-ups (comments only, `52f2a0a`): frozen-error exception stated on the `PublicErrorFields` fields; SAFETY comments on 3 lookup casts. Alex's note (2026-09-22): type-safety-validator was recently re-tuned by prompt audits and is now stricter than before — rounds 1–2 found real defects, round 3 was near the floor; the gate is score ≥70, which every round met
+- [x] Stage 4 code-auditor on `52f2a0a`: **85 SOUND**. Its unscored findings were the important ones:
+  - **SSRF (HIGH), `574bb57`:** `validateImageUrl` allowed `[::ffff:a9fe:a9fe]` (metadata service, hex form — what `new URL()` normalises the dotted form to), most of fc00::/7, CGNAT, every DNS answer after the first; the download followed redirects unchecked incl. https→http; README claimed otherwise. **This corrects this file's own earlier framing** (P6: "resolves once, first address only" as the whole gap — it was not). New `src/download-guard.ts`: `net.BlockList` CIDR ranges; `guardedLookup` as axios `lookup` (every address, every connection, at connect time); `checkRedirect` as `beforeRedirect`. Real-axios tests on a local server prove both hooks fire. 7 mutations killed (one rewritten to compile). bfl-api has the same prefix-based check
+  - **Runtime batch, `b8a7198`:** CLI saved JPEG as `.png` (all current models return JPEG); `waitForCompletion` returned done+error as success; `generateFromVideo` fabricated an answer on empty output (CLI saved it, exit 0); upload orphaned on FAILED; RAI-filter reasons dropped; `durationSeconds: 0` dropped; 429 on last poll; NaN size; `cause` on utils re-throws. 7 mutations killed. Tests 473 → 509
+  - Not taken: `package.json` JSON.parse in cli.ts (package-owned file); 404 hint re-wrap in video-api (deliberate, documented); empty catch in `attach()` (documented best-effort)
+- [ ] darkroom V9 re-run on the final tarball (V9 ran on `5f8c3b2`; `extractGeminiParts`, errors and downloads changed since)
+
 ## Cross-phase invariants
 - Subpath exports, class names, constructors (third arg optional), Veo method signatures unchanged (darkroom surface).
 - No `as Record<string, unknown>` / `as unknown as` on SDK request objects.
