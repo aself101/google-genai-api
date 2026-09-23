@@ -38,7 +38,7 @@ jobs:
         run: npm install @google/genai@^2 --no-save
 
       - name: Record resolved SDK version
-        run: node -p "'@google/genai ' + require('@google/genai/package.json').version"
+        run: node -p "'@google/genai ' + JSON.parse(require('fs').readFileSync('node_modules/@google/genai/package.json', 'utf8')).version"
 
       - run: npm run verify
 

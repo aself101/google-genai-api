@@ -15,7 +15,6 @@
 
 import { describe, it, expect, beforeAll } from 'vitest';
 import { readFileSync } from 'node:fs';
-import { execSync } from 'node:child_process';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import ts from 'typescript';
@@ -114,7 +113,8 @@ describe('README (V17 a): every documented import exists', () => {
   });
 
   it('control: the 1.x README fails (its export claims were wrong)', () => {
-    const v1 = execSync('git show 3e52d92:README.md', { cwd: root, encoding: 'utf8' }).replace(/\r\n/g, '\n');
+    // The 1.x README (3e52d92) as a fixture, not `git show`: CI checks out one commit.
+    const v1 = readFileSync(path.join(root, 'test/fixtures/README-1.3.0.md'), 'utf8').replace(/\r\n/g, '\n');
     const failures = importFailures(v1);
     expect(failures).toContain("google-genai-api: 'extractImagenImages' is not exported");
     expect(failures).toContain("google-genai-api: 'GoogleGenAIVeoAPI' is not exported");
