@@ -676,6 +676,8 @@ export interface VeoFeatures {
   extension: boolean;
   /** Native audio generation (Veo 3.x) */
   nativeAudio: boolean;
+  /** Accepts `negativePrompt` (Veo 3.1 Lite does not; observed live 2026-09-23). Optional: added in 2.0. */
+  negativePrompt?: boolean;
 }
 
 /**

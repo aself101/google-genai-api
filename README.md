@@ -133,14 +133,14 @@ All aspect ratios: `1:1`, `3:2`, `2:3`, `3:4`, `4:3`, `4:5`, `5:4`, `9:16`, `16:
 ### Veo models
 
 <!-- generated:veo-models -->
-| Model | Resolutions | Durations (s) | Reference images | Interpolation | Extension | Audio | Needs 8 s |
-|---|---|---|---|---|---|---|---|
-| `veo-3.1-generate-preview` (default) | `720p`, `1080p`, `4k` | 4, 6, 8 | up to 3 | yes | yes | yes | `1080p`, `4k` |
-| `veo-3.1-fast-generate-preview` | `720p`, `1080p`, `4k` | 4, 6, 8 | up to 3 | yes | yes | yes | `1080p`, `4k` |
-| `veo-3.1-lite-generate-preview` | `720p`, `1080p` | 4, 6, 8 | — | yes | — | yes | `1080p` |
+| Model | Resolutions | Durations (s) | Reference images | Interpolation | Extension | Negative prompt | Audio | Needs 8 s |
+|---|---|---|---|---|---|---|---|---|
+| `veo-3.1-generate-preview` (default) | `720p`, `1080p`, `4k` | 4, 6, 8 | up to 3 | yes | yes | yes | yes | `1080p`, `4k` |
+| `veo-3.1-fast-generate-preview` | `720p`, `1080p`, `4k` | 4, 6, 8 | up to 3 | yes | yes | yes | yes | `1080p`, `4k` |
+| `veo-3.1-lite-generate-preview` | `720p`, `1080p` | 4, 6, 8 | — | yes | — | — | yes | `1080p` |
 <!-- /generated:veo-models -->
 
-All three are Google preview models. Veo 3.1 Lite rejects reference images (verified live) and does not support extension or 4k.
+`personGeneration` depends on the mode: text-to-video and extension accept `allow_all` only; image-to-video accepts `allow_all` or `allow_adult`; `dont_allow` is rejected everywhere (observed live; Google limits EU, UK, CH and MENA to `allow_adult`, so `capabilityValidation: 'warn'` sends other values anyway). All three are Google preview models. Veo 3.1 Lite rejects reference images (verified live) and does not support extension or 4k.
 
 ### Video understanding
 
@@ -370,6 +370,7 @@ import {
   VEO_DURATIONS,
   VEO_MODES,
   VEO_PERSON_GENERATION,
+  VEO_PERSON_GENERATION_BY_MODE, // values the API accepts per Veo mode
   VEO_TIMEOUTS,
   VIDEO_MIME_TYPES,
   VIDEO_SIZE_LIMITS,

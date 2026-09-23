@@ -14,7 +14,7 @@
  */
 
 import { GoogleGenAI } from '@google/genai';
-import type { File as SdkFile } from '@google/genai';
+import type { File as SdkFile, Part } from '@google/genai';
 import winston from 'winston';
 import axios from 'axios';
 import { MODELS, VIDEO_TIMEOUTS, getGoogleGenAIApiKey, redactApiKey } from './config.js';
@@ -24,7 +24,6 @@ import { noOutputReason } from './no-output.js';
 import type {
   FileInfo,
   GeminiResponse,
-  VideoClipMetadata,
   VideoGenerateParams,
   VideoUploadResult,
 } from './types/index.js';
@@ -315,26 +314,17 @@ export class GoogleGenAIVideoAPI {
       `Generating from video: ${redactApiKey(fileUri)} with prompt: "${prompt.substring(0, 50)}..."`
     );
 
-    // Build fileData object
-    interface FileDataWithMetadata {
-      fileUri: string;
-      mimeType: string;
-      videoMetadata?: VideoClipMetadata;
-    }
-
-    const fileData: FileDataWithMetadata = {
-      fileUri,
-      mimeType,
-    };
-
-    // Add video metadata for clipping if provided
+    // Clipping offsets go on the part, beside fileData — not inside it. 1.x nested
+    // them in fileData, which the API rejects ("Unknown name videoMetadata at
+    // file_data"), so clipping never worked; found by the 2.0 live battery.
+    // Typed as the SDK's Part so the shape is checked.
+    const videoPart: Part = { fileData: { fileUri, mimeType } };
     if (videoMetadata) {
-      fileData.videoMetadata = videoMetadata;
+      videoPart.videoMetadata = videoMetadata;
       this.logger.debug(`Using video clipping: ${JSON.stringify(videoMetadata)}`);
     }
 
-    // Build contents array
-    const contents = [{ text: prompt }, { fileData }];
+    const contents = [{ text: prompt }, videoPart];
 
     try {
       const response = (await this.client.models.generateContent({

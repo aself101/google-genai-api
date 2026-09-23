@@ -414,11 +414,8 @@ describe('GoogleGenAIVideoAPI', () => {
         contents: [
           { text: 'Describe this video' },
           {
-            fileData: {
-              fileUri: 'files/test123',
-              mimeType: 'video/mp4',
-              videoMetadata: { startOffset: '30s', endOffset: '60s' },
-            },
+            fileData: { fileUri: 'files/test123', mimeType: 'video/mp4' },
+            videoMetadata: { startOffset: '30s', endOffset: '60s' },
           },
         ],
       });

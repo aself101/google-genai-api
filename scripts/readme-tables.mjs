@@ -43,14 +43,14 @@ export function renderTables(config) {
   ].join('\n');
 
   const veo = [
-    '| Model | Resolutions | Durations (s) | Reference images | Interpolation | Extension | Audio | Needs 8 s |',
-    '|---|---|---|---|---|---|---|---|',
+    '| Model | Resolutions | Durations (s) | Reference images | Interpolation | Extension | Negative prompt | Audio | Needs 8 s |',
+    '|---|---|---|---|---|---|---|---|---|',
     ...Object.values(VEO_MODELS).map((id) => {
       const c = VEO_MODEL_CONSTRAINTS[id];
       const refs = c.referenceImages ? `up to ${c.referenceImages.max}` : '—';
       const required = Object.keys(c.durationRequired ?? {}).map(code).join(', ') || '—';
       const name = id === VEO_MODELS.VEO_3_1 ? `${code(id)} (default)` : code(id);
-      return `| ${name} | ${list(c.resolutions)} | ${c.durations.join(', ')} | ${refs} | ${yesNo(c.features.interpolation)} | ${yesNo(c.features.extension)} | ${yesNo(c.features.nativeAudio)} | ${required} |`;
+      return `| ${name} | ${list(c.resolutions)} | ${c.durations.join(', ')} | ${refs} | ${yesNo(c.features.interpolation)} | ${yesNo(c.features.extension)} | ${yesNo(c.features.negativePrompt !== false)} | ${yesNo(c.features.nativeAudio)} | ${required} |`;
     }),
   ].join('\n');
 

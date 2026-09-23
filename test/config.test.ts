@@ -906,16 +906,29 @@ describe('validateVeoParams', () => {
   });
 
   describe('Person generation validation', () => {
-    it('should accept valid person generation values', () => {
-      expect(
-        validateVeoParams(VEO_MODELS.VEO_3_1, { prompt: 'test', personGeneration: 'allow_all' as VeoPersonGeneration })
-      ).toBe(true);
-      expect(
-        validateVeoParams(VEO_MODELS.VEO_3_1, { prompt: 'test', personGeneration: 'allow_adult' as VeoPersonGeneration })
-      ).toBe(true);
-      expect(
-        validateVeoParams(VEO_MODELS.VEO_3_1, { prompt: 'test', personGeneration: 'dont_allow' as VeoPersonGeneration })
-      ).toBe(true);
+    // What the API accepted and rejected live (2026-09-23 battery; one key, US region).
+    it.each([
+      ['text-to-video', 'allow_all', true],
+      ['text-to-video', 'allow_adult', false],
+      ['text-to-video', 'dont_allow', false],
+      ['image-to-video', 'allow_all', true],
+      ['image-to-video', 'allow_adult', true],
+      ['image-to-video', 'dont_allow', false],
+      ['extension', 'allow_all', true],
+      ['extension', 'allow_adult', false],
+    ] as const)('%s + %s → accepted: %s', (mode, value, ok) => {
+      const params = { prompt: 'test', personGeneration: value, video: { uri: 'x' }, image: { imageBytes: 'x', mimeType: 'image/png' } };
+      const found = getVeoViolations(VEO_MODELS.VEO_3_1, params as never, mode).filter((x) => x.param === 'personGeneration');
+      expect(found.length === 0).toBe(ok);
+      if (!ok) expect(found[0].kind).toBe('capability');
+    });
+
+    it('negativePrompt is rejected on Veo 3.1 Lite (seen live) and accepted on Fast and Standard', () => {
+      const neg = (model: string) => getVeoViolations(model, { prompt: 'x', negativePrompt: 'boats' } as never).filter((x) => x.param === 'negativePrompt');
+      expect(neg(VEO_MODELS.VEO_3_1_LITE)).toHaveLength(1);
+      expect(neg(VEO_MODELS.VEO_3_1_LITE)[0].kind).toBe('capability');
+      expect(neg(VEO_MODELS.VEO_3_1_FAST)).toEqual([]);
+      expect(neg(VEO_MODELS.VEO_3_1)).toEqual([]);
     });
 
     it('should reject invalid person generation value', () => {

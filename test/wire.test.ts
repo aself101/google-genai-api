@@ -16,6 +16,7 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { GoogleGenAIAPI } from '../src/api.js';
 import { GoogleGenAIVeoAPI } from '../src/veo-api.js';
+import { GoogleGenAIVideoAPI } from '../src/video-api.js';
 import { DEFAULT_IMAGE_MODEL, MODELS, VEO_MODELS } from '../src/config.js';
 
 interface Captured {
@@ -233,6 +234,21 @@ describe('image errors from the wire (spec D13)', () => {
       expect(err.message).not.toContain('Quota');
       expect(err.classification).toBe('TRANSIENT');
     });
+  });
+});
+
+describe('video understanding request on the wire', () => {
+  it('clipping offsets travel beside fileData on the part (1.x nested them; the API rejects that)', async () => {
+    nextResponse = respondJson(200, { candidates: [{ content: { role: 'model', parts: [{ text: 'ok' }] } }] });
+    await new GoogleGenAIVideoAPI('test-key', 'error').generateFromVideo({
+      prompt: 'describe',
+      fileUri: 'https://generativelanguage.googleapis.com/v1beta/files/abc',
+      mimeType: 'video/mp4',
+      videoMetadata: { startOffset: '2s', endOffset: '6s' },
+    });
+    const part = only().body.contents[0].parts[1];
+    expect(part.videoMetadata).toEqual({ startOffset: '2s', endOffset: '6s' });
+    expect(part.fileData).toEqual({ fileUri: 'https://generativelanguage.googleapis.com/v1beta/files/abc', mimeType: 'video/mp4' });
   });
 });
 

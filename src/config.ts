@@ -610,13 +610,31 @@ export const VEO_DURATIONS = {
 } as Record<VeoModel, string[]>;
 
 /**
- * Person generation safety settings.
+ * Person generation settings. The 1.x set, kept for compatibility — but the Veo
+ * 3.1 models accept only some values, per mode: see `VEO_PERSON_GENERATION_BY_MODE`.
+ * `dont_allow` is rejected in every mode ("currently not supported").
  */
 export const VEO_PERSON_GENERATION = {
   ALLOW_ALL: 'allow_all',
   ALLOW_ADULT: 'allow_adult',
   DONT_ALLOW: 'dont_allow',
 } as const;
+
+/**
+ * `personGeneration` values the Veo 3.1 API accepts, by mode. Observed live on
+ * 2026-09-23 (one key, US): text-to-video took `allow_all` and rejected
+ * `allow_adult` and `dont_allow`; image-to-video took `allow_all` and
+ * `allow_adult` (Google's table says `allow_adult` only) and rejected
+ * `dont_allow`. Extension follows text-to-video per Google's table. Reference
+ * and interpolation modes do not send the field. Google restricts EU, UK, CH
+ * and MENA to `allow_adult`, so a capability check: `capabilityValidation:
+ * 'warn'` sends other values anyway.
+ */
+export const VEO_PERSON_GENERATION_BY_MODE: Readonly<Record<string, readonly string[]>> = {
+  'text-to-video': ['allow_all'],
+  extension: ['allow_all'],
+  'image-to-video': ['allow_all', 'allow_adult'],
+};
 
 /**
  * Veo generation timeouts and polling configuration.
@@ -656,6 +674,7 @@ export const VEO_MODEL_CONSTRAINTS: VeoModelConstraints = {
       interpolation: true,
       extension: true,
       nativeAudio: true,
+      negativePrompt: true,
     },
     referenceImages: {
       max: 3,
@@ -683,6 +702,7 @@ export const VEO_MODEL_CONSTRAINTS: VeoModelConstraints = {
       interpolation: true,
       extension: true,
       nativeAudio: true,
+      negativePrompt: true,
     },
     referenceImages: {
       max: 3,
@@ -713,6 +733,7 @@ export const VEO_MODEL_CONSTRAINTS: VeoModelConstraints = {
       interpolation: true,
       extension: false,
       nativeAudio: true,
+      negativePrompt: false,
     },
     referenceImages: null,
     extension: null,
@@ -738,6 +759,7 @@ interface VeoValidationParams {
   firstFrame?: { imageBytes: string; mimeType: string };
   lastFrame?: { imageBytes: string; mimeType: string };
   personGeneration?: string;
+  negativePrompt?: string;
   /** Removed in 2.0 (spec D15); present only so a caller who passes it is told why it fails. */
   seed?: unknown;
 }
@@ -850,6 +872,14 @@ export function getVeoViolations(
   const validPerson = Object.values(VEO_PERSON_GENERATION) as string[];
   if (params.personGeneration !== undefined && personOk && !validPerson.includes(params.personGeneration)) {
     cap('personGeneration', params.personGeneration, `Invalid personGeneration value: '${params.personGeneration}'. Must be one of: ${validPerson.join(', ')}`, validPerson);
+  } else if (params.personGeneration !== undefined && personOk) {
+    const forMode = VEO_PERSON_GENERATION_BY_MODE[mode];
+    if (forMode && !forMode.includes(params.personGeneration)) {
+      cap('personGeneration', params.personGeneration, `personGeneration '${params.personGeneration}' is not accepted in ${mode} mode. Must be one of: ${forMode.join(', ')}`, forMode);
+    }
+  }
+  if (params.negativePrompt && c.features.negativePrompt === false) {
+    cap('negativePrompt', params.negativePrompt, `negativePrompt is not supported by ${model}.`);
   }
   return v;
 }
