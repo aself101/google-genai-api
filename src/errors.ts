@@ -78,8 +78,16 @@ export interface PublicErrorFields {
   status?: number;
   /** gRPC status code, for a failed Veo operation */
   code?: number;
+  /**
+   * How the failure was classified. Absent only on a frozen or sealed error,
+   * which is rethrown untouched outside production; check `'classification' in err`
+   * if your code can throw such errors through a client.
+   */
   classification: PublicErrorClass;
-  /** `image` = GoogleGenAIAPI, `video` = Veo, `video-understanding` = GoogleGenAIVideoAPI */
+  /**
+   * `image` = GoogleGenAIAPI, `video` = Veo, `video-understanding` = GoogleGenAIVideoAPI.
+   * Absent in the same frozen-error case as `classification`.
+   */
   surface: PublicErrorSurface;
 }
 

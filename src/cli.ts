@@ -663,6 +663,8 @@ async function handleVeoMode(apiKey: string, prompts: string[]): Promise<void> {
       params.negativePrompt = options.veoNegativePrompt;
     }
     if (options.veoPersonGeneration) {
+      // SAFETY: raw CLI text; the client checks it against the allowed values
+      // (getVeoViolations) before anything is sent.
       params.personGeneration = options.veoPersonGeneration as VeoPersonGeneration;
     }
 

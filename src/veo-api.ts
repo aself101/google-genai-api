@@ -599,6 +599,7 @@ export class GoogleGenAIVeoAPI {
     }
 
     const generatedVideo = operation.response.generatedVideos[0];
+    // SAFETY: any string; only a lookup key, and a miss falls back below.
     const model = (operation.metadata?.model as VeoModel) || this.defaultModel;
     const constraints = VEO_MODEL_CONSTRAINTS[model];
     const hasAudio = constraints?.features?.nativeAudio ?? true;
@@ -625,6 +626,7 @@ export class GoogleGenAIVeoAPI {
    * @returns Model constraints and features
    */
   getModelInfo(model?: string): VeoModelInfo {
+    // SAFETY: any string; only a lookup key, and a miss throws just below.
     const modelId = (model || this.defaultModel) as VeoModel;
     const constraints = VEO_MODEL_CONSTRAINTS[modelId];
 
