@@ -12,6 +12,7 @@ import type { GenerateContentConfig, ImageConfig } from '@google/genai';
 import winston from 'winston';
 import { redactApiKey, DEFAULT_IMAGE_MODEL, MODEL_CONSTRAINTS, detectGeminiMode, getModelViolations } from './config.js';
 import { ValidationError, toPublicError, errorMessage } from './errors.js';
+import { noOutputReason } from './no-output.js';
 import type {
   ExtractGeminiPartsOptions,
   GeminiMode,
@@ -205,7 +206,7 @@ export class GoogleGenAIAPI {
       if (images === 0) {
         // Not an error: the caller gets the response and can inspect it (1.x
         // returned it too). A safety or recitation stop lands here.
-        this.logger.warn(`${model} returned no image (finishReason: ${candidate?.finishReason ?? 'none'})`);
+        this.logger.warn(`${model} returned no image (${noOutputReason(response)})`);
       } else {
         this.logger.info(`Gemini generation successful (parts: ${parts.length}, images: ${images})`);
       }

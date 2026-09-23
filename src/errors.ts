@@ -137,6 +137,7 @@ export function errorMessage(error: unknown): string {
 interface ErrorLike {
   name?: unknown;
   message?: unknown;
+  cause?: unknown;
   status?: unknown;
   operationError?: { code?: unknown; message?: unknown };
 }
@@ -174,8 +175,12 @@ function classify(status: number | undefined, code: number | undefined, err: Err
     else cls = 'USER_ACTIONABLE';
   } else if (err.name === 'AbortError') {
     cls = 'TIMEOUT';
-  } else if (err.name === 'TypeError') {
-    cls = 'NETWORK'; // what fetch throws when the connection fails
+  } else if (err.name === 'TypeError' && (err.message === 'fetch failed' || err.cause !== undefined)) {
+    // What fetch throws when the connection fails: TypeError('fetch failed')
+    // with the socket error as `cause`. Any other TypeError is a bug (e.g. SDK
+    // drift — 1.x's `_fromAPIResponse is not a function`), and classifying it
+    // NETWORK retried it for ten minutes and reported "network error".
+    cls = 'NETWORK';
   } else {
     cls = 'USER_ACTIONABLE'; // SDK client-side rejection: its own text, no vendor data
   }

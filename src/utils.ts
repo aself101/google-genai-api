@@ -223,7 +223,9 @@ export async function imageToInlineData(imagePathOrUrl: string): Promise<InlineD
 
     buffer = await fs.readFile(imagePathOrUrl);
 
-    // Detect MIME type from file extension
+    // MIME type from the bytes, as for URLs; the extension only as a fallback.
+    // 1.x used the extension alone, and 1.x's CLI wrote JPEG to `.png` files, so
+    // re-editing its output sent JPEG bytes labelled image/png.
     const ext = path.extname(imagePathOrUrl).toLowerCase();
     const mimeMap: Record<string, string> = {
       '.png': 'image/png',
@@ -232,7 +234,7 @@ export async function imageToInlineData(imagePathOrUrl: string): Promise<InlineD
       '.webp': 'image/webp',
       '.gif': 'image/gif',
     };
-    mimeType = mimeMap[ext] || 'image/png';
+    mimeType = (await fileTypeFromBuffer(buffer))?.mime ?? mimeMap[ext] ?? 'image/png';
   }
 
   // Validate file size (50MB max as per security requirements)
@@ -628,10 +630,12 @@ export async function imageToVeoInput(imagePath: string): Promise<VeoImage> {
     '.webp': 'image/webp',
   };
 
-  const mimeType = mimeMap[ext];
-  if (!mimeType) {
+  // The bytes decide, not the extension (see imageToInlineData).
+  const sniffed = (await fileTypeFromBuffer(buffer))?.mime;
+  const mimeType = sniffed ?? mimeMap[ext];
+  if (!mimeType || !Object.values(mimeMap).includes(mimeType)) {
     throw new Error(
-      `Unsupported image format: ${ext}. ` + `Supported formats: PNG, JPEG, WebP`
+      `Unsupported image format: ${ext} (${mimeType ?? 'unrecognised'}). ` + `Supported formats: PNG, JPEG, WebP`
     );
   }
 

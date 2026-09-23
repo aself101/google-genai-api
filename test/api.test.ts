@@ -213,6 +213,15 @@ describe('GoogleGenAIAPI Class', () => {
       expect(parts).toEqual([{ type: 'image', mimeType: 'image/png', data: 'AAAA' }]);
     });
 
+    it('a blocked prompt is reported by its block reason, not "finishReason: none"', async () => {
+      mockClient.models.generateContent.mockResolvedValue({ promptFeedback: { blockReason: 'PROHIBITED_CONTENT' } });
+      const warn = vi.spyOn(api.logger, 'warn');
+
+      await api.generateWithGemini({ prompt: 'Test' });
+
+      expect(warn).toHaveBeenCalledWith(expect.stringContaining('prompt blocked: PROHIBITED_CONTENT'));
+    });
+
     it('a non-Error rejection (null) reaches the caller classified, not as a TypeError from the catch block', async () => {
       // `catch` receives unknown; 1.x-style `(error as Error).message` threw here and
       // replaced the failure with "Cannot read properties of null".

@@ -104,6 +104,13 @@ describe('imageToVeoInput', () => {
     await expect(imageToVeoInput(p)).rejects.toThrow('Unsupported image format: .gif');
   });
 
+  it('uses the type the bytes show: JPEG in a .png file is image/jpeg', async () => {
+    const jpeg = Buffer.from([0xff, 0xd8, 0xff, 0xe0, 0x00, 0x10, 0x4a, 0x46, 0x49, 0x46, 0x00, 0x01]);
+    const p = path.join(dir, 'actually-jpeg.png');
+    writeFileSync(p, jpeg);
+    expect((await imageToVeoInput(p)).mimeType).toBe('image/jpeg');
+  });
+
   it('returns base64 bytes and the MIME type for a PNG', async () => {
     const png = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=', 'base64');
     const p = path.join(dir, 'a.png');

@@ -225,6 +225,27 @@ export class GoogleGenAIVeoAPI {
    * number on the wire.
    * @private
    */
+  /**
+   * Each mode fixes some settings (1.x's mode constants). Say so when the caller
+   * passed a different value, instead of dropping it silently: a value `null`
+   * in `fixed` is not sent at all in that mode.
+   */
+  private _warnOverridden(
+    mode: string,
+    params: Pick<VeoGenerateParams, 'durationSeconds' | 'resolution' | 'aspectRatio' | 'personGeneration'>,
+    fixed: Partial<Record<'durationSeconds' | 'resolution' | 'aspectRatio' | 'personGeneration', string | number | null>>
+  ): void {
+    for (const [key, value] of Object.entries(fixed)) {
+      const given = params[key as keyof typeof fixed];
+      if (given === undefined || String(given) === String(value)) continue;
+      this.logger.warn(
+        value === null
+          ? `${mode}: ${key} '${given}' is not sent in this mode; ignored`
+          : `${mode}: ${key} is fixed at '${value}' in this mode; '${given}' ignored`
+      );
+    }
+  }
+
   private _baseConfig(params: VeoGenerateParams): GenerateVideosConfig {
     const config: GenerateVideosConfig = {};
     if (params.negativePrompt) config.negativePrompt = params.negativePrompt;
@@ -329,6 +350,7 @@ export class GoogleGenAIVeoAPI {
 
     // Validate parameters
     this._checkParams(model, params, VEO_MODES.REFERENCE_IMAGES);
+    this._warnOverridden('Reference images', params, { durationSeconds: 8, resolution: null, personGeneration: null });
 
     this.logger.info(
       `Starting reference-images generation with ${model} (${params.referenceImages.length} references)`
@@ -384,6 +406,7 @@ export class GoogleGenAIVeoAPI {
 
     // Validate parameters
     this._checkParams(model, params, VEO_MODES.INTERPOLATION);
+    this._warnOverridden('Interpolation', params, { durationSeconds: 8, resolution: null, personGeneration: null });
 
     this.logger.info(`Starting interpolation generation with ${model}`);
     if (params.prompt) {
@@ -433,6 +456,12 @@ export class GoogleGenAIVeoAPI {
 
     // Validate parameters (extension requires 720p)
     this._checkParams(model, { ...params, resolution: '720p' }, VEO_MODES.EXTENSION);
+    this._warnOverridden('Extension', params, {
+      resolution: '720p',
+      durationSeconds: null,
+      aspectRatio: null,
+      personGeneration: null,
+    });
 
     this.logger.info(`Starting video extension with ${model}`);
     this.logger.debug(`Prompt: "${params.prompt.substring(0, 100)}..."`);

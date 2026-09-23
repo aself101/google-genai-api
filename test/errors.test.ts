@@ -38,6 +38,10 @@ describe('classification', () => {
 
   it('by error kind when there is no status', () => {
     expect(cls(new TypeError('fetch failed'))).toBe('NETWORK');
+    expect(cls(new TypeError('terminated', { cause: Object.assign(new Error('socket'), { code: 'UND_ERR_SOCKET' }) }))).toBe('NETWORK');
+    // A TypeError that is a bug (e.g. SDK drift) is not a network failure: it must
+    // not be retried for ten minutes or reported as "network error".
+    expect(cls(new TypeError('operation._fromAPIResponse is not a function'))).toBe('USER_ACTIONABLE');
     expect(cls(new DOMException('aborted', 'AbortError'))).toBe('TIMEOUT');
     expect(cls(new Error('seed parameter is not supported in Gemini API.'))).toBe('USER_ACTIONABLE');
   });

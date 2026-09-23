@@ -82,6 +82,12 @@ Spec: `docs/specs/google-genai-api-2.0-spec-v0_4_2.md`. Google shut down Imagen 
 
 ### Fixed
 
+- **Only a failed fetch is classified `NETWORK`.** Every `TypeError` was, so a bug or SDK drift inside polling (1.x's own `_fromAPIResponse is not a function` is one) was retried for ten minutes and reported as "network error". A `TypeError` now counts as a network failure only as fetch throws it (`fetch failed`, or with the socket error as `cause`).
+- `generateFromVideo()`'s 404 hint ("The file may have expired…") is no longer given when Google's message names a model: the fixed video model being retired must not read as the user's file having expired.
+- **Local images are sent with the type their bytes show** (`imageToInlineData`, `imageToVeoInput`), as URL downloads already were; the extension is only a fallback. 1.x's CLI wrote JPEG to `.png` files, so re-editing one sent JPEG labelled `image/png`.
+- Veo reference-image, interpolation and extension modes warn when a setting they fix (duration 8 s, 720p) or do not send (resolution, person generation) was passed, instead of dropping it silently.
+- A blocked image prompt is reported by its block reason, not `finishReason: none`.
+
 - **CLI images are saved with the extension of their bytes.** The current Gemini image models return JPEG (13 of 13 live probes), which 1.x wrote to `.png` files; the metadata file now also shares the image's stem (1.x took a second timestamp, which could differ by a second).
 - **`waitForCompletion()` throws for an operation that is already done with an error** — 1.x returned it as a success, and the caller found out later from `downloadVideo()`'s "No video found".
 - **A Veo job whose output Google's safety filters withheld** now says so: `No video found in operation response: withheld by Google's safety filters (<Google's reasons>)` (the reasons were in the response; 1.x dropped them).

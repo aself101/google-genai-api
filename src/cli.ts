@@ -881,7 +881,7 @@ async function main(): Promise<void> {
 
       if (imageCount === 0) {
         throw new Error(
-          `${model} returned no image (finishReason: ${response.candidates?.[0]?.finishReason ?? 'none'}). Metadata: ${metadataPath}`
+          `${model} returned no image (${noOutputReason(response)}). Metadata: ${metadataPath}`
         );
       }
 

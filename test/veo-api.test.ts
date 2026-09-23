@@ -316,6 +316,17 @@ describe('GoogleGenAIVeoAPI', () => {
       });
     });
 
+    it('warns when a setting the mode fixes was passed, instead of dropping it silently', async () => {
+      api.client.models.generateVideos = vi.fn().mockResolvedValue({ name: 'test-op', done: false });
+      const warn = vi.spyOn(api.logger, 'warn');
+
+      await api.generateWithReferences({ prompt: 'x', referenceImages: mockReferenceImages, resolution: '1080p', durationSeconds: '8' });
+
+      expect(warn).toHaveBeenCalledWith("Reference images: resolution '1080p' is not sent in this mode; ignored");
+      // durationSeconds '8' matches the fixed value: no warning for it
+      expect(warn.mock.calls.flat().join('\n')).not.toMatch(/durationSeconds/);
+    });
+
     it('should force 8s duration for reference images', async () => {
       const mockOperation: VeoOperation = { name: 'test-op', done: false };
       api.client.models.generateVideos = vi.fn().mockResolvedValue(mockOperation);
@@ -606,6 +617,16 @@ describe('GoogleGenAIVeoAPI', () => {
       const result = await api.waitForCompletion({ name: 'test-op', done: false }, { maxAttempts: 5, intervalMs: 10 });
       expect(result.done).toBe(true);
       expect(poll).toHaveBeenCalledTimes(2);
+    });
+
+    it('does not retry a TypeError that is a bug rather than a failed fetch (SDK drift)', async () => {
+      const poll = vi.fn().mockRejectedValue(new TypeError('operation._fromAPIResponse is not a function'));
+      api.client.operations.getVideosOperation = poll;
+
+      await expect(api.waitForCompletion({ name: 'test-op', done: false }, { maxAttempts: 5, intervalMs: 10 })).rejects.toThrow(
+        '_fromAPIResponse is not a function'
+      );
+      expect(poll).toHaveBeenCalledTimes(1);
     });
 
     it('retries a poll request that got a 503', async () => {

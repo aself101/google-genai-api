@@ -477,6 +477,16 @@ describe('File Operations', () => {
       unlinkSync(testFile);
     });
 
+    it('sends the type the bytes show, not the extension (1.x wrote JPEG to .png)', async () => {
+      const jpegData = Buffer.from([0xff, 0xd8, 0xff, 0xe0, 0x00, 0x10, 0x4a, 0x46, 0x49, 0x46, 0x00, 0x01]);
+      const testFile = join(TEST_DIR, 'actually-jpeg.png');
+      writeFileSync(testFile, jpegData);
+
+      expect((await imageToInlineData(testFile)).mimeType).toBe('image/jpeg');
+
+      unlinkSync(testFile);
+    });
+
     it('should detect JPEG MIME type from extension', async () => {
       const jpegData = Buffer.from([0xff, 0xd8, 0xff, 0xe0, 0x00, 0x10]);
       const testFile = join(TEST_DIR, 'test.jpg');

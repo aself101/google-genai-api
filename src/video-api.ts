@@ -357,9 +357,10 @@ export class GoogleGenAIVideoAPI {
       const publicError = toPublicError(error, { surface: 'video-understanding' });
       this.logger.error(`Generation failed (${publicError.classification}): ${errorMessage(error)}`);
 
-      // The model id is fixed, so a 404 here is the uploaded file. Keep 1.x's
-      // hint (in every environment, as 1.x did), now with the D13 fields.
-      if (publicError.status === 404) {
+      // A 404 is usually the uploaded file: keep 1.x's hint (in every environment,
+      // as 1.x did), with the D13 fields. Not when Google names a model — the
+      // fixed video model being retired must not read as "your file expired".
+      if (publicError.status === 404 && !/models\//.test(errorMessage(error))) {
         throw Object.assign(
           new Error('Video file not found. The file may have expired (files expire after 48 hours) or was deleted.'),
           { status: 404, classification: publicError.classification, surface: publicError.surface }

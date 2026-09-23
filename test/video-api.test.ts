@@ -491,6 +491,18 @@ describe('GoogleGenAIVideoAPI', () => {
       ).rejects.toThrow('expired');
     });
 
+    it('a 404 that names a model is not rewritten as "file expired"', async () => {
+      const body = '{"error":{"code":404,"message":"models/gemini-2.5-flash is not found for API version v1beta","status":"NOT_FOUND"}}';
+      api.client.models.generateContent.mockRejectedValue(Object.assign(new Error(body), { status: 404 }));
+
+      const thrown = (await api
+        .generateFromVideo({ prompt: 'Describe', fileUri: 'files/x', mimeType: 'video/mp4' })
+        .catch((e: unknown) => e)) as ExtendedError;
+      expect(thrown.message).not.toMatch(/expire/);
+      expect(thrown.message).toMatch(/models\/gemini-2\.5-flash/);
+      expect(thrown.status).toBe(404);
+    });
+
     it('carries the D13 fields on the 404 hint', async () => {
       api.client.models.generateContent.mockRejectedValue(Object.assign(new Error('{}'), { status: 404 }));
 
