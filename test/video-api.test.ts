@@ -491,6 +491,29 @@ describe('GoogleGenAIVideoAPI', () => {
       ).rejects.toThrow('expired');
     });
 
+    it('a missing file answered with 403 (what Google sends, seen live) gets the file hint, not "auth failure"', async () => {
+      const body =
+        '{"error":{"code":403,"message":"You do not have permission to access the File doesnotexist123 or it may not exist.","status":"PERMISSION_DENIED"}}';
+      api.client.models.generateContent.mockRejectedValue(Object.assign(new Error(body), { status: 403 }));
+
+      const thrown = (await api
+        .generateFromVideo({ prompt: 'x', fileUri: 'files/doesnotexist123', mimeType: 'video/mp4' })
+        .catch((e: unknown) => e)) as ExtendedError;
+      expect(thrown.message).toMatch(/expire after 48 hours/);
+      expect(thrown).toMatchObject({ status: 403, classification: 'USER_ACTIONABLE', surface: 'video-understanding' });
+    });
+
+    it('a real permission failure (403 without the file wording) stays AUTH', async () => {
+      const body = '{"error":{"code":403,"message":"Method doesn\'t allow unregistered callers.","status":"PERMISSION_DENIED"}}';
+      api.client.models.generateContent.mockRejectedValue(Object.assign(new Error(body), { status: 403 }));
+
+      const thrown = (await api
+        .generateFromVideo({ prompt: 'x', fileUri: 'files/a', mimeType: 'video/mp4' })
+        .catch((e: unknown) => e)) as ExtendedError;
+      expect(thrown.classification).toBe('AUTH');
+      expect(thrown.message).not.toMatch(/expire/);
+    });
+
     it('a 404 that names a model is not rewritten as "file expired"', async () => {
       const body = '{"error":{"code":404,"message":"models/gemini-2.5-flash is not found for API version v1beta","status":"NOT_FOUND"}}';
       api.client.models.generateContent.mockRejectedValue(Object.assign(new Error(body), { status: 404 }));

@@ -82,6 +82,8 @@ Spec: `docs/specs/google-genai-api-2.0-spec-v0_4_2.md`. Google shut down Imagen 
 
 ### Fixed
 
+- **A missing or expired video file is reported as one.** Google answers `generateFromVideo` on a file that no longer exists with **403** `PERMISSION_DENIED` ("…or it may not exist"), not 404 (observed live 2026-09-23), so 1.x's 404-only hint never fired and the caller was told it was an authentication failure. Both now get the "Video file not found… may have expired" error, classified `USER_ACTIONABLE`.
+
 - **Only a failed fetch is classified `NETWORK`.** Every `TypeError` was, so a bug or SDK drift inside polling (1.x's own `_fromAPIResponse is not a function` is one) was retried for ten minutes and reported as "network error". A `TypeError` now counts as a network failure only as fetch throws it (`fetch failed`, or with the socket error as `cause`).
 - `generateFromVideo()`'s 404 hint ("The file may have expired…") is no longer given when Google's message names a model: the fixed video model being retired must not read as the user's file having expired.
 - **Local images are sent with the type their bytes show** (`imageToInlineData`, `imageToVeoInput`), as URL downloads already were; the extension is only a fallback. 1.x's CLI wrote JPEG to `.png` files, so re-editing one sent JPEG labelled `image/png`.

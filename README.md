@@ -149,7 +149,7 @@ Video understanding uses `gemini-2.5-flash`.
 ## Model lifecycle
 
 - **Current models only.** A model is in the catalog if it generates and Google's [deprecations page](https://ai.google.dev/gemini-api/docs/deprecations) shows no shutdown date for it. When Google announces one, the model is removed in the next release.
-- **Removal never cuts you off early.** Any string is accepted as a model id. An id the package does not catalog — a model newer than this release, or a retired one Google still serves — is sent with a one-time warning per client, with shape checks only (see [Validation](#validation)). `gemini-2.5-flash-image` keeps working this way until Google turns it off on 2026-10-02.
+- **Removal never cuts you off early.** Any string is accepted as an image or Veo model id (video understanding uses a fixed model, below). An id the package does not catalog — a model newer than this release, or a retired one Google still serves — is sent with a one-time warning per client, with shape checks only (see [Validation](#validation)). `gemini-2.5-flash-image` keeps working this way until Google turns it off on 2026-10-02.
 - **Checked automatically.** `npm run check:lifecycle` fails if a cataloged model has a shutdown date or is missing from Google's page. It runs weekly in CI and before every publish.
 - `isKnownImageModel(id)` / `isKnownVeoModel(id)` tell you whether an id is cataloged. `MODEL_CONSTRAINTS` and `VEO_MODEL_CONSTRAINTS` are keyed by string, so looking up a removed id compiles and returns `undefined` — check with the guard first.
 
@@ -312,7 +312,7 @@ Image generation failed: a temporary error occurred (HTTP 429). Please try again
 
 Only Google's own `error.message` is ever included, and only for rejected requests and safety blocks — never the body's `details` (which can carry project and quota identifiers), never text from a non-Gemini response such as a proxy's HTML page, never for authentication or rate-limit failures, and no `cause` (Node prints cause chains). Validation errors are thrown before any API call and are never rewritten.
 
-All three clients work this way. One exception, kept from 1.x: when `GoogleGenAIVideoAPI.generateFromVideo` gets a 404, it throws `Video file not found. The file may have expired (files expire after 48 hours) or was deleted.` in every environment, with the properties above set. A poll that runs out of attempts (Veo, or video upload processing) throws the package's own timeout error with `isTimeout: true`, not a rewritten one.
+All three clients work this way. One exception, kept from 1.x: when `GoogleGenAIVideoAPI.generateFromVideo` is given a file that is missing or expired — Google answers that with 403 `PERMISSION_DENIED` ("…or it may not exist"), or 404 — it throws `Video file not found. The file may have expired (files expire after 48 hours) or was deleted.` in every environment, with the properties above set. A poll that runs out of attempts (Veo, or video upload processing) throws the package's own timeout error with `isTimeout: true`, not a rewritten one.
 
 > **Logs are not sanitized.** On failure the clients log the SDK's full error message — including any `details` — at `error` level, in every environment, as 1.x did. That reaches your logs, not your callers. Set the log level (second constructor argument, or `--log-level`) accordingly.
 
@@ -500,9 +500,12 @@ See [Known limitations](#known-limitations) for what the URL checks do not cover
 ## Known limitations
 
 - **The URL checks cover addresses, not proxies.** With `HTTPS_PROXY` set, the connection goes to the proxy and the target is resolved by the proxy, outside these checks. The IP ranges are a fixed list of special-purpose blocks; an internal network that uses public address space is not recognised as internal.
-- **No timeout on API calls.** Generation calls use the SDK's defaults; only image downloads (60 s) and the video-file delete (30 s) set their own.
+- **No timeout on API calls.** Generation calls and the Veo video download (the SDK's `files.download`) use the SDK's defaults, which set none; only image downloads (60 s) and the video-file delete (30 s) set their own.
+- **Video understanding uses a fixed model**, `gemini-2.5-flash`, with no override. When Google retires it, every `generateFromVideo` call fails until a release moves it; `check:lifecycle` flags the announcement for the next release, not for installed copies.
+- **A Veo job the CLI stops waiting for keeps running.** The CLI polls for up to 10 minutes (one 4k/8 s render took 6); on timeout it exits 1 and prints the operation name. Pick the job up with the library: `veo.waitForCompletion({ name, done: false })`.
+- **What has been exercised live** (through the built package, one key, one region, 2026-09-22/23): images on all three models (aspect ratios, `512`/`2K`/`4K`, up to 3 input images, edits); Veo text-to-video on Lite, Fast and 3.1 (720p, 1080p, 4k), image-to-video on Fast (and resumed by name), reference images on 3.1, interpolation on Lite; video understanding (upload, analyse, delete, missing file). **Not** exercised live: Veo extension, and Pro's thought parts — two Pro runs returned none, so the thought-part filter is tested only against Google's documented shape.
 - **No total-size check on input images.** Validation checks the count; the Gemini API rejects requests over its inline size limit. Only three input images have been exercised live.
-- **The constraint tables come from Google's docs and a set of live probes** (one key, one region, 2026-09-22). `capabilityValidation: 'warn'` exists because the docs have been wrong. Regional `personGeneration` limits are not modeled.
+- **The constraint tables come from Google's docs and a set of live probes** (see the list above). `capabilityValidation: 'warn'` exists because the docs have been wrong. Regional `personGeneration` limits are not modeled.
 - **A vendor field this package does not declare cannot be sent.** The SDK only serializes fields it knows; new ones arrive in a release.
 - **SDK drift is detected weekly, not prevented.** The package depends on `@google/genai ^2.24.0`; a new 2.x minor is tested by the weekly workflow, not at your install.
 - **Every Veo model is a Google preview.**

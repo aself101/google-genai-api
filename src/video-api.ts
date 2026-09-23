@@ -357,13 +357,21 @@ export class GoogleGenAIVideoAPI {
       const publicError = toPublicError(error, { surface: 'video-understanding' });
       this.logger.error(`Generation failed (${publicError.classification}): ${errorMessage(error)}`);
 
-      // A 404 is usually the uploaded file: keep 1.x's hint (in every environment,
-      // as 1.x did), with the D13 fields. Not when Google names a model — the
-      // fixed video model being retired must not read as "your file expired".
-      if (publicError.status === 404 && !/models\//.test(errorMessage(error))) {
+      // A missing file: keep 1.x's hint (in every environment, as 1.x did), with
+      // the D13 fields. Google answers a missing or expired file with **403**
+      // "You do not have permission to access the File … or it may not exist"
+      // (observed live 2026-09-23), not 404 — so 1.x's 404-only check never fired
+      // and the caller was told it was an auth failure. A 404 that names a model
+      // is not a file: the fixed video model being retired must not read as
+      // "your file expired".
+      const message = errorMessage(error);
+      const missingFile =
+        (publicError.status === 403 && /\bFile\b.*may not exist/i.test(message)) ||
+        (publicError.status === 404 && !/models\//.test(message));
+      if (missingFile) {
         throw Object.assign(
           new Error('Video file not found. The file may have expired (files expire after 48 hours) or was deleted.'),
-          { status: 404, classification: publicError.classification, surface: publicError.surface }
+          { status: publicError.status, classification: 'USER_ACTIONABLE', surface: publicError.surface }
         );
       }
       throw publicError;
