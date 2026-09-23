@@ -62,6 +62,10 @@ export type PublicErrorClass =
   | 'NETWORK'
   | 'TIMEOUT';
 
+/**
+ * Which client produced an error: `image` = `GoogleGenAIAPI`, `video` = `GoogleGenAIVeoAPI`,
+ * `video-understanding` = `GoogleGenAIVideoAPI`. Selects the production message's subject.
+ */
 export type PublicErrorSurface = 'image' | 'video' | 'video-understanding';
 
 /** Properties `toPublicError` guarantees on whatever it returns. */
@@ -88,6 +92,35 @@ const GRPC_STATUS_NAMES = new Set([
 ]);
 
 const VENDOR_MESSAGE_MAX = 300;
+
+// ============================================================================
+// Reading whatever was thrown (internal; not re-exported)
+// ============================================================================
+
+/**
+ * Optional fields the clients read off a thrown value. Every field is `unknown`
+ * and must be checked before use: `catch` receives `unknown`, and a dependency
+ * can throw a non-Error (a string, a plain object, `null`).
+ */
+export interface ThrownFields {
+  message?: unknown;
+  code?: unknown;
+  status?: unknown;
+  isTimeout?: unknown;
+  fileState?: unknown;
+  response?: unknown;
+}
+
+/** The fields of a thrown value; `{}` for `null`, `undefined` and primitives. */
+export function thrownFields(error: unknown): ThrownFields {
+  return typeof error === 'object' && error !== null ? error : {};
+}
+
+/** A thrown value's message, without assuming it is an `Error`. */
+export function errorMessage(error: unknown): string {
+  const { message } = thrownFields(error);
+  return typeof message === 'string' ? message : String(error);
+}
 
 interface ErrorLike {
   name?: unknown;

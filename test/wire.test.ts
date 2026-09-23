@@ -236,6 +236,35 @@ describe('image errors from the wire (spec D13)', () => {
   });
 });
 
+describe('Veo polling through the real SDK', () => {
+  const NAME = 'models/veo-3.1-generate-preview/operations/op42';
+  const DONE = {
+    name: NAME,
+    done: true,
+    response: { generateVideoResponse: { generatedSamples: [{ video: { uri: 'https://example.test/v.mp4' } }] } },
+  };
+
+  it('waitForCompletion accepts a plain { name, done: false } (e.g. rebuilt from a saved operation name)', async () => {
+    nextResponse = respondJson(200, DONE);
+    const veo = new GoogleGenAIVeoAPI('test-key', 'error');
+
+    // 1.x cast this object to the SDK's class; the SDK then called its
+    // _fromAPIResponse method and threw "is not a function".
+    const done = await veo.waitForCompletion({ name: NAME, done: false }, { intervalMs: 1 });
+
+    expect(only().method).toBe('GET');
+    expect(only().url.pathname).toBe(`/v1beta/${NAME}`);
+    expect(done.name).toBe(NAME);
+    expect(done.done).toBe(true);
+    expect(done.response?.generatedVideos?.[0]?.video.uri).toBe('https://example.test/v.mp4');
+  });
+
+  it('a submission with no operation name is an error, not an operation that cannot be polled', async () => {
+    nextResponse = respondJson(200, { done: false });
+    await expect(new GoogleGenAIVeoAPI('test-key', 'error').generateVideo({ prompt: 'x' })).rejects.toThrow('without a name');
+  });
+});
+
 describe('Veo request on the wire (spec D7, D12)', () => {
   const OP = { name: 'models/veo/operations/op1', done: false };
   const img = { imageBytes: 'SU1H', mimeType: 'image/png' };

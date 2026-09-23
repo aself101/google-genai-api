@@ -14,11 +14,12 @@
  */
 
 import { GoogleGenAI } from '@google/genai';
+import type { File as SdkFile } from '@google/genai';
 import winston from 'winston';
 import axios from 'axios';
 import { MODELS, VIDEO_TIMEOUTS, getGoogleGenAIApiKey, redactApiKey } from './config.js';
 import { validateVideoPath, pause } from './utils.js';
-import { toPublicError } from './errors.js';
+import { errorMessage, thrownFields, toPublicError } from './errors.js';
 import type {
   FileInfo,
   GeminiResponse,
@@ -36,6 +37,24 @@ interface ExtendedError extends Error {
   status?: number;
   fileState?: string;
   isTimeout?: boolean;
+}
+
+/**
+ * SDK `File` → `FileInfo`, for a file the Files API reports ACTIVE. Built field
+ * by field: 1.x cast the SDK object, so `sizeBytes` (an int64 string on the
+ * wire) reached callers as a string despite its `number` type.
+ */
+function toFileInfo(file: SdkFile): FileInfo {
+  if (!file.uri || !file.name || !file.mimeType) {
+    throw new Error(`Files API reported ${file.name ?? 'a file'} ACTIVE without a uri, name or mimeType.`);
+  }
+  return {
+    uri: file.uri,
+    name: file.name,
+    mimeType: file.mimeType,
+    state: String(file.state),
+    sizeBytes: file.sizeBytes === undefined ? 0 : Number(file.sizeBytes),
+  };
 }
 
 /**
@@ -155,12 +174,11 @@ export class GoogleGenAIVideoAPI {
         sizeBytes: file.sizeBytes,
       };
     } catch (error) {
-      const err = error as ExtendedError;
       // The poll timeout is this package's own message and carries no vendor
       // data; like Veo's, it is thrown as is (`isTimeout: true`).
-      if (err.isTimeout) throw err;
-      const publicError = toPublicError(err, { surface: 'video-understanding' });
-      this.logger.error(`Upload failed (${publicError.classification}): ${err.message}`);
+      if (thrownFields(error).isTimeout === true) throw error;
+      const publicError = toPublicError(error, { surface: 'video-understanding' });
+      this.logger.error(`Upload failed (${publicError.classification}): ${errorMessage(error)}`);
       throw publicError;
     }
   }
@@ -188,11 +206,11 @@ export class GoogleGenAIVideoAPI {
       attempts++;
 
       try {
-        const file = (await this.client.files.get({ name: fileName })) as unknown as FileInfo;
+        const file = await this.client.files.get({ name: fileName });
 
         if (file.state === 'ACTIVE') {
           this.logger.debug(`File is ACTIVE after ${attempts} attempts`);
-          return file;
+          return toFileInfo(file);
         }
 
         if (file.state === 'FAILED') {
@@ -212,11 +230,11 @@ export class GoogleGenAIVideoAPI {
         // Increase backoff (1.5x multiplier, capped at max)
         backoffMs = Math.min(backoffMs * 1.5, VIDEO_TIMEOUTS.POLL_INTERVAL_MAX);
       } catch (error) {
-        const err = error as ExtendedError;
+        const err = thrownFields(error);
 
         // A FAILED file is terminal: its error has no status and classifies
         // USER_ACTIONABLE, so it is never retried.
-        if (err.fileState === 'FAILED') throw err;
+        if (err.fileState === 'FAILED') throw error;
 
         // Handle 429 rate limit with extended backoff
         if (err.status === 429) {
@@ -229,9 +247,9 @@ export class GoogleGenAIVideoAPI {
         // request — network error, timeout, 408/5xx. 1.x also matched message
         // text ("network", "timeout", "processing"), which retried errors that
         // merely mentioned those words.
-        const { classification } = toPublicError(err, { surface: 'video-understanding' });
+        const { classification } = toPublicError(error, { surface: 'video-understanding' });
         if (['TRANSIENT', 'NETWORK', 'TIMEOUT'].includes(classification) && attempts < maxAttempts) {
-          this.logger.warn(`Poll request failed (${classification}), retrying: ${err.message}`);
+          this.logger.warn(`Poll request failed (${classification}), retrying: ${errorMessage(error)}`);
           await pause(backoffMs);
           backoffMs = Math.min(backoffMs * 1.5, VIDEO_TIMEOUTS.POLL_INTERVAL_MAX);
           continue;
@@ -328,9 +346,8 @@ export class GoogleGenAIVideoAPI {
 
       return response;
     } catch (error) {
-      const err = error as ExtendedError;
-      const publicError = toPublicError(err, { surface: 'video-understanding' });
-      this.logger.error(`Generation failed (${publicError.classification}): ${err.message}`);
+      const publicError = toPublicError(error, { surface: 'video-understanding' });
+      this.logger.error(`Generation failed (${publicError.classification}): ${errorMessage(error)}`);
 
       // The model id is fixed, so a 404 here is the uploaded file. Keep 1.x's
       // hint (in every environment, as 1.x did), now with the D13 fields.
@@ -382,12 +399,11 @@ export class GoogleGenAIVideoAPI {
 
       this.logger.info(`Deleted video file: ${fileName}`);
     } catch (error) {
-      const err = error as ExtendedError;
       // Best-effort cleanup - log but don't throw
-      if (err.response?.status === 404) {
+      if (thrownFields(thrownFields(error).response).status === 404) {
         this.logger.warn(`File not found (may have already been deleted): ${fileName}`);
       } else {
-        this.logger.warn(`Failed to delete video file: ${err.message}`);
+        this.logger.warn(`Failed to delete video file: ${errorMessage(error)}`);
       }
     }
   }

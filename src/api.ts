@@ -11,7 +11,7 @@ import { GoogleGenAI } from '@google/genai';
 import type { GenerateContentConfig, ImageConfig } from '@google/genai';
 import winston from 'winston';
 import { redactApiKey, DEFAULT_IMAGE_MODEL, MODEL_CONSTRAINTS, detectGeminiMode, getModelViolations } from './config.js';
-import { ValidationError, toPublicError } from './errors.js';
+import { ValidationError, toPublicError, errorMessage } from './errors.js';
 import type {
   ExtractGeminiPartsOptions,
   GeminiMode,
@@ -212,8 +212,7 @@ export class GoogleGenAIAPI {
 
       return response;
     } catch (error) {
-      const err = error as Error;
-      this.logger.error(`Gemini generation failed: ${err.message}`);
+      this.logger.error(`Gemini generation failed: ${errorMessage(error)}`);
       throw toPublicError(error, { surface: 'image' });
     }
   }

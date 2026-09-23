@@ -61,10 +61,12 @@ if (existsSync(globalConfigPath)) {
 export { ValidationError };
 export type { Violation };
 
-// Google GenAI API models. Current models only: a model with an announced
-// shutdown is removed from the package (spec D2) and `npm run check:lifecycle`
-// fails until it is. Removed ids still work — any string is accepted as a model
-// id and sent without capability validation (spec D3).
+/**
+ * Google GenAI API models. Current models only: a model with an announced
+ * shutdown is removed from the package (spec D2) and `npm run check:lifecycle`
+ * fails until it is. Removed ids still work — any string is accepted as a model
+ * id and sent without capability validation (spec D3).
+ */
 export const MODELS: Models = {
   GEMINI_3_1_FLASH: 'gemini-3.1-flash-image',
   GEMINI_3_1_FLASH_LITE: 'gemini-3.1-flash-lite-image',
@@ -121,30 +123,40 @@ const STANDARD_ASPECT_RATIOS: AspectRatio[] = [
   '1:1', '3:2', '2:3', '3:4', '4:3', '4:5', '5:4', '9:16', '16:9', '21:9',
 ];
 
-// Every aspect ratio any cataloged image model accepts. The 3.1 models add four
-// extreme ratios (vendor docs; 1:4 verified live on 3.1 Flash Lite, 2026-09-22).
-// Per-model lists are in MODEL_CONSTRAINTS.
+/**
+ * Every aspect ratio any cataloged image model accepts. The 3.1 models add four
+ * extreme ratios (vendor docs; 1:4 verified live on 3.1 Flash Lite, 2026-09-22).
+ * Per-model lists are in MODEL_CONSTRAINTS.
+ */
 export const ASPECT_RATIOS: AspectRatio[] = [...STANDARD_ASPECT_RATIOS, '1:4', '4:1', '1:8', '8:1'];
 
-// imageConfig.imageSize values across cataloged models; per-model lists are in
-// MODEL_CONSTRAINTS. '512' and '2K' verified live on 3.1 Flash, 2026-09-22.
+/**
+ * imageConfig.imageSize values across cataloged models; per-model lists are in
+ * MODEL_CONSTRAINTS. '512' and '2K' verified live on 3.1 Flash, 2026-09-22.
+ */
 export const IMAGE_SIZES: ImageSize[] = ['512', '1K', '2K', '4K'];
 
-// Input-image MIME types this package accepts (the 1.x set; imageToInlineData
-// produces these).
+/**
+ * Input-image MIME types this package accepts (the 1.x set; imageToInlineData
+ * produces these).
+ */
 export const SUPPORTED_IMAGE_MIME_TYPES: string[] = ['image/png', 'image/jpeg', 'image/webp', 'image/gif'];
 
 // Prompt length ceiling applied to ids with no constraint entry (spec D3 shape).
 const PROMPT_MAX_LENGTH = 10000;
 
-// Gemini generation modes (detected automatically based on input)
+/**
+ * Gemini generation modes (detected automatically based on input)
+ */
 export const GEMINI_MODES: GeminiModes = {
   TEXT_TO_IMAGE: 'text-to-image',
   IMAGE_TO_IMAGE: 'image-to-image',
   SEMANTIC_MASKING: 'semantic-masking',
 };
 
-// Model parameter constraints
+/**
+ * Model parameter constraints
+ */
 export const MODEL_CONSTRAINTS: ModelConstraints = {
   'gemini-3.1-flash-image': {
     aspectRatios: ASPECT_RATIOS,
@@ -214,7 +226,9 @@ export const MODEL_CONSTRAINTS: ModelConstraints = {
   },
 };
 
-// Default output directory (can be overridden via environment variable)
+/**
+ * Default output directory (can be overridden via environment variable)
+ */
 export const DEFAULT_OUTPUT_DIR: string =
   process.env.GOOGLE_GENAI_OUTPUT_DIR || 'datasets/google';
 

@@ -23,6 +23,7 @@ import {
   GoogleGenAIVideoAPI,
 } from './api.js';
 import { GoogleGenAIVeoAPI, VEO_MODELS, VEO_MODES } from './veo-api.js';
+import { errorMessage } from './errors.js';
 import {
   getGoogleGenAIApiKey,
   validateVideoParams,
@@ -362,6 +363,14 @@ program
 program.parse(process.argv);
 const options = program.opts<CliOptions>();
 
+// `-h, --help` is registered as a plain option (so it can sit in the option list),
+// which replaces commander's own help handling; without this it fell through to
+// the "no mode selected" exit 1 below. 1.x had the same bug.
+if (options.help) {
+  program.outputHelp();
+  process.exit(0);
+}
+
 // Show examples if requested
 if (options.examples) {
   showExamples();
@@ -439,7 +448,7 @@ if (!options.prompt || options.prompt.length === 0) {
  * @param apiKey - Google GenAI API key
  * @param prompts - Array of analysis prompts
  */
-async function handleVideoMode(apiKey: string, prompts: string[]): Promise<void> {
+async function handleVideoMode(apiKey: string, prompts: string[], inputVideo: string): Promise<void> {
   const videoApi = new GoogleGenAIVideoAPI(apiKey, options.logLevel);
   const outputDir = path.join(options.outputDir || DEFAULT_OUTPUT_DIR, 'video-analysis');
   await ensureDirectory(outputDir);
@@ -473,7 +482,7 @@ async function handleVideoMode(apiKey: string, prompts: string[]): Promise<void>
     uploadSpinner.start();
 
     try {
-      uploadedFile = await videoApi.uploadVideoFile(options.inputVideo!);
+      uploadedFile = await videoApi.uploadVideoFile(inputVideo);
       uploadSpinner.stop(
         `✓ Video uploaded and processed (${(uploadedFile.sizeBytes / 1024 / 1024).toFixed(1)}MB)\n`
       );
@@ -524,7 +533,7 @@ async function handleVideoMode(apiKey: string, prompts: string[]): Promise<void>
       const jsonPath = path.join(outputDir, jsonFilename);
 
       // Save analysis as markdown
-      const videoBasename = path.basename(options.inputVideo!);
+      const videoBasename = path.basename(inputVideo);
       const mdContent = `# Video Analysis
 
 ## Video
@@ -584,8 +593,7 @@ ${analysisText}
         await videoApi.deleteVideoFile(uploadedFile.uri);
         logger.debug('Deleted uploaded video file');
       } catch (error) {
-        const err = error as Error;
-        logger.warn(`Failed to delete video file: ${err.message}`);
+        logger.warn(`Failed to delete video file: ${errorMessage(error)}`);
         // Best-effort cleanup - don't fail if deletion fails
       }
     }
@@ -598,6 +606,29 @@ ${analysisText}
  * @param apiKey - Google GenAI API key
  * @param prompts - Array of generation prompts
  */
+async function generateAndWait(
+  veoApi: GoogleGenAIVeoAPI,
+  label: string,
+  submit: () => Promise<VeoOperation>
+): Promise<VeoOperation> {
+  const spinner = createVeoSpinner(label);
+  spinner.start();
+  try {
+    const operation = await submit();
+    spinner.updateMessage('Video generation in progress...');
+    const done = await veoApi.waitForCompletion(operation, {
+      onProgress: (_op, elapsed) => {
+        spinner.updateElapsed(elapsed);
+      },
+    });
+    spinner.stop('✓ Video generated\n');
+    return done;
+  } catch (error) {
+    spinner.stop('✗ Generation failed\n');
+    throw error;
+  }
+}
+
 async function handleVeoMode(apiKey: string, prompts: string[]): Promise<void> {
   const veoApi = new GoogleGenAIVeoAPI(apiKey, options.logLevel, clientOptions);
 
@@ -648,46 +679,12 @@ async function handleVeoMode(apiKey: string, prompts: string[]): Promise<void> {
       // Validated by the client before any network call (capabilityValidation applies)
       const imageParams: VeoImageToVideoParams = { ...params, image };
 
-      const spinner = createVeoSpinner('Generating video from image...');
-      spinner.start();
-
-      try {
-        operation = await veoApi.generateFromImage(imageParams);
-        spinner.updateMessage('Video generation in progress...');
-
-        operation = await veoApi.waitForCompletion(operation, {
-          onProgress: (_op, elapsed) => {
-            spinner.updateElapsed(elapsed);
-          },
-        });
-
-        spinner.stop('✓ Video generated\n');
-      } catch (error) {
-        spinner.stop('✗ Generation failed\n');
-        throw error;
-      }
+      operation = await generateAndWait(veoApi, 'Generating video from image...', () => veoApi.generateFromImage(imageParams));
     } else {
       // Text-to-video mode (validated by the client before any network call)
       mode = VEO_MODES.TEXT_TO_VIDEO;
 
-      const spinner = createVeoSpinner('Generating video...');
-      spinner.start();
-
-      try {
-        operation = await veoApi.generateVideo(params);
-        spinner.updateMessage('Video generation in progress...');
-
-        operation = await veoApi.waitForCompletion(operation, {
-          onProgress: (_op, elapsed) => {
-            spinner.updateElapsed(elapsed);
-          },
-        });
-
-        spinner.stop('✓ Video generated\n');
-      } catch (error) {
-        spinner.stop('✗ Generation failed\n');
-        throw error;
-      }
+      operation = await generateAndWait(veoApi, 'Generating video...', () => veoApi.generateVideo(params));
     }
 
     // Download video
@@ -744,7 +741,9 @@ async function main(): Promise<void> {
     // VIDEO ANALYSIS MODE
     // ========================================================================
     if (options.video) {
-      await handleVideoMode(apiKey, prompts);
+      // Checked at startup; repeated here because `options` is not narrowed across scopes.
+      if (!options.inputVideo) throw new Error('--video requires --input-video <path>');
+      await handleVideoMode(apiKey, prompts, options.inputVideo);
       return;
     }
 
@@ -807,6 +806,7 @@ async function main(): Promise<void> {
 
       let imageCount = 0;
       const savedFiles: string[] = [];
+      const totalImages = parts.filter((p) => p.type === 'image').length;
 
       for (let partIndex = 0; partIndex < parts.length; partIndex++) {
         const part = parts[partIndex];
@@ -815,14 +815,12 @@ async function main(): Promise<void> {
           imageCount++;
 
           // Generate filename with unique suffix for multiple images
-          const totalImages = parts.filter((p) => p.type === 'image').length;
           let filename: string;
           if (totalImages > 1) {
             // Multiple images: add index suffix to ensure unique filenames
             const baseFilename = generateFilename(prompt);
-            const ext = baseFilename.split('.').pop();
-            const nameWithoutExt = baseFilename.slice(0, -(ext!.length + 1));
-            filename = `${nameWithoutExt}_${imageCount}.${ext}`;
+            const ext = path.extname(baseFilename);
+            filename = `${baseFilename.slice(0, baseFilename.length - ext.length)}_${imageCount}${ext}`;
           } else {
             // Single image: no index
             filename = generateFilename(prompt);
@@ -874,9 +872,8 @@ async function main(): Promise<void> {
 
     console.log(`\n✓ All done! Processed ${prompts.length} prompt(s)\n`);
   } catch (error) {
-    const err = error as Error;
-    console.error(`\n✗ Error: ${err.message}\n`);
-    logger.error(err.stack || err.message);
+    console.error(`\n✗ Error: ${errorMessage(error)}\n`);
+    logger.error(error instanceof Error && error.stack ? error.stack : errorMessage(error));
     process.exit(1);
   }
 }

@@ -13,7 +13,7 @@
  * @module veo-api
  */
 
-import { GoogleGenAI } from '@google/genai';
+import { GenerateVideosOperation, GoogleGenAI } from '@google/genai';
 import type { GenerateVideosConfig, GenerateVideosSource, VideoGenerationReferenceType } from '@google/genai';
 import winston from 'winston';
 import fs from 'fs/promises';
@@ -27,7 +27,7 @@ import {
   redactApiKey,
   getVeoViolations,
 } from './config.js';
-import { ValidationError, toPublicError } from './errors.js';
+import { ValidationError, errorMessage, toPublicError } from './errors.js';
 import type {
   GoogleGenAIClientOptions,
   VeoDownloadResult,
@@ -43,6 +43,38 @@ import type {
   VeoReferenceParams,
   VeoWaitOptions,
 } from './types/index.js';
+
+/**
+ * SDK operation → `VeoOperation`, checked rather than cast: the SDK declares
+ * every field optional, `VeoOperation` requires `name` and `done`.
+ */
+function isVeoOperation(op: GenerateVideosOperation): op is GenerateVideosOperation & VeoOperation {
+  return typeof op.name === 'string' && op.name !== '' && typeof op.done === 'boolean';
+}
+
+function toVeoOperation(op: GenerateVideosOperation, polledName?: string): VeoOperation {
+  // A polled operation keeps the name it was polled by; a just-submitted one can
+  // omit `done` (the job is running).
+  if (!op.name && polledName) op.name = polledName;
+  if (op.done === undefined) op.done = false;
+  if (!isVeoOperation(op)) {
+    throw new Error('Veo returned an operation without a name; it cannot be polled.');
+  }
+  return op;
+}
+
+/**
+ * `VeoOperation` → an SDK operation to poll. The SDK's getVideosOperation calls
+ * `operation._fromAPIResponse()`, a method of its own class, so a plain object —
+ * `{ name, done: false }` rebuilt from a saved operation name — would throw
+ * inside the SDK. 1.x cast here and had that crash.
+ */
+function toSdkOperation(op: VeoOperation): GenerateVideosOperation {
+  if (op instanceof GenerateVideosOperation) return op;
+  const sdkOp = new GenerateVideosOperation();
+  sdkOp.name = op.name;
+  return sdkOp;
+}
 
 /**
  * Extended error with additional properties.
@@ -151,15 +183,17 @@ export class GoogleGenAIVeoAPI {
    */
   private async _submit(model: string, source: GenerateVideosSource, config: GenerateVideosConfig, label: string): Promise<VeoOperation> {
     try {
-      const operation = (await this.client.models.generateVideos({
-        model,
-        source,
-        config: Object.keys(config).length > 0 ? config : undefined,
-      })) as unknown as VeoOperation;
+      const operation = toVeoOperation(
+        await this.client.models.generateVideos({
+          model,
+          source,
+          config: Object.keys(config).length > 0 ? config : undefined,
+        })
+      );
       this.logger.info(`${label} started (operation: ${operation.name})`);
       return operation;
     } catch (error) {
-      this.logger.error(`${label} failed: ${(error as Error).message}`);
+      this.logger.error(`${label} failed: ${errorMessage(error)}`);
       throw toPublicError(error, { surface: 'video' });
     }
   }
@@ -438,15 +472,15 @@ export class GoogleGenAIVeoAPI {
       // failed with a "network"/"timeout" message was re-polled for up to ten
       // minutes before the caller heard about it.
       try {
-        // SDK types differ from our simplified VeoOperation interface
-        operation = (await this.client.operations.getVideosOperation({
-          operation: operation as unknown as Parameters<typeof this.client.operations.getVideosOperation>[0]['operation'],
-        })) as unknown as VeoOperation;
+        operation = toVeoOperation(
+          await this.client.operations.getVideosOperation({ operation: toSdkOperation(operation) }),
+          operation.name
+        );
       } catch (error) {
         const publicError = toPublicError(error, { surface: 'video' });
         const retryable = ['TRANSIENT', 'NETWORK', 'TIMEOUT'].includes(publicError.classification);
         if (retryable && attempts < maxAttempts) {
-          this.logger.warn(`Poll request failed (${publicError.classification}), retrying: ${(error as Error).message}`);
+          this.logger.warn(`Poll request failed (${publicError.classification}), retrying: ${errorMessage(error)}`);
           continue;
         }
         throw publicError;
@@ -534,7 +568,7 @@ export class GoogleGenAIVeoAPI {
         video,
       };
     } catch (error) {
-      this.logger.error(`Download failed: ${(error as Error).message}`);
+      this.logger.error(`Download failed: ${errorMessage(error)}`);
       throw toPublicError(error, { surface: 'video' });
     }
   }

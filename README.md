@@ -24,12 +24,15 @@ google-genai --gemini --prompt "put the person in the room" -i person.jpg -i roo
 
 # Video with Veo 3.1
 google-genai --veo --prompt "waves crashing against a lighthouse at dusk" --veo-duration 8
+
+# Video understanding
+google-genai --video --input-video ./clip.mp4 --prompt "Summarize this video"
 ```
 
 ### Programmatic
 
 ```typescript
-import { GoogleGenAIAPI, extractGeminiParts } from 'google-genai-api';
+import { GoogleGenAIAPI, GoogleGenAIVideoAPI, extractGeminiParts } from 'google-genai-api';
 import { GoogleGenAIVeoAPI } from 'google-genai-api/veo';
 
 const images = new GoogleGenAIAPI(process.env.GOOGLE_GENAI_API_KEY!);
@@ -44,6 +47,10 @@ const veo = new GoogleGenAIVeoAPI(process.env.GOOGLE_GENAI_API_KEY!);
 let operation = await veo.generateVideo({ prompt: 'a cat playing piano', durationSeconds: '8' });
 operation = await veo.waitForCompletion(operation);
 await veo.downloadVideo(operation, './cat.mp4');
+
+const video = new GoogleGenAIVideoAPI(process.env.GOOGLE_GENAI_API_KEY!);
+const file = await video.uploadVideoFile('./clip.mp4');
+const analysis = await video.generateFromVideo({ prompt: 'Summarize this video', fileUri: file.uri, mimeType: file.mimeType });
 ```
 
 ## Table of Contents
@@ -262,7 +269,7 @@ op = await veo.extendVideo({ prompt: 'the butterfly lands', video: veo.extractVi
 
 `VeoGenerateParams`: `prompt`, `model`, `aspectRatio`, `resolution`, `durationSeconds` (string or number; sent as a number), `negativePrompt`, `personGeneration`. Per-model values: [Models](#models). Modes keep fixed settings the API requires: reference images and interpolation always use 8 seconds; extension always uses 720p and one video.
 
-**Polling.** `waitForCompletion` polls every 10 s for up to 60 attempts. Only a failed *poll request* is retried (network error, timeout, 408/429/5xx). A job that finished with an error is thrown at once. If polling runs out, the error has `isTimeout: true` and `operationName` — the job may still finish; Google keeps generated videos for 48 hours.
+**Polling.** `waitForCompletion` polls every 10 s for up to 60 attempts. Only a failed *poll request* is retried (network error, timeout, 408/429/5xx). A job that finished with an error is thrown at once. If polling runs out, the error has `isTimeout: true` and `operationName` — the job may still finish; Google keeps generated videos for 48 hours. To pick a job up again later, pass `{ name: operationName, done: false }` to `waitForCompletion`; it does not need the original operation object (1.x crashed on one).
 
 `getModelInfo(model?)` returns a cataloged model's constraints and throws for an uncataloged id.
 
@@ -410,7 +417,7 @@ import {
 } from 'google-genai-api/utils';
 ```
 
-Both client classes take `(apiKey, logLevel = 'info', options?)`; `options.capabilityValidation` is `'error'` (default) or `'warn'`.
+`GoogleGenAIAPI` and `GoogleGenAIVeoAPI` take `(apiKey, logLevel = 'info', options?)`; `options.capabilityValidation` is `'error'` (default) or `'warn'`. `GoogleGenAIVideoAPI` takes `(apiKey, logLevel = 'info')`: it has no constraint table to validate against.
 
 ## CLI
 
@@ -440,7 +447,7 @@ google-genai <mode> --prompt "…" [options]
 | `--api-key`, `--log-level` | |
 | `--examples` | Worked examples |
 
-The CLI exits 1 on a validation error, an API error, or a run that returns no image (the message names the `finishReason`).
+The CLI exits 1 on a validation error, an API error, or a run that returns no image (the message names the `finishReason`), and when no mode is given. `--help` and `--examples` exit 0.
 
 ```bash
 google-genai --model gemini-3.1-flash-lite-image --prompt "a flat paper-plane icon"

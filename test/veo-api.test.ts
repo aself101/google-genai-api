@@ -6,7 +6,10 @@
 import { describe, it, expect, beforeEach, vi, type Mock } from 'vitest';
 
 // Mock @google/genai SDK
-vi.mock('@google/genai', () => ({
+vi.mock('@google/genai', async (importOriginal) => ({
+  // The real operation class: waitForCompletion builds one to poll with (the SDK
+  // calls its _fromAPIResponse method), so a stub here would test nothing.
+  GenerateVideosOperation: (await importOriginal<typeof import('@google/genai')>()).GenerateVideosOperation,
   // A `function`, not an arrow: vitest 4 refuses `new` on arrow implementations.
   GoogleGenAI: vi.fn().mockImplementation(function () {
     return {

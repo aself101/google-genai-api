@@ -120,6 +120,20 @@ Companion to [`google-genai-api-2.0-spec-v0_4_2.md`](./google-genai-api-2.0-spec
 - [ ] darkroom: `google-genai-api@^2.0.0` from npmjs; no `file:`/`localhost:4873` for it in the lockfile; resolved URL 200
 - [ ] `npm deprecate google-genai-api@"<2.0.0"` (after darkroom is on 2.0.0)
 
+## Ship pipeline (ship v1.1.1) — round 1 on `5f8c3b2`
+- [x] Stage 2 code-validator **93** PASS. Taken: `handleVeoMode` duplicated generate/wait block → `generateAndWait`; image count hoisted out of the per-part loop. Declined: splitting `main()`/`handleVideoMode` (CLI orchestration, comment-sectioned; no logic lives there)
+- [x] Stage 3 test-architect **91** APPROVED; public-interface **81** POLISHED; type-safety **88 but UNSAFE** (AF-002 double assertions, AF-005 `!` on CLI input) — **treated as a failed gate**, fixed, re-run below. The type-safety finding also falsified this file's own invariant: `veo-api.ts` cast on the `getVideosOperation` request object at `5f8c3b2` (carried from 1.x), and behind that cast was a real crash — the SDK calls `operation._fromAPIResponse()`, so a plain `{ name }` threw inside the SDK
+- [x] Fixes (tests 433 → 460; every `as unknown as` removed from `src/`, 5 → 0):
+  - Veo: `toSdkOperation` builds a real `GenerateVideosOperation` from any `{ name }`; `toVeoOperation` is a type guard (polled operations keep the name they were polled by; a submission with no name throws). Wire test polls a plain object through the real SDK
+  - Video: `toFileInfo` builds `FileInfo` from the SDK `File` — `sizeBytes` becomes the number its type always claimed (was the wire's int64 string); ACTIVE without `uri`/`name`/`mimeType` throws
+  - `parseVeoMetadata` validates the whole `VeoSavedMetadata` (1.x messages kept); `saveMetadata(metadata: object)` removes the Record cast
+  - CLI: `--help`/`-h` exit 0 (1.x exited 1 — public-interface finding); `handleVideoMode(…, inputVideo: string)` removes both `!`; `ext!` → `path.extname`
+  - 14 `catch` sites: `errorMessage()` / `thrownFields()` (internal, `errors.ts`) instead of `error as Error`
+  - README: Quick Start shows all three capabilities; constructor sentence names the three classes (Video has no `options`); `--help` exit code; resuming by name. JSDoc on the 8 exports that had `//` comments
+  - Tests added: `test/veo-utils.test.ts` (parseVeoMetadata round trip + 5 invalid shapes, generateVeoOutputPath, imageToVeoInput GIF/PNG), CLI `--help`/`-h`/no-mode and `--veo-image`, config 1.x-message rules split one per case
+- [x] Mutation controls, each asserted applied, files restored byte-identical (cmp): cast-sdk-op, no-name-check, size-passthrough, meta-1x-check, help-fallthrough, no-uri-check → killed. 4 first-draft mutants did not compile (`noUnusedLocals`/types) — reclassified BROKEN, rewritten to compile, then killed. **catch-as-error SURVIVED** against a wire test (the SDK wraps a `fetch`-thrown `null` before our catch sees it) — that test was vacuous and was removed; replaced by an api.test where the SDK method itself rejects `null` → killed
+- [x] Declined, with reason: `noUncheckedIndexedAccess` (validator predicted a no-op; it is 27 errors, all bounded `for` indexing — backlog); H1 title naming capabilities (bare package name is the npm convention; tagline names all three); reworking bare "X is required" messages (1.x message text callers may match on)
+
 ## Cross-phase invariants
 - Subpath exports, class names, constructors (third arg optional), Veo method signatures unchanged (darkroom surface).
 - No `as Record<string, unknown>` / `as unknown as` on SDK request objects.

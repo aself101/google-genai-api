@@ -215,12 +215,27 @@ describe('GoogleGenAIVideoAPI', () => {
     it('should return file when state is ACTIVE', async () => {
       api.client.files.get.mockResolvedValue({
         name: 'files/test123',
+        uri: 'https://generativelanguage.googleapis.com/v1beta/files/test123',
+        mimeType: 'video/mp4',
         state: 'ACTIVE',
+        sizeBytes: '1048576', // int64 → a string on the wire
       });
 
       const result = await api._pollFileStatus('files/test123');
 
-      expect(result.state).toBe('ACTIVE');
+      expect(result).toEqual({
+        name: 'files/test123',
+        uri: 'https://generativelanguage.googleapis.com/v1beta/files/test123',
+        mimeType: 'video/mp4',
+        state: 'ACTIVE',
+        sizeBytes: 1048576, // FileInfo.sizeBytes is a number; 1.x passed the string through
+      });
+    });
+
+    it('rejects an ACTIVE file with no uri instead of returning an unusable one', async () => {
+      api.client.files.get.mockResolvedValue({ name: 'files/test123', state: 'ACTIVE', mimeType: 'video/mp4' });
+
+      await expect(api._pollFileStatus('files/test123', 3, 10)).rejects.toThrow('without a uri');
     });
 
     it('should throw when state is FAILED', async () => {
@@ -236,7 +251,7 @@ describe('GoogleGenAIVideoAPI', () => {
     it('should retry when state is PROCESSING', async () => {
       api.client.files.get
         .mockResolvedValueOnce({ name: 'files/test123', state: 'PROCESSING' })
-        .mockResolvedValueOnce({ name: 'files/test123', state: 'ACTIVE' });
+        .mockResolvedValueOnce({ name: 'files/test123', state: 'ACTIVE', uri: 'https://generativelanguage.googleapis.com/v1beta/files/test123', mimeType: 'video/mp4' });
 
       const result = await api._pollFileStatus('files/test123', 3, 10);
 
@@ -259,7 +274,7 @@ describe('GoogleGenAIVideoAPI', () => {
 
       api.client.files.get
         .mockRejectedValueOnce(rateLimitError)
-        .mockResolvedValueOnce({ name: 'files/test123', state: 'ACTIVE' });
+        .mockResolvedValueOnce({ name: 'files/test123', state: 'ACTIVE', uri: 'https://generativelanguage.googleapis.com/v1beta/files/test123', mimeType: 'video/mp4' });
 
       const result = await api._pollFileStatus('files/test123', 3, 10);
 
@@ -271,7 +286,7 @@ describe('GoogleGenAIVideoAPI', () => {
       api.client.files.get
         .mockRejectedValueOnce(new TypeError('fetch failed'))
         .mockRejectedValueOnce(Object.assign(new Error('{}'), { status: 500 }))
-        .mockResolvedValueOnce({ name: 'files/test123', state: 'ACTIVE' });
+        .mockResolvedValueOnce({ name: 'files/test123', state: 'ACTIVE', uri: 'https://generativelanguage.googleapis.com/v1beta/files/test123', mimeType: 'video/mp4' });
 
       const result = await api._pollFileStatus('files/test123', 5, 10);
       expect(result.state).toBe('ACTIVE');
@@ -305,7 +320,7 @@ describe('GoogleGenAIVideoAPI', () => {
         .mockResolvedValueOnce({ name: 'files/test123', state: 'PROCESSING' })
         .mockResolvedValueOnce({ name: 'files/test123', state: 'PROCESSING' })
         .mockResolvedValueOnce({ name: 'files/test123', state: 'PROCESSING' })
-        .mockResolvedValueOnce({ name: 'files/test123', state: 'ACTIVE' });
+        .mockResolvedValueOnce({ name: 'files/test123', state: 'ACTIVE', uri: 'https://generativelanguage.googleapis.com/v1beta/files/test123', mimeType: 'video/mp4' });
 
       const initialBackoff = 100; // Start with 100ms for faster test
       const result = await api._pollFileStatus('files/test123', 10, initialBackoff);

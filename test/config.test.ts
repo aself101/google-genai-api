@@ -265,20 +265,15 @@ describe('Validation Functions', () => {
       expect((caught as ValidationError).violations[0].param).toBe('aspectRatio');
     });
 
-    it('keeps 1.x messages for the rules 1.x had', () => {
-      expect(() => validateModelParams(DEFAULT_IMAGE_MODEL, {} as never)).toThrow('Prompt is required');
-      expect(() => validateModelParams(DEFAULT_IMAGE_MODEL, { prompt: 123 as unknown as string })).toThrow(
-        'Prompt is required and must be a string'
-      );
-      expect(() => validateModelParams(DEFAULT_IMAGE_MODEL, { prompt: 'a'.repeat(10001) })).toThrow(
-        'Prompt exceeds maximum length'
-      );
-      expect(() => validateModelParams(MODELS.GEMINI_3_PRO, { prompt: 'test', aspectRatio: '1:4' })).toThrow(
-        'Invalid aspect ratio'
-      );
-      expect(() => validateModelParams(DEFAULT_IMAGE_MODEL, { prompt: 'test', numberOfImages: 4 })).toThrow(
-        'Gemini generates one image per request'
-      );
+    // One case per 1.x rule, so a failure names the rule that regressed.
+    it.each([
+      ['missing prompt', DEFAULT_IMAGE_MODEL, {}, 'Prompt is required'],
+      ['non-string prompt', DEFAULT_IMAGE_MODEL, { prompt: 123 }, 'Prompt is required and must be a string'],
+      ['prompt over the limit', DEFAULT_IMAGE_MODEL, { prompt: 'a'.repeat(10001) }, 'Prompt exceeds maximum length'],
+      ['aspect ratio the model lacks', MODELS.GEMINI_3_PRO, { prompt: 'test', aspectRatio: '1:4' }, 'Invalid aspect ratio'],
+      ['numberOfImages other than 1', DEFAULT_IMAGE_MODEL, { prompt: 'test', numberOfImages: 4 }, 'Gemini generates one image per request'],
+    ])('keeps the 1.x message for %s', (_rule, model, params, message) => {
+      expect(() => validateModelParams(model, params as never)).toThrow(message);
     });
 
     it('accepts every ratio a model lists', () => {

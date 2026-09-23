@@ -12,7 +12,8 @@ import axios from 'axios';
 import { lookup } from 'dns/promises';
 import { isIPv4, isIPv6 } from 'net';
 import { fileTypeFromBuffer, fileTypeFromFile } from 'file-type';
-import { VIDEO_MIME_TYPES, VIDEO_SIZE_LIMITS } from './config.js';
+import { VEO_MODES, VIDEO_MIME_TYPES, VIDEO_SIZE_LIMITS } from './config.js';
+import { errorMessage, thrownFields } from './errors.js';
 import type {
   InlineData,
   SpinnerObject,
@@ -159,16 +160,17 @@ export async function validateImageUrl(url: string): Promise<string> {
 
       logger.debug(`DNS validation passed for ${hostname} (resolved to ${address})`);
     } catch (error) {
-      const err = error as NodeJS.ErrnoException & { message?: string };
-      if (err.code === 'ENOTFOUND') {
+      const { code } = thrownFields(error);
+      const message = errorMessage(error);
+      if (code === 'ENOTFOUND') {
         logger.warn(`SECURITY: Domain ${hostname} could not be resolved`);
         throw new Error(`Domain ${hostname} could not be resolved`);
-      } else if (err.message && err.message.includes('resolves to internal')) {
+      } else if (message.includes('resolves to internal')) {
         // Re-throw our custom error about blocked IPs
         throw error;
       } else {
-        logger.warn(`SECURITY: DNS lookup failed for ${hostname}: ${err.message}`);
-        throw new Error(`Failed to validate domain ${hostname}: ${err.message}`);
+        logger.warn(`SECURITY: DNS lookup failed for ${hostname}: ${message}`);
+        throw new Error(`Failed to validate domain ${hostname}: ${message}`);
       }
     }
   }
@@ -212,10 +214,10 @@ export async function validateImagePath(filepath: string): Promise<string> {
 
     return filepath;
   } catch (error) {
-    const err = error as NodeJS.ErrnoException;
-    if (err.code === 'ENOENT') {
+    const { code } = thrownFields(error);
+    if (code === 'ENOENT') {
       throw new Error(`Image file not found: ${filepath}`);
-    } else if (err.code === 'EACCES') {
+    } else if (code === 'EACCES') {
       throw new Error(`Permission denied reading image file: ${filepath}`);
     }
     throw error;
@@ -399,7 +401,7 @@ export async function ensureDirectory(dirPath: string): Promise<string> {
  */
 export async function saveMetadata(
   metadataPath: string,
-  metadata: Record<string, unknown>
+  metadata: object
 ): Promise<string> {
   const jsonContent = JSON.stringify(metadata, null, 2);
   await fs.writeFile(metadataPath, jsonContent, 'utf8');
@@ -502,10 +504,10 @@ export async function validateVideoPath(filepath: string): Promise<VideoValidati
   try {
     stats = await fs.stat(filepath);
   } catch (error) {
-    const err = error as NodeJS.ErrnoException;
-    if (err.code === 'ENOENT') {
+    const { code } = thrownFields(error);
+    if (code === 'ENOENT') {
       throw new Error(`Video file not found: ${filepath}. Please check the file path exists.`);
-    } else if (err.code === 'EACCES') {
+    } else if (code === 'EACCES') {
       throw new Error(
         `Permission denied reading video file: ${filepath}. Check file permissions.`
       );
@@ -764,7 +766,7 @@ export async function saveVeoMetadata(
     },
   };
 
-  await saveMetadata(metadataPath, fullMetadata as unknown as Record<string, unknown>);
+  await saveMetadata(metadataPath, fullMetadata);
 
   return metadataPath;
 }
@@ -837,19 +839,42 @@ export function createVeoSpinner(initialMessage: string): VeoSpinnerObject {
  * const metadata = await parseVeoMetadata('./previous-video.json');
  * // Use for video extension
  */
+/**
+ * Why a parsed metadata file is not a `VeoSavedMetadata`, or undefined if it is.
+ * 1.x checked only `operation_name` and returned the rest unchecked under the
+ * full type. Messages start with the 1.x one (`missing operation_name`).
+ */
+function veoMetadataProblem(value: unknown): string | undefined {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) return 'not a JSON object';
+  const m: { [key: string]: unknown } = { ...value };
+  for (const key of ['operation_name', 'model', 'timestamp'] as const) {
+    if (typeof m[key] !== 'string' || m[key] === '') return `missing ${key}`;
+  }
+  const modes: unknown[] = Object.values(VEO_MODES);
+  if (!modes.includes(m.mode)) return `unknown mode ${JSON.stringify(m.mode)}`;
+  if (typeof m.parameters !== 'object' || m.parameters === null) return 'missing parameters';
+  if (typeof m.result !== 'object' || m.result === null) return 'missing result';
+  const result: { [key: string]: unknown } = { ...m.result };
+  if (typeof result.video_path !== 'string') return 'missing result.video_path';
+  if (typeof result.status !== 'string') return 'missing result.status';
+  return undefined;
+}
+
+function isVeoSavedMetadata(value: unknown): value is VeoSavedMetadata {
+  return veoMetadataProblem(value) === undefined;
+}
+
 export async function parseVeoMetadata(metadataPath: string): Promise<VeoSavedMetadata> {
   try {
     const content = await fs.readFile(metadataPath, 'utf8');
-    const metadata = JSON.parse(content) as VeoSavedMetadata;
-
-    if (!metadata.operation_name) {
-      throw new Error('Invalid Veo metadata: missing operation_name');
+    const metadata: unknown = JSON.parse(content);
+    const problem = veoMetadataProblem(metadata);
+    if (problem || !isVeoSavedMetadata(metadata)) {
+      throw new Error(`Invalid Veo metadata: ${problem ?? 'unexpected shape'}`);
     }
-
     return metadata;
   } catch (error) {
-    const err = error as NodeJS.ErrnoException;
-    if (err.code === 'ENOENT') {
+    if (thrownFields(error).code === 'ENOENT') {
       throw new Error(`Metadata file not found: ${metadataPath}`);
     }
     if (error instanceof SyntaxError) {

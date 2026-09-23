@@ -71,6 +71,21 @@ function files(sub: string): string[] {
   return existsSync(d) ? readdirSync(d).sort() : [];
 }
 
+describe('CLI — help', () => {
+  // `-h, --help` is a plain option, which replaces commander's own handling; 1.x
+  // fell through to the "no mode selected" branch and exited 1.
+  it.each([['--help'], ['-h']])('%s prints usage and exits 0', (flag) => {
+    const r = cli([flag]);
+    expect(r.status, r.stderr).toBe(0);
+    expect(r.stdout).toContain('Usage:');
+    expect(r.requests).toHaveLength(0);
+  });
+
+  it('no mode selected is still an error (exit 1)', () => {
+    expect(cli(['--prompt', 'x']).status).toBe(1);
+  });
+});
+
 describe('CLI — validation exits (no network)', () => {
   it('rejects --image-size a model does not take, before any request', () => {
     const r = cli(['--model', 'gemini-3.1-flash-lite-image', '--prompt', 'x', '--image-size', '2K']);
@@ -229,5 +244,27 @@ describe('CLI — Veo generation', () => {
     const mp4 = written.filter((f) => f.endsWith('.mp4'));
     expect(mp4).toHaveLength(1);
     expect(readFileSync(path.join(out, 'veo/veo-3.1-lite-generate-preview', mp4[0]), 'utf8')).toBe('fake-mp4-bytes');
+  });
+
+  it('--veo-image: the image goes in instances[0].image', () => {
+    const png = path.join(dir, 'first.png');
+    writeFileSync(png, Buffer.from(PNG, 'base64'));
+    const doneOp = {
+      name: 'models/veo-3.1-generate-preview/operations/op2',
+      done: true,
+      response: {
+        generateVideoResponse: {
+          generatedSamples: [{ video: { uri: 'https://generativelanguage.googleapis.com/v1beta/files/def456:download?alt=media' } }],
+        },
+      },
+    };
+    const r = cli(
+      ['--veo', '--prompt', 'the cat stretches', '--veo-image', png],
+      [{ json: doneOp }, { base64: Buffer.from('fake-mp4-bytes').toString('base64'), contentType: 'video/mp4' }]
+    );
+    expect(r.status, r.stderr).toBe(0);
+    const body = JSON.parse(r.requests[0].body!);
+    expect(body.instances[0]).toEqual({ prompt: 'the cat stretches', image: { bytesBase64Encoded: PNG, mimeType: 'image/png' } });
+    expect(files('veo/veo-3.1-generate-preview').filter((f) => f.endsWith('.mp4'))).toHaveLength(1);
   });
 });

@@ -206,6 +206,20 @@ describe('GoogleGenAIAPI Class', () => {
       await expect(api.generateWithGemini({ prompt: 'Test' })).rejects.toThrow('SDK API error');
     });
 
+    it('a non-Error rejection (null) reaches the caller classified, not as a TypeError from the catch block', async () => {
+      // `catch` receives unknown; 1.x-style `(error as Error).message` threw here and
+      // replaced the failure with "Cannot read properties of null".
+      mockClient.models.generateContent.mockRejectedValue(null);
+
+      const thrown = await api.generateWithGemini({ prompt: 'Test' }).then(
+        () => undefined,
+        (e: unknown) => e as Error & { classification?: string }
+      );
+      expect(thrown).toBeInstanceOf(Error);
+      expect(thrown?.message).not.toMatch(/Cannot read properties/);
+      expect(thrown?.classification).toBe('USER_ACTIONABLE');
+    });
+
     it('should sanitize errors in production mode', async () => {
       const originalEnv = process.env.NODE_ENV;
       process.env.NODE_ENV = 'production';

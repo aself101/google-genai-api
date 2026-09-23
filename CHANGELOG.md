@@ -46,6 +46,8 @@ Spec: `docs/specs/google-genai-api-2.0-spec-v0_4_2.md`. Google shut down Imagen 
 - `detectGeminiMode()` no longer throws on more than one input image; how many a model takes is its `inputImagesMax` (up to 14).
 - `MODELS.GEMINI_3_PRO` is now `'gemini-3-pro-image'` (GA), not the preview id.
 - The SDK client is pinned to the Gemini Developer API (`vertexai: false`) in all three clients. Before, `GOOGLE_GENAI_USE_VERTEXAI` or `GOOGLE_GENAI_USE_ENTERPRISE` in the environment would move requests to a different endpoint and serializer.
+- **`parseVeoMetadata()` checks the whole file it returns.** 1.x checked only `operation_name` and returned the rest, unchecked, as a `VeoSavedMetadata`; a file missing `result`, `model` or a known `mode` now throws `Invalid Veo metadata: <what is wrong>` (the 1.x messages for a missing file, invalid JSON and a missing `operation_name` are unchanged). Files written by `saveVeoMetadata()` always pass.
+- `saveMetadata()` takes any `object` (was `Record<string, unknown>`, which interfaces without an index signature, such as `VeoSavedMetadata`, could not satisfy without a cast). Widening only; every 1.x call still compiles.
 - `generateWithGemini()` has **no default `aspectRatio`** (1.x defaulted to `'1:1'`, but never sent it). Omit it and the model chooses the framing — exactly what every 1.x call received.
 - `generateWithGemini()` sends `responseModalities: ['TEXT', 'IMAGE']` (verified live on all three image models).
 - `extractGeminiParts()` **skips thought parts** (`thought: true`) unless `includeThoughts` is set, and reads only `candidates[0].content.parts`; the non-SDK top-level `response.parts` fallback and `GeminiResponse.parts` are removed.
@@ -77,6 +79,11 @@ Spec: `docs/specs/google-genai-api-2.0-spec-v0_4_2.md`. Google shut down Imagen 
 - semantic-release and its release workflow. Releases are published by hand, gated by `check:release`.
 
 ### Fixed
+
+- **`waitForCompletion()` accepts a plain `{ name, done: false }`.** The SDK's poll calls a method of its own operation class, and 1.x cast whatever it was given to that class, so an operation rebuilt from a saved name threw `_fromAPIResponse is not a function` inside the SDK. It now builds a real SDK operation from the name. Operations the package returns are also checked instead of cast: one without a name is an error at submission rather than a job that cannot be polled.
+- **`uploadVideoFile()` returns `sizeBytes` as a number**, as `VideoUploadResult` and `FileInfo` always declared. The Files API sends an int64 string and 1.x passed it through by casting. An ACTIVE file without a `uri`, `name` or `mimeType` is now an error rather than a result with `undefined` fields.
+- **`google-genai --help` exits 0.** `-h, --help` is registered as an ordinary option, which replaces commander's own handling, and a help-only run fell through to the "no mode selected" exit 1 (1.x too).
+- The clients no longer assume a rejection is an `Error`: a dependency that rejects with `null` or a string reached the caller as `TypeError: Cannot read properties of null` thrown from inside the `catch` block. It is now classified like any other failure.
 
 - **`aspectRatio` was never sent.** 1.x put it at the top level of the request config, where the SDK's serializer ignores it; every call got the model's default framing. It now goes in `imageConfig`, and output framing follows the value you pass — which changes the images every caller that passed an `aspectRatio` receives. Verified live through the built package: 9:16 on `gemini-3.1-flash-image` returned 768×1376 (1.x's shape, same prompt: 1408×768).
 - **A finished Veo job that failed is reported at once.** 1.x threw it inside the polling retry loop, so a failed job whose message mentioned "network" or "timeout" was re-polled for up to ten minutes before the caller heard about it.
