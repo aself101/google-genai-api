@@ -293,7 +293,7 @@ Offsets accept `"90s"`, `"90"`, `"1m30s"`, `"1:30"`, `"1:15:30"`. Supported form
 
 ## Errors
 
-**Outside production** (`NODE_ENV` ≠ `production`), a failed API call rethrows the SDK's own error object — same class, `name` and message as 1.x — with up to four properties added (`status` and `code` only when there is one):
+**Outside production** (`NODE_ENV` ≠ `production`), a failed API call rethrows the SDK's own error object — same class, `name` and message as 1.x — with up to four properties added (`status` and `code` only when there is one; none on an error object that is frozen or sealed, which is rethrown as is):
 
 | Property | Meaning |
 |---|---|

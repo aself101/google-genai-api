@@ -318,9 +318,11 @@ export class GoogleGenAIVeoAPI {
       durationSeconds: 8,
       referenceImages: params.referenceImages.map((ref) => ({
         image: ref.image,
-        // Sent as given ('asset'), as 1.x did and as Google's own REST/JS docs
-        // do; the SDK types this as its 'ASSET'/'STYLE' enum but passes the
-        // value through unchanged. Live-checked in V12.
+        // SAFETY: sent as given ('asset'), as 1.x did and as Google's own REST/JS
+        // docs do. The SDK types this as its 'ASSET'/'STYLE' enum but passes the
+        // value through unchanged (wire test), and the API accepted 'asset' live
+        // (V12, 2026-09-22). Not validated against a list: Google's own examples
+        // disagree on case, and the API is the authority.
         referenceType: ref.referenceType as VideoGenerationReferenceType,
       })),
     };

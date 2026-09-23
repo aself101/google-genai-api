@@ -82,7 +82,7 @@ Spec: `docs/specs/google-genai-api-2.0-spec-v0_4_2.md`. Google shut down Imagen 
 ### Fixed
 
 - **`waitForCompletion()` accepts a plain `{ name, done: false }`.** The SDK's poll calls a method of its own operation class, and 1.x cast whatever it was given to that class, so an operation rebuilt from a saved name threw `_fromAPIResponse is not a function` inside the SDK. It now builds a real SDK operation from the name. Operations the package returns are also checked instead of cast: one without a name is an error at submission rather than a job that cannot be polled.
-- **`uploadVideoFile()` returns `sizeBytes` as a number**, as `VideoUploadResult` and `FileInfo` always declared. The Files API sends an int64 string and 1.x passed it through by casting. An ACTIVE file without a `uri`, `name` or `mimeType` is now an error rather than a result with `undefined` fields.
+- **`uploadVideoFile()` returns `sizeBytes` as a number**, as `VideoUploadResult` and `FileInfo` always declared. The Files API sends an int64 string and 1.x passed it through by casting. An ACTIVE file without a `uri`, `name` or `mimeType` is now an error rather than a result with `undefined` fields. Likewise an upload result with no file name, which 1.x polled as `files/undefined`.
 - **`google-genai --help` exits 0.** `-h, --help` is registered as an ordinary option, which replaces commander's own handling, and a help-only run fell through to the "no mode selected" exit 1 (1.x too).
 - The clients no longer assume a rejection is an `Error`: a dependency that rejects with `null` or a string reached the caller as `TypeError: Cannot read properties of null` thrown from inside the `catch` block. It is now classified like any other failure.
 

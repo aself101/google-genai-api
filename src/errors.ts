@@ -68,7 +68,11 @@ export type PublicErrorClass =
  */
 export type PublicErrorSurface = 'image' | 'video' | 'video-understanding';
 
-/** Properties `toPublicError` guarantees on whatever it returns. */
+/**
+ * Properties `toPublicError` adds to what it returns. Present on every error it
+ * returns, with one exception: outside production a non-extensible (frozen or
+ * sealed) error is returned untouched, without them — see `toPublicError`.
+ */
 export interface PublicErrorFields {
   /** HTTP status, when the failure was an HTTP response */
   status?: number;
@@ -217,7 +221,9 @@ function attach(target: object, key: string, value: unknown): void {
  *
  * - Outside production: the **original** error object — same identity, class,
  *   `name`, `message`, `operationError` — with `status`, `code`,
- *   `classification` and `surface` added. No wrapper, no `cause`.
+ *   `classification` and `surface` added. No wrapper, no `cause`. An error that
+ *   cannot take properties (frozen, sealed) is returned as is, without them:
+ *   D13 never replaces the caller's error object outside production.
  * - In production: a new `Error` whose message is a category sentence plus,
  *   for rejected requests and safety blocks, the vendor's own `error.message`
  *   (≤300 chars). Auth and transient failures never include vendor text.

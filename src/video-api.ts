@@ -161,8 +161,11 @@ export class GoogleGenAIVideoAPI {
       this.logger.debug(`Upload complete, file name: ${uploadResult.name}`);
       this.logger.info('Video uploaded, waiting for processing...');
 
-      // Poll for ACTIVE state
-      const file = await this._pollFileStatus(uploadResult.name as string);
+      // Poll for ACTIVE state (the SDK types `name` optional)
+      if (!uploadResult.name) {
+        throw new Error('Files API accepted the upload but returned no file name to poll.');
+      }
+      const file = await this._pollFileStatus(uploadResult.name);
 
       this.logger.info(`Video processing complete: ${file.name} (state: ${file.state})`);
 

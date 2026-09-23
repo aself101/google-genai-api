@@ -140,6 +140,11 @@ Companion to [`google-genai-api-2.0-spec-v0_4_2.md`](./google-genai-api-2.0-spec
 - [x] **Process defect found:** round 2 ran four reviewers in parallel on one working tree while test-architect applied mutations to it; type-safety and public-interface both observed a transient mutant (`// MUTATED: mode check removed`) and worked around it (HEAD snapshot / waiting). No finding was corrupted, but it could have been. Rule from here: at most one agent mutates a given checkout; reviewers that mutate get their own worktree
 - [x] The two carried-over declines (H1 title; bare "X is required" messages) were reported by reviewers as "declined by Alex" — they were Claude's calls in round 1, recorded unattributed here; raised to Alex rather than left standing
 
+## Ship pipeline — round 3 on `ef73001` (type-safety only)
+- [x] type-safety **88, UNSAFE**: `cli.ts:730` `[options.prompt!]` — present since the TS migration and **missed by both previous rounds' "no `!` in src" claim, which was a regex that did not match `!]`** (an inert check, Claude's). Also `uploadResult.name as string` in video-api (optional SDK field, unchecked); `referenceType` cast not tagged SAFETY; `PublicErrorFields` JSDoc said "guarantees" while a frozen error is deliberately returned without them (errors.test.ts:94 pins that, D13)
+- [x] Fixes: local guard for `prompts`; upload with no name throws; SAFETY comment on referenceType; JSDoc + README state the frozen-error exception instead of changing D13. **`test/type-hygiene.test.ts` replaces the grep:** parses src/ with the TS compiler and fails on any non-null or `as X as Y`, with a control that must find 4 in `[x!]`, `f(y!)`, `z!.q`, `as unknown as`. Mutations: `options.prompt!` restored → hygiene test fails; name guard removed → new upload test fails. Tests 469 → 473
+- [x] Declined again: `noUncheckedIndexedAccess` (27 bounded-index errors; backlog)
+
 ## Cross-phase invariants
 - Subpath exports, class names, constructors (third arg optional), Veo method signatures unchanged (darkroom surface).
 - No `as Record<string, unknown>` / `as unknown as` on SDK request objects.

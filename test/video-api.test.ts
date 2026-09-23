@@ -200,6 +200,13 @@ describe('GoogleGenAIVideoAPI', () => {
       expect(thrown).toMatchObject({ status: 403, classification: 'AUTH', surface: 'video-understanding' });
     });
 
+    it('an upload result with no file name is an error, not a poll of undefined', async () => {
+      api.client.files.upload.mockResolvedValueOnce({});
+
+      await expect(api.uploadVideoFile('/path/to/video.mp4')).rejects.toThrow('returned no file name');
+      expect(api.client.files.get).not.toHaveBeenCalled();
+    });
+
     it('throws the poll timeout as is, with isTimeout', async () => {
       api.client.files.upload.mockResolvedValueOnce({ name: 'files/test123' });
       api.client.files.get.mockResolvedValue({ name: 'files/test123', state: 'PROCESSING' });

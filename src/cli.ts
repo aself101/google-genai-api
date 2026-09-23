@@ -726,8 +726,9 @@ async function main(): Promise<void> {
     // Get API key
     const apiKey = getGoogleGenAIApiKey(options.apiKey || null);
 
-    // Ensure prompts is always an array
-    const prompts = Array.isArray(options.prompt) ? options.prompt : [options.prompt!];
+    // Checked at startup; repeated here because `options` is not narrowed across scopes.
+    if (!options.prompt || options.prompt.length === 0) throw new Error('--prompt is required');
+    const prompts = Array.isArray(options.prompt) ? options.prompt : [options.prompt];
 
     // ========================================================================
     // VEO VIDEO GENERATION MODE
