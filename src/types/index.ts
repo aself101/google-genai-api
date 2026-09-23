@@ -371,6 +371,8 @@ export interface GeminiPart {
 export interface GeminiResponse {
   /** Response candidates */
   candidates?: GeminiCandidate[];
+  /** Set when the prompt itself was blocked; there are then no candidates */
+  promptFeedback?: { blockReason?: string };
 }
 
 /**
@@ -433,6 +435,10 @@ export interface VeoOperation {
 export interface VeoOperationResponse {
   /** Generated videos */
   generatedVideos?: VeoGeneratedVideo[];
+  /** How many generated videos Google withheld under its safety filters */
+  raiMediaFilteredCount?: number;
+  /** Google's reasons for withholding them */
+  raiMediaFilteredReasons?: string[];
 }
 
 /**

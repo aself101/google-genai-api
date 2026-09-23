@@ -147,6 +147,17 @@ describe('CLI — image generation', () => {
     expect(metadata.finishReason).toBe('STOP');
   });
 
+  it('a JPEG from the model is saved as .jpg, and the metadata shares its stem', () => {
+    const JPEG = Buffer.from([0xff, 0xd8, 0xff, 0xe0, 0x00, 0x10, 0x4a, 0x46, 0x49, 0x46, 0x00, 0x01]).toString('base64');
+    const r = cli(['--gemini', '--prompt', 'a red apple'], [imageResponse([{ inlineData: { mimeType: 'image/jpeg', data: JPEG } }])]);
+    expect(r.status, r.stderr).toBe(0);
+    const written = files('gemini-3.1-flash-image');
+    const jpg = written.filter((f) => f.endsWith('.jpg'));
+    expect(jpg).toHaveLength(1);
+    expect(written.filter((f) => f.endsWith('.png'))).toEqual([]);
+    expect(written).toContain(jpg[0].replace(/\.jpg$/, '.json'));
+  });
+
   it('--model, --aspect-ratio, --image-size and repeated --input-image all reach the wire', () => {
     const a = path.join(dir, 'a.png');
     const b = path.join(dir, 'b.png');

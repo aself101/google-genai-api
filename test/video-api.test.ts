@@ -200,6 +200,14 @@ describe('GoogleGenAIVideoAPI', () => {
       expect(thrown).toMatchObject({ status: 403, classification: 'AUTH', surface: 'video-understanding' });
     });
 
+    it('deletes an uploaded file that then fails processing (1.x left it in storage for 48 h)', async () => {
+      api.client.files.upload.mockResolvedValueOnce({ name: 'files/doomed' });
+      api.client.files.get.mockResolvedValue({ name: 'files/doomed', state: 'FAILED', error: { message: 'bad codec' } });
+
+      await expect(api.uploadVideoFile('/path/to/video.mp4')).rejects.toThrow('bad codec');
+      expect(axios.delete).toHaveBeenCalledWith(expect.stringContaining('/files/doomed'), expect.any(Object));
+    });
+
     it('an upload result with no file name is an error, not a poll of undefined', async () => {
       api.client.files.upload.mockResolvedValueOnce({});
 
@@ -325,6 +333,26 @@ describe('GoogleGenAIVideoAPI', () => {
       expect(api.client.files.get).toHaveBeenCalledTimes(1);
     });
 
+    it('a 429 on the last attempt is reported as a rate limit, without a final 60 s wait', async () => {
+      api.client.files.get.mockRejectedValue(Object.assign(new Error('{}'), { status: 429 }));
+
+      const thrown = (await api._pollFileStatus('files/test123', 1, 10).catch((e: unknown) => e)) as ExtendedError;
+      expect(thrown.classification).toBe('TRANSIENT');
+      expect(thrown.status).toBe(429);
+      expect(pause).not.toHaveBeenCalledWith(60000);
+    });
+
+    it('a non-numeric sizeBytes becomes 0, not NaN', async () => {
+      api.client.files.get.mockResolvedValue({
+        name: 'files/test123',
+        uri: 'https://x.test/files/test123',
+        mimeType: 'video/mp4',
+        state: 'ACTIVE',
+        sizeBytes: 'lots',
+      });
+      expect((await api._pollFileStatus('files/test123')).sizeBytes).toBe(0);
+    });
+
     it('should use 1.5x exponential backoff between polling attempts', async () => {
       // File stays in PROCESSING state for 3 attempts, then becomes ACTIVE
       api.client.files.get
@@ -445,7 +473,8 @@ describe('GoogleGenAIVideoAPI', () => {
         mimeType: 'video/mp4',
       });
 
-      expect(result.candidates![0].content!.parts![0].text).toBe('No analysis could be generated for this video.');
+      // 1.x returned a made-up candidate here; callers could not tell it from an answer.
+      expect(result).toEqual({});
     });
 
     it('should handle 404 file not found error', async () => {

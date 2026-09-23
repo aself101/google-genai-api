@@ -506,6 +506,15 @@ describe('GoogleGenAIVeoAPI', () => {
   });
 
   describe('waitForCompletion', () => {
+    it('an operation that is already done with an error is thrown, not returned as a success', async () => {
+      const failed: VeoOperation = { name: 'op', done: true, error: { message: 'Request blocked by safety policy', code: 3 } };
+      const thrown = (await api.waitForCompletion(failed).catch((e: unknown) => e)) as Error & { classification?: string; code?: number };
+      expect(thrown).toBeInstanceOf(Error);
+      expect(thrown.code).toBe(3);
+      expect(thrown.classification).toBe('SAFETY_BLOCKED');
+      expect(api.client.operations.getVideosOperation).not.toHaveBeenCalled();
+    });
+
     it('should return immediately if operation is done', async () => {
       const doneOperation: VeoOperation = {
         name: 'op',
@@ -668,6 +677,17 @@ describe('GoogleGenAIVeoAPI', () => {
       const operation: VeoOperation = { name: 'op', done: false };
 
       await expect(api.downloadVideo(operation, '/tmp/test.mp4')).rejects.toThrow(/operation is not complete/);
+    });
+
+    it("names Google's safety-filter reasons when the output was withheld", async () => {
+      const operation: VeoOperation = {
+        name: 'op',
+        done: true,
+        response: { raiMediaFilteredCount: 1, raiMediaFilteredReasons: ['The prompt contains a celebrity likeness.'] },
+      };
+      await expect(api.downloadVideo(operation, '/tmp/test.mp4')).rejects.toThrow(
+        /No video found in operation response: withheld by Google's safety filters \(The prompt contains a celebrity likeness\.\)/
+      );
     });
 
     it('should throw if no video in response', async () => {

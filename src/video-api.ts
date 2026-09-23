@@ -20,6 +20,7 @@ import axios from 'axios';
 import { MODELS, VIDEO_TIMEOUTS, getGoogleGenAIApiKey, redactApiKey } from './config.js';
 import { validateVideoPath, pause } from './utils.js';
 import { errorMessage, thrownFields, toPublicError } from './errors.js';
+import { noOutputReason } from './no-output.js';
 import type {
   FileInfo,
   GeminiResponse,
@@ -53,7 +54,8 @@ function toFileInfo(file: SdkFile): FileInfo {
     name: file.name,
     mimeType: file.mimeType,
     state: String(file.state),
-    sizeBytes: file.sizeBytes === undefined ? 0 : Number(file.sizeBytes),
+    // int64 as a string on the wire; anything unparseable is reported as 0, not NaN.
+    sizeBytes: Number.isFinite(Number(file.sizeBytes)) ? Number(file.sizeBytes) : 0,
   };
 }
 
@@ -148,6 +150,7 @@ export class GoogleGenAIVideoAPI {
       `Uploading video: ${videoPath} (${(validation.size / 1024 / 1024).toFixed(1)}MB, ${validation.mimeType})`
     );
 
+    let uploadedName: string | undefined;
     try {
       // Upload to Files API
       const uploadResult = await this.client.files.upload({
@@ -165,6 +168,7 @@ export class GoogleGenAIVideoAPI {
       if (!uploadResult.name) {
         throw new Error('Files API accepted the upload but returned no file name to poll.');
       }
+      uploadedName = uploadResult.name;
       const file = await this._pollFileStatus(uploadResult.name);
 
       this.logger.info(`Video processing complete: ${file.name} (state: ${file.state})`);
@@ -177,6 +181,10 @@ export class GoogleGenAIVideoAPI {
         sizeBytes: file.sizeBytes,
       };
     } catch (error) {
+      // Uploaded but never usable (FAILED, timed out, poll error): delete it so
+      // it does not sit in the project's Files API storage for 48 hours. 1.x
+      // left it, and the CLI's cleanup never ran on this path. Best-effort.
+      if (uploadedName) await this.deleteVideoFile(uploadedName);
       // The poll timeout is this package's own message and carries no vendor
       // data; like Veo's, it is thrown as is (`isTimeout: true`).
       if (thrownFields(error).isTimeout === true) throw error;
@@ -241,6 +249,9 @@ export class GoogleGenAIVideoAPI {
 
         // Handle 429 rate limit with extended backoff
         if (err.status === 429) {
+          // On the last attempt, report the rate limit rather than sleep a minute
+          // and then call it a processing timeout.
+          if (attempts >= maxAttempts) throw toPublicError(error, { surface: 'video-understanding' });
           this.logger.warn('Rate limited, waiting 60 seconds...');
           await pause(60000);
           continue;
@@ -333,18 +344,12 @@ export class GoogleGenAIVideoAPI {
 
       this.logger.info('Video analysis complete');
 
-      // Handle empty response
+      // No output (e.g. the prompt was blocked): returned unchanged, with a
+      // warning naming the reason — as generateWithGemini does. 1.x returned a
+      // made-up candidate whose text said no analysis could be generated, which
+      // callers could not tell from a real answer.
       if (!response?.candidates?.[0]?.content?.parts) {
-        this.logger.warn('Empty response received from API');
-        return {
-          candidates: [
-            {
-              content: {
-                parts: [{ text: 'No analysis could be generated for this video.' }],
-              },
-            },
-          ],
-        };
+        this.logger.warn(`No analysis returned (${noOutputReason(response)})`);
       }
 
       return response;

@@ -290,6 +290,12 @@ describe('Veo request on the wire (spec D7, D12)', () => {
   const instance = () => only().body.instances[0];
   const parameters = () => only().body.parameters;
 
+  it('durationSeconds 0 is sent (in warn mode), not silently dropped to the default', async () => {
+    const veoWarn = new GoogleGenAIVeoAPI('test-key', 'error', { capabilityValidation: 'warn' });
+    await veoWarn.generateVideo({ prompt: 'x', durationSeconds: 0 });
+    expect(parameters()).toEqual({ durationSeconds: 0 });
+  });
+
   it('model id in the URL: …/models/{model}:predictLongRunning', async () => {
     await veo().generateVideo({ prompt: 'x', model: VEO_MODELS.VEO_3_1_LITE });
     expect(only().url.pathname).toBe('/v1beta/models/veo-3.1-lite-generate-preview:predictLongRunning');

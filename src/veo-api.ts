@@ -76,6 +76,27 @@ function toSdkOperation(op: VeoOperation): GenerateVideosOperation {
   return sdkOp;
 }
 
+/** Throw the job's own error, classified, if a finished operation failed. */
+function throwIfFailed(operation: VeoOperation): void {
+  if (!operation.error) return;
+  const error: ExtendedError = new Error(operation.error.message || 'Video generation failed');
+  error.operationError = operation.error;
+  throw toPublicError(error, { surface: 'video' });
+}
+
+/**
+ * The error for a finished job with no video. Keeps the 1.x message and adds
+ * Google's reasons when its safety filters withheld the output — the common
+ * cause, which 1.x reported only as "No video found".
+ */
+function noVideoError(operation: VeoOperation): Error {
+  const reasons = operation.response?.raiMediaFilteredReasons ?? [];
+  const count = operation.response?.raiMediaFilteredCount ?? 0;
+  if (reasons.length === 0 && count === 0) return new Error('No video found in operation response');
+  const why = reasons.length > 0 ? reasons.join('; ') : `${count} video(s) filtered`;
+  return new Error(`No video found in operation response: withheld by Google's safety filters (${why})`);
+}
+
 /**
  * Extended error with additional properties.
  */
@@ -209,7 +230,9 @@ export class GoogleGenAIVeoAPI {
     if (params.negativePrompt) config.negativePrompt = params.negativePrompt;
     if (params.aspectRatio) config.aspectRatio = params.aspectRatio;
     if (params.resolution) config.resolution = params.resolution;
-    if (params.durationSeconds) config.durationSeconds = Number(params.durationSeconds);
+    // `!== undefined`, not truthiness: 0 is invalid, and must reach the API (or its
+    // rejection) rather than silently become the default duration.
+    if (params.durationSeconds !== undefined) config.durationSeconds = Number(params.durationSeconds);
     if (params.personGeneration) config.personGeneration = params.personGeneration;
     return config;
   }
@@ -450,9 +473,11 @@ export class GoogleGenAIVeoAPI {
       onProgress,
     } = options;
 
-    // Return immediately if already done
+    // Return immediately if already done — but a finished job that failed is
+    // thrown here too; 1.x returned it as a success.
     if (operation.done) {
       this.logger.debug('Operation already complete');
+      throwIfFailed(operation);
       return operation;
     }
 
@@ -501,12 +526,7 @@ export class GoogleGenAIVeoAPI {
         const totalTime = (Date.now() - startTime) / 1000;
         this.logger.info(`Video generation completed in ${totalTime.toFixed(1)}s`);
 
-        if (operation.error) {
-          const error = new Error(operation.error.message || 'Video generation failed') as ExtendedError;
-          error.operationError = operation.error;
-          throw toPublicError(error, { surface: 'video' });
-        }
-
+        throwIfFailed(operation);
         return operation;
       }
     }
@@ -545,7 +565,7 @@ export class GoogleGenAIVeoAPI {
 
     // Validate response has video
     if (!operation.response?.generatedVideos?.[0]?.video) {
-      throw new Error('No video found in operation response');
+      throw noVideoError(operation);
     }
 
     const video = operation.response.generatedVideos[0].video;
@@ -595,7 +615,7 @@ export class GoogleGenAIVeoAPI {
     }
 
     if (!operation.response?.generatedVideos?.[0]?.video) {
-      throw new Error('No video found in operation response');
+      throw noVideoError(operation);
     }
 
     const generatedVideo = operation.response.generatedVideos[0];

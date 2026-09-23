@@ -447,7 +447,7 @@ google-genai <mode> --prompt "…" [options]
 | `--api-key`, `--log-level` | |
 | `--examples` | Worked examples |
 
-The CLI exits 1 on a validation error, an API error, or a run that returns no image (the message names the `finishReason`), and when no mode is given. `--help` and `--examples` exit 0.
+The CLI exits 1 on a validation error, an API error, a run that returns no image or no video analysis (the message names the `finishReason` or block reason), and when no mode is given. `--help` and `--examples` exit 0.
 
 ```bash
 google-genai --model gemini-3.1-flash-lite-image --prompt "a flat paper-plane icon"
@@ -464,7 +464,7 @@ The CLI writes under `--output-dir` (default `datasets/google`), one directory p
 ```
 datasets/google/
 ├── gemini-3.1-flash-image/
-│   ├── 20260922_101530_a-red-apple.png
+│   ├── 20260922_101530_a-red-apple.jpg
 │   └── 20260922_101530_a-red-apple.json
 ├── veo/veo-3.1-generate-preview/
 │   ├── 20260922_102210_waves-at-dusk.mp4
@@ -472,7 +472,7 @@ datasets/google/
 └── video-analysis/
 ```
 
-When a response holds several images they are saved as `…_1.png`, `…_2.png`. Image metadata:
+Images take the extension of the bytes the model returned — the current models return JPEG, so `.jpg` — and share their stem with the metadata file. When a response holds several images they are saved as `…_1.jpg`, `…_2.jpg`. Image metadata:
 
 ```json
 {
@@ -481,7 +481,7 @@ When a response holds several images they are saved as `…_1.png`, `…_2.png`.
   "prompt": "a red apple",
   "parameters": { "aspectRatio": "16:9", "imageSize": "2K" },
   "finishReason": "STOP",
-  "outputs": [{ "type": "image", "filename": "20260922_101530_a-red-apple.png" }],
+  "outputs": [{ "type": "image", "filename": "20260922_101530_a-red-apple.jpg" }],
   "text": []
 }
 ```

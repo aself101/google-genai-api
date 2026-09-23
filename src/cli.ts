@@ -24,6 +24,7 @@ import {
 } from './api.js';
 import { GoogleGenAIVeoAPI, VEO_MODELS, VEO_MODES } from './veo-api.js';
 import { errorMessage } from './errors.js';
+import { noOutputReason } from './no-output.js';
 import {
   getGoogleGenAIApiKey,
   validateVideoParams,
@@ -448,6 +449,20 @@ if (!options.prompt || options.prompt.length === 0) {
  * @param apiKey - Google GenAI API key
  * @param prompts - Array of analysis prompts
  */
+/** File extension for an image MIME type; `png` for anything unrecognised. */
+function extensionFor(mimeType: string | undefined): string {
+  switch (mimeType) {
+    case 'image/jpeg':
+      return 'jpg';
+    case 'image/webp':
+      return 'webp';
+    case 'image/gif':
+      return 'gif';
+    default:
+      return 'png';
+  }
+}
+
 async function handleVideoMode(apiKey: string, prompts: string[], inputVideo: string): Promise<void> {
   const videoApi = new GoogleGenAIVideoAPI(apiKey, options.logLevel);
   const outputDir = path.join(options.outputDir || DEFAULT_OUTPUT_DIR, 'video-analysis');
@@ -515,11 +530,15 @@ async function handleVideoMode(apiKey: string, prompts: string[], inputVideo: st
           mimeType: uploadedFile.mimeType,
           videoMetadata: videoMetadata || undefined,
         });
-        analyzeSpinner.stop('✓ Analysis complete\n');
       } catch (error) {
         analyzeSpinner.stop('✗ Analysis failed\n');
         throw error;
       }
+      if (!response.candidates?.[0]?.content?.parts) {
+        analyzeSpinner.stop('✗ No analysis returned\n');
+        throw new Error(`${MODELS.GEMINI_VIDEO} returned no analysis (${noOutputReason(response)})`);
+      }
+      analyzeSpinner.stop('✓ Analysis complete\n');
 
       // Extract analysis and metadata
       const { text: analysisText, frames } = extractVideoMetadata(response);
@@ -810,6 +829,9 @@ async function main(): Promise<void> {
       let imageCount = 0;
       const savedFiles: string[] = [];
       const totalImages = parts.filter((p) => p.type === 'image' && p.data).length;
+      // One stem per prompt, so the metadata's name matches its images' (1.x made
+      // a second timestamp, which could differ by a second).
+      const stem = path.parse(generateFilename(prompt, 'json')).name;
 
       for (let partIndex = 0; partIndex < parts.length; partIndex++) {
         const part = parts[partIndex];
@@ -817,17 +839,10 @@ async function main(): Promise<void> {
         if (part.type === 'image' && part.data) {
           imageCount++;
 
-          // Generate filename with unique suffix for multiple images
-          let filename: string;
-          if (totalImages > 1) {
-            // Multiple images: add index suffix to ensure unique filenames
-            const baseFilename = generateFilename(prompt);
-            const ext = path.extname(baseFilename);
-            filename = `${baseFilename.slice(0, baseFilename.length - ext.length)}_${imageCount}${ext}`;
-          } else {
-            // Single image: no index
-            filename = generateFilename(prompt);
-          }
+          // Extension from the bytes' MIME type: the current models return JPEG,
+          // which 1.x wrote to `.png` files. Index suffix only when there are several.
+          const suffix = totalImages > 1 ? `_${imageCount}` : '';
+          const filename = `${stem}${suffix}.${extensionFor(part.mimeType)}`;
 
           const imagePath = path.join(outputDirPath, filename);
 
@@ -843,7 +858,7 @@ async function main(): Promise<void> {
       }
 
       // Save metadata
-      const metadataFilename = generateFilename(prompt, 'json');
+      const metadataFilename = `${stem}.json`;
       const metadataPath = path.join(outputDirPath, metadataFilename);
 
       const metadata = {
@@ -881,5 +896,5 @@ async function main(): Promise<void> {
   }
 }
 
-// Run main function
-main();
+// Run main function (it catches everything and exits itself)
+void main();

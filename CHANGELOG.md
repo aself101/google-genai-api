@@ -46,6 +46,7 @@ Spec: `docs/specs/google-genai-api-2.0-spec-v0_4_2.md`. Google shut down Imagen 
 - `detectGeminiMode()` no longer throws on more than one input image; how many a model takes is its `inputImagesMax` (up to 14).
 - `MODELS.GEMINI_3_PRO` is now `'gemini-3-pro-image'` (GA), not the preview id.
 - The SDK client is pinned to the Gemini Developer API (`vertexai: false`) in all three clients. Before, `GOOGLE_GENAI_USE_VERTEXAI` or `GOOGLE_GENAI_USE_ENTERPRISE` in the environment would move requests to a different endpoint and serializer.
+- **`generateFromVideo()` no longer invents an answer.** When the response has no output (e.g. the prompt was blocked), 1.x returned a made-up candidate whose text read "No analysis could be generated for this video." — indistinguishable from a real analysis, and the CLI saved it and exited 0. The response is now returned unchanged, with a warning naming the block or finish reason (as `generateWithGemini()` does), and the CLI exits 1. `GeminiResponse` gains `promptFeedback`; `VeoOperationResponse` gains `raiMediaFilteredCount` / `raiMediaFilteredReasons`.
 - **`parseVeoMetadata()` checks the whole file it returns.** 1.x checked only `operation_name` and returned the rest, unchecked, as a `VeoSavedMetadata`; a file missing `result`, `model` or a known `mode` now throws `Invalid Veo metadata: <what is wrong>` (the 1.x messages for a missing file, invalid JSON and a missing `operation_name` are unchanged). Files written by `saveVeoMetadata()` always pass.
 - `saveMetadata()` takes any `object` (was `Record<string, unknown>`, which interfaces without an index signature, such as `VeoSavedMetadata`, could not satisfy without a cast). Widening only; every 1.x call still compiles.
 - `generateWithGemini()` has **no default `aspectRatio`** (1.x defaulted to `'1:1'`, but never sent it). Omit it and the model chooses the framing — exactly what every 1.x call received.
@@ -80,6 +81,14 @@ Spec: `docs/specs/google-genai-api-2.0-spec-v0_4_2.md`. Google shut down Imagen 
 - semantic-release and its release workflow. Releases are published by hand, gated by `check:release`.
 
 ### Fixed
+
+- **CLI images are saved with the extension of their bytes.** The current Gemini image models return JPEG (13 of 13 live probes), which 1.x wrote to `.png` files; the metadata file now also shares the image's stem (1.x took a second timestamp, which could differ by a second).
+- **`waitForCompletion()` throws for an operation that is already done with an error** — 1.x returned it as a success, and the caller found out later from `downloadVideo()`'s "No video found".
+- **A Veo job whose output Google's safety filters withheld** now says so: `No video found in operation response: withheld by Google's safety filters (<Google's reasons>)` (the reasons were in the response; 1.x dropped them).
+- **`uploadVideoFile()` deletes the uploaded file when processing fails** (FAILED, timeout, poll error). 1.x left it in the project's Files API storage for 48 hours, and the CLI's cleanup never ran on that path.
+- Video upload polling: a 429 on the last attempt is reported as a rate limit instead of sleeping 60 s and reporting a processing timeout. An unparseable `sizeBytes` is 0, not `NaN`.
+- `durationSeconds: 0` was dropped by a truthiness check, so a request logged "sending anyway" in `capabilityValidation: 'warn'` mode and then used the default duration; it is now sent.
+- File errors from `validateImagePath`, `validateVideoPath` and `parseVeoMetadata` keep the original error as `cause` (errno code, stack).
 
 - **`waitForCompletion()` accepts a plain `{ name, done: false }`.** The SDK's poll calls a method of its own operation class, and 1.x cast whatever it was given to that class, so an operation rebuilt from a saved name threw `_fromAPIResponse is not a function` inside the SDK. It now builds a real SDK operation from the name. Operations the package returns are also checked instead of cast: one without a name is an error at submission rather than a job that cannot be polled.
 - **`uploadVideoFile()` returns `sizeBytes` as a number**, as `VideoUploadResult` and `FileInfo` always declared. The Files API sends an int64 string and 1.x passed it through by casting. An ACTIVE file without a `uri`, `name` or `mimeType` is now an error rather than a result with `undefined` fields. Likewise an upload result with no file name, which 1.x polled as `files/undefined`.

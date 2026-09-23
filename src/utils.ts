@@ -149,9 +149,9 @@ export async function validateImagePath(filepath: string): Promise<string> {
   } catch (error) {
     const { code } = thrownFields(error);
     if (code === 'ENOENT') {
-      throw new Error(`Image file not found: ${filepath}`);
+      throw new Error(`Image file not found: ${filepath}`, { cause: error });
     } else if (code === 'EACCES') {
-      throw new Error(`Permission denied reading image file: ${filepath}`);
+      throw new Error(`Permission denied reading image file: ${filepath}`, { cause: error });
     }
     throw error;
   }
@@ -443,10 +443,11 @@ export async function validateVideoPath(filepath: string): Promise<VideoValidati
   } catch (error) {
     const { code } = thrownFields(error);
     if (code === 'ENOENT') {
-      throw new Error(`Video file not found: ${filepath}. Please check the file path exists.`);
+      throw new Error(`Video file not found: ${filepath}. Please check the file path exists.`, { cause: error });
     } else if (code === 'EACCES') {
       throw new Error(
-        `Permission denied reading video file: ${filepath}. Check file permissions.`
+        `Permission denied reading video file: ${filepath}. Check file permissions.`,
+        { cause: error }
       );
     }
     throw error;
@@ -813,10 +814,10 @@ export async function parseVeoMetadata(metadataPath: string): Promise<VeoSavedMe
     return metadata;
   } catch (error) {
     if (thrownFields(error).code === 'ENOENT') {
-      throw new Error(`Metadata file not found: ${metadataPath}`);
+      throw new Error(`Metadata file not found: ${metadataPath}`, { cause: error });
     }
     if (error instanceof SyntaxError) {
-      throw new Error(`Invalid JSON in metadata file: ${metadataPath}`);
+      throw new Error(`Invalid JSON in metadata file: ${metadataPath}`, { cause: error });
     }
     throw error;
   }
