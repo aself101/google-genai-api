@@ -118,7 +118,7 @@ Companion to [`google-genai-api-2.0-spec-v0_4_2.md`](./google-genai-api-2.0-spec
 - [x] `master` fast-forwarded to `release/2.0` (`01ea16b`) and renamed `main`; pushed; GitHub default → `main`; remote `master` deleted; `origin/HEAD` → `main` (Alex's go, 2026-09-22). First CI on `main` failed on all three Node versions: the README control read the 1.x README via `git show 3e52d92`, which a depth-1 CI checkout lacks — now a committed fixture (`test/fixtures/README-1.3.0.md`); reproduced in a depth-1 clone before pushing; CI green on 20/22/24
 - [x] `npm publish` (Alex, 2026-09-22): `latest` = 2.0.0, `gitHead` `afc2f5a`, shasum `89b394e0…`; tarball HTTP 200, and its `dist/`, README and CHANGELOG byte-identical to `main`'s build. Tag `v2.0.0` at `afc2f5a`; GitHub release v2.0.0 (notes = CHANGELOG 2.0.0 section), marked latest
 - [ ] darkroom: `google-genai-api@^2.0.0` from npmjs; no `file:`/`localhost:4873` for it in the lockfile; resolved URL 200
-- [ ] `npm deprecate google-genai-api@"<2.0.0"` (after darkroom is on 2.0.0)
+- [x] `npm deprecate google-genai-api@"<2.0.0"` (Alex, 2026-09-22; verified on the registry: every 1.x version carries the message, 2.0.0 does not). Done before the darkroom bump — darkroom's `^1.3.0` install now shows the deprecation warning until it moves
 
 ## Ship pipeline (ship v1.1.1) — round 1 on `5f8c3b2`
 - [x] Stage 2 code-validator **93** PASS. Taken: `handleVeoMode` duplicated generate/wait block → `generateAndWait`; image count hoisted out of the per-part loop. Declined: splitting `main()`/`handleVideoMode` (CLI orchestration, comment-sectioned; no logic lives there)
