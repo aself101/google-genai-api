@@ -169,6 +169,12 @@ Companion to [`google-genai-api-2.0-spec-v0_4_2.md`](./google-genai-api-2.0-spec
 - [x] LOW, fixed: `encodeURIComponent` on the Files API delete path segment; `permissions: contents: read` on ci.yml
 - [x] Declined: making production-style error redaction the default instead of `NODE_ENV === 'production'` — D13 keeps 1.x's contract (the SDK's own error object outside production, as 1.x rethrew it); switching would change every non-production caller's errors. Documented in README Errors
 
+## Live battery (2026-09-23) — `docs/LIVE-BATTERY-2026-09-23.md`
+- [x] Every model × parameter × mode through `dist/` (CLI; library for references/interpolation/extension), outputs checked on contact sheets and by `GoogleGenAIVideoAPI` descriptions; ≈ $16.30 at list price
+- [x] Found and fixed (`9bac687`): video clipping never worked (videoMetadata nested in fileData since 1.x; mocked test asserted the wrong shape) — wire test pins it, re-run live OK; Veo Lite rejects `negativePrompt`; `personGeneration` is mode-dependent and `dont_allow` rejected everywhere (Google's table wrong for I2V) — now capability checks
+- [x] Confirmed: all 14 ratios on Flash and Lite (Lite beyond Google's list), 10 on Pro, every size tier, 14 inputs on every model; the catalog's image rules match Google's own 400s under `warn`
+- [x] Self-inflicted: parallel groups tripped Google's spend-based 429 (21 runs, $0); paced re-run passed — recorded in memory and README troubleshooting
+
 ## Cross-phase invariants
 - Subpath exports, class names, constructors (third arg optional), Veo method signatures unchanged (darkroom surface).
 - No `as Record<string, unknown>` / `as unknown as` on SDK request objects.

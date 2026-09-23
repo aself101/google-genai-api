@@ -128,6 +128,8 @@ The package catalogs **current models only** — those Google has announced no s
 All aspect ratios: `1:1`, `3:2`, `2:3`, `3:4`, `4:3`, `4:5`, `5:4`, `9:16`, `16:9`, `21:9`, `1:4`, `4:1`, `1:8`, `8:1`. All sizes: `512`, `1K`, `2K`, `4K` (uppercase K).
 <!-- /generated:image-models -->
 
+At the extreme ratios (`1:4`, `4:1`, `1:8`, `8:1`) Flash and Lite return the exact dimensions but often fill the frame with two or three repeated panels of the scene rather than one composition — model behaviour, seen in the live battery.
+
 `imageSize` is a resolution tier, not a fixed edge: on `gemini-3.1-flash-image`, `2K` gave 2048×2048 at `1:1` and 2816×1536 at the model's default framing (live, 2026-09-22). All images carry Google's SynthID watermark.
 
 ### Veo models
@@ -506,7 +508,7 @@ See [Known limitations](#known-limitations) for what the URL checks do not cover
 - **No timeout on API calls.** Generation calls and the Veo video download (the SDK's `files.download`) use the SDK's defaults, which set none; only image downloads (60 s) and the video-file delete (30 s) set their own.
 - **Video understanding uses a fixed model**, `gemini-2.5-flash`, with no override. When Google retires it, every `generateFromVideo` call fails until a release moves it; `check:lifecycle` flags the announcement for the next release, not for installed copies.
 - **A Veo job the CLI stops waiting for keeps running.** The CLI polls for up to 10 minutes (one 4k/8 s render took 6); on timeout it exits 1 and prints the operation name. Pick the job up with the library: `veo.waitForCompletion({ name, done: false })`.
-- **What has been exercised live** (through the built package, one key, one region, 2026-09-22/23): images on all three models (aspect ratios, `512`/`2K`/`4K`, up to 3 input images, edits); Veo text-to-video on Lite, Fast and 3.1 (720p and 4k), image-to-video on Fast (and resumed by name), reference images on 3.1, interpolation on Lite; video understanding on a short clip (upload, analyse, delete, missing file). **Not** exercised live: Veo 1080p, Veo extension, video clipping offsets (`videoMetadata`, `--video-start`/`--video-end`), the CLI's `--video` mode, the rate-limit (429) and long-processing branches of upload polling, and Pro's thought parts — two Pro runs returned none, so the thought-part filter is tested only against Google's documented shape. Each of those is covered by tests against mocks or a stubbed `fetch`, not by Google.
+- **What has been exercised live** — the full battery in [docs/LIVE-BATTERY-2026-09-23.md](docs/LIVE-BATTERY-2026-09-23.md) (through the built package; one key, US region): every image model at every aspect ratio and size it lists, 14 input images, edits, batches, and `capabilityValidation: 'warn'` against Google's own rejections; Veo text-to-video on every model at 720p, 1080p and 4k, 4/6/8 s and both ratios, image-to-video, reference images, interpolation, extension, resume by name, and the `negativePrompt`/`personGeneration` rules; video understanding including clipping offsets and the CLI's `--video` batch. **Not** exercised live: the rate-limit (429) and long-processing branches of upload polling, a safety-blocked prompt, Veo extension on Standard (same path as Fast), other regions, and Pro's thought parts — Pro has never returned one, so the thought-part filter is tested only against Google's documented shape.
 - **No total-size check on input images.** Validation checks the count; the Gemini API rejects requests over its inline size limit. Only three input images have been exercised live.
 - **The constraint tables come from Google's docs and a set of live probes** (see the list above). `capabilityValidation: 'warn'` exists because the docs have been wrong. Regional `personGeneration` limits are not modeled.
 - **A vendor field this package does not declare cannot be sent.** The SDK only serializes fields it knows; new ones arrive in a release.
@@ -529,6 +531,8 @@ See [Known limitations](#known-limitations) for what the URL checks do not cover
 **`Model '…' is not in this package's catalog`** — a warning, not an error: the request was sent. Check the id if it was a typo.
 
 **Veo `timed out after …`** — the job may still complete; retry `waitForCompletion` with the same operation.
+
+**`429 … spend-based rate limit`** — Google caps the rate of spend per account by billing history and tier; it is not a per-minute request quota. Space requests out (the battery ran fine at one every 20 s) and retry; the error is classified `TRANSIENT`.
 
 ## Development
 
