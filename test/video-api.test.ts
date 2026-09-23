@@ -499,7 +499,8 @@ describe('GoogleGenAIVideoAPI', () => {
       const thrown = (await api
         .generateFromVideo({ prompt: 'x', fileUri: 'files/doesnotexist123', mimeType: 'video/mp4' })
         .catch((e: unknown) => e)) as ExtendedError;
-      expect(thrown.message).toMatch(/expire after 48 hours/);
+      // Google's 403 covers "no permission" and "gone"; the message says both
+      expect(thrown.message).toMatch(/not accessible with this API key.*expire after 48 hours.*another project/);
       expect(thrown).toMatchObject({ status: 403, classification: 'USER_ACTIONABLE', surface: 'video-understanding' });
     });
 

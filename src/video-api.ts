@@ -369,10 +369,18 @@ export class GoogleGenAIVideoAPI {
         (publicError.status === 403 && /\bFile\b.*may not exist/i.test(message)) ||
         (publicError.status === 404 && !/models\//.test(message));
       if (missingFile) {
-        throw Object.assign(
-          new Error('Video file not found. The file may have expired (files expire after 48 hours) or was deleted.'),
-          { status: publicError.status, classification: 'USER_ACTIONABLE', surface: publicError.surface }
-        );
+        // 1.x's text for the 404. Google's 403 is ambiguous by design ("no
+        // permission … or it may not exist"): a file from another project reads
+        // the same, so that case says so rather than asserting expiry.
+        const message =
+          publicError.status === 404
+            ? 'Video file not found. The file may have expired (files expire after 48 hours) or was deleted.'
+            : 'Video file not found or not accessible with this API key. It may have expired (files expire after 48 hours), been deleted, or belong to another project.';
+        throw Object.assign(new Error(message), {
+          status: publicError.status,
+          classification: 'USER_ACTIONABLE',
+          surface: publicError.surface,
+        });
       }
       throw publicError;
     }
@@ -382,8 +390,9 @@ export class GoogleGenAIVideoAPI {
    * Delete a video file from Google GenAI Files API.
    * This is a best-effort cleanup - failures are logged but not thrown.
    *
-   * Note: The @google/genai SDK v0.3.0 does not expose files.delete(),
-   * so this uses a direct HTTP DELETE request via axios.
+   * Uses a direct HTTP DELETE via axios, kept from 1.x, which wrote it when the
+   * SDK had no `files.delete()`. SDK 2.x has one; moving to it was left out of
+   * 2.0's scope.
    *
    * @param fileUri - File URI to delete (e.g., 'files/abc123')
    *
@@ -416,9 +425,11 @@ export class GoogleGenAIVideoAPI {
 
       this.logger.info(`Deleted video file: ${fileName}`);
     } catch (error) {
-      // Best-effort cleanup - log but don't throw
-      if (thrownFields(thrownFields(error).response).status === 404) {
-        this.logger.warn(`File not found (may have already been deleted): ${fileName}`);
+      // Best-effort cleanup - log but don't throw. Google answers a file that is
+      // gone with 403 as well as 404 (see generateFromVideo).
+      const status = thrownFields(thrownFields(error).response).status;
+      if (status === 404 || status === 403) {
+        this.logger.warn(`File not found or not accessible (may have already been deleted): ${fileName}`);
       } else {
         this.logger.warn(`Failed to delete video file: ${errorMessage(error)}`);
       }
