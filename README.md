@@ -491,7 +491,7 @@ When a response holds several images they are saved as `…_1.png`, `…_2.png`.
 ## Security
 
 - **API keys** are logged only redacted (last four characters), and only at `debug`.
-- **Image URLs** (`imageToInlineData`, `--input-image`) must be HTTPS. The URL host is rejected if it is `localhost`, a cloud metadata host (`metadata.google.internal`, `169.254.169.254`), or a private, loopback or link-local address, including IPv4-mapped IPv6 forms like `[::ffff:127.0.0.1]`. A hostname is resolved first and rejected if it resolves to such an address.
+- **Image URLs** (`imageToInlineData`, `--input-image`) must be HTTPS and may not reach an internal address: `localhost`, the cloud metadata hosts, or any address in the loopback, private, link-local (incl. `169.254.169.254`), carrier-grade NAT, unique-local (`fc00::/7`), NAT64, multicast or reserved ranges — in any spelling, including IPv4-mapped IPv6 (`[::ffff:a9fe:a9fe]`) and numeric forms (`2130706433`). The check runs three times: on the URL before downloading; **at connect time** on every address the hostname resolves to (so a second DNS answer, or one that changes after the first check, is caught); and on **every redirect**, which must stay HTTPS and pass the same address check.
 - **Downloads** time out after 60 s, are capped at 50 MB, follow at most 5 redirects, and must be PNG, JPEG, WebP or GIF both by `Content-Type` and by magic bytes; the type sent to Gemini is the one the bytes show. Local files are checked by magic bytes.
 - **Error messages** in production are limited as described in [Errors](#errors).
 
@@ -499,7 +499,7 @@ See [Known limitations](#known-limitations) for what the URL checks do not cover
 
 ## Known limitations
 
-- **SSRF check resolves once, first address only.** The hostname is resolved and its first address checked; the download then resolves again. A hostname with several addresses, or one whose answer changes between the check and the download, is not fully covered. Do not pass untrusted URLs to `imageToInlineData` on a network where that matters.
+- **The URL checks cover addresses, not proxies.** With `HTTPS_PROXY` set, the connection goes to the proxy and the target is resolved by the proxy, outside these checks. The IP ranges are a fixed list of special-purpose blocks; an internal network that uses public address space is not recognised as internal.
 - **No timeout on API calls.** Generation calls use the SDK's defaults; only image downloads (60 s) and the video-file delete (30 s) set their own.
 - **No total-size check on input images.** Validation checks the count; the Gemini API rejects requests over its inline size limit. Only three input images have been exercised live.
 - **The constraint tables come from Google's docs and a set of live probes** (one key, one region, 2026-09-22). `capabilityValidation: 'warn'` exists because the docs have been wrong. Regional `personGeneration` limits are not modeled.

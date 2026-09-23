@@ -143,12 +143,12 @@ describe('Image Validation (Security)', () => {
     });
 
     it('should accept valid HTTPS URLs with public IPs', async () => {
-      mockLookup.mockResolvedValue({ address: '8.8.8.8', family: 4 });
+      mockLookup.mockResolvedValue([{ address: '8.8.8.8', family: 4 }]);
       await expect(validateImageUrl('https://example.com/image.jpg')).resolves.toBe(
         'https://example.com/image.jpg'
       );
 
-      mockLookup.mockResolvedValue({ address: '1.1.1.1', family: 4 });
+      mockLookup.mockResolvedValue([{ address: '1.1.1.1', family: 4 }]);
       await expect(validateImageUrl('https://cdn.example.com/path/to/image.png')).resolves.toBe(
         'https://cdn.example.com/path/to/image.png'
       );
@@ -187,7 +187,36 @@ describe('Image Validation (Security)', () => {
     });
 
     it('should reject IPv4-mapped IPv6 localhost (SSRF bypass prevention)', async () => {
-      await expect(validateImageUrl('https://[::ffff:127.0.0.1]/image.jpg')).rejects.toThrow('localhost');
+      await expect(validateImageUrl('https://[::ffff:127.0.0.1]/image.jpg')).rejects.toThrow('private');
+    });
+
+    // Found by the ship review (2026-09-22): each of these passed the 1.x checks.
+    it.each([
+      ['hex IPv4-mapped loopback', 'https://[::ffff:7f00:1]/x.png'],
+      ['hex IPv4-mapped cloud metadata', 'https://[::ffff:a9fe:a9fe]/latest/meta-data/'],
+      ['unique local fd12::1 (fc00::/7, not just fd00:)', 'https://[fd12::1]/x.png'],
+      ['unique local fc01::1', 'https://[fc01::1]/x.png'],
+      ['carrier-grade NAT 100.64.0.1', 'https://100.64.0.1/x.png'],
+      ['NAT64 of the metadata address', 'https://[64:ff9b::a9fe:a9fe]/x.png'],
+      ['hex-octet loopback 0x7f.1', 'https://0x7f.1/x.png'],
+      ['decimal loopback 2130706433', 'https://2130706433/x.png'],
+    ])('rejects %s', async (_case, url) => {
+      await expect(validateImageUrl(url)).rejects.toThrow('private');
+      expect(mockLookup).not.toHaveBeenCalled();
+    });
+
+    it('accepts public IPv6 and public IPv4-mapped addresses', async () => {
+      await expect(validateImageUrl('https://[2606:4700::1111]/x.png')).resolves.toBeDefined();
+      await expect(validateImageUrl('https://[::ffff:808:808]/x.png')).resolves.toBeDefined();
+    });
+
+    it('rejects a hostname if ANY of its addresses is private, not just the first', async () => {
+      mockLookup.mockResolvedValue([
+        { address: '93.184.216.34', family: 4 },
+        { address: '10.0.0.5', family: 4 },
+      ]);
+      await expect(validateImageUrl('https://two-faced.example/x.png')).rejects.toThrow('resolves to internal/private IP');
+      expect(mockLookup).toHaveBeenCalledWith('two-faced.example', { all: true });
     });
 
     it('should reject IPv4-mapped IPv6 private IPs (SSRF bypass prevention)', async () => {
@@ -210,57 +239,57 @@ describe('Image Validation (Security)', () => {
     });
 
     it('should return validated URL on success', async () => {
-      mockLookup.mockResolvedValue({ address: '8.8.8.8', family: 4 });
+      mockLookup.mockResolvedValue([{ address: '8.8.8.8', family: 4 }]);
       const url = 'https://example.com/image.jpg';
       await expect(validateImageUrl(url)).resolves.toBe(url);
     });
 
     // DNS Rebinding Prevention Tests
     it('should reject domains resolving to localhost (DNS rebinding prevention)', async () => {
-      mockLookup.mockResolvedValue({ address: '127.0.0.1', family: 4 });
+      mockLookup.mockResolvedValue([{ address: '127.0.0.1', family: 4 }]);
       await expect(validateImageUrl('https://evil.com/image.jpg')).rejects.toThrow(
         'resolves to internal/private IP'
       );
     });
 
     it('should reject domains resolving to private IPs (DNS rebinding prevention)', async () => {
-      mockLookup.mockResolvedValue({ address: '10.0.0.1', family: 4 });
+      mockLookup.mockResolvedValue([{ address: '10.0.0.1', family: 4 }]);
       await expect(validateImageUrl('https://evil.com/image.jpg')).rejects.toThrow(
         'resolves to internal/private IP'
       );
 
-      mockLookup.mockResolvedValue({ address: '192.168.1.1', family: 4 });
+      mockLookup.mockResolvedValue([{ address: '192.168.1.1', family: 4 }]);
       await expect(validateImageUrl('https://evil2.com/image.jpg')).rejects.toThrow(
         'resolves to internal/private IP'
       );
 
-      mockLookup.mockResolvedValue({ address: '172.16.0.1', family: 4 });
+      mockLookup.mockResolvedValue([{ address: '172.16.0.1', family: 4 }]);
       await expect(validateImageUrl('https://evil3.com/image.jpg')).rejects.toThrow(
         'resolves to internal/private IP'
       );
     });
 
     it('should reject domains resolving to cloud metadata IPs (DNS rebinding prevention)', async () => {
-      mockLookup.mockResolvedValue({ address: '169.254.169.254', family: 4 });
+      mockLookup.mockResolvedValue([{ address: '169.254.169.254', family: 4 }]);
       await expect(validateImageUrl('https://evil.com/image.jpg')).rejects.toThrow(
         'resolves to internal/private IP'
       );
     });
 
     it('should reject domains resolving to IPv6 loopback (DNS rebinding prevention)', async () => {
-      mockLookup.mockResolvedValue({ address: '::1', family: 6 });
+      mockLookup.mockResolvedValue([{ address: '::1', family: 6 }]);
       await expect(validateImageUrl('https://evil.com/image.jpg')).rejects.toThrow(
         'resolves to internal/private IP'
       );
     });
 
     it('should reject domains resolving to IPv6 private addresses (DNS rebinding prevention)', async () => {
-      mockLookup.mockResolvedValue({ address: 'fe80::1', family: 6 });
+      mockLookup.mockResolvedValue([{ address: 'fe80::1', family: 6 }]);
       await expect(validateImageUrl('https://evil.com/image.jpg')).rejects.toThrow(
         'resolves to internal/private IP'
       );
 
-      mockLookup.mockResolvedValue({ address: 'fc00::1', family: 6 });
+      mockLookup.mockResolvedValue([{ address: 'fc00::1', family: 6 }]);
       await expect(validateImageUrl('https://evil2.com/image.jpg')).rejects.toThrow(
         'resolves to internal/private IP'
       );

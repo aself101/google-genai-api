@@ -10,10 +10,12 @@ import path from 'path';
 import winston from 'winston';
 import axios from 'axios';
 import { lookup } from 'dns/promises';
-import { isIPv4, isIPv6 } from 'net';
+import type { LookupAddress } from 'dns';
+import { isIP } from 'net';
 import { fileTypeFromBuffer, fileTypeFromFile } from 'file-type';
 import { VEO_MODES, VIDEO_MIME_TYPES, VIDEO_SIZE_LIMITS } from './config.js';
 import { errorMessage, thrownFields } from './errors.js';
+import { bareHost, checkRedirect, guardedLookup, isBlockedAddress, isBlockedHostname } from './download-guard.js';
 import type {
   InlineData,
   SpinnerObject,
@@ -40,83 +42,19 @@ const logger = winston.createLogger({
 });
 
 /**
- * Helper function to check if an IP address is blocked (private/internal).
+ * Validate an image URL before downloading it: HTTPS only, not a blocked
+ * hostname, and not an IP address — literal, or any address the hostname
+ * resolves to — in a blocked range (see src/download-guard.ts).
  *
- * @param ip - IP address to check (IPv4 or IPv6)
- * @returns True if IP is blocked, false otherwise
- */
-function isBlockedIP(ip: string): boolean {
-  // Remove IPv6 bracket notation
-  const cleanIP = ip.replace(/^\[|\]$/g, '');
-
-  // Block localhost variations
-  if (cleanIP === 'localhost' || cleanIP === '127.0.0.1' || cleanIP === '::1') {
-    return true;
-  }
-
-  // Block cloud metadata endpoints
-  const blockedHosts = ['metadata.google.internal', 'metadata', '169.254.169.254'];
-  if (blockedHosts.includes(cleanIP)) {
-    return true;
-  }
-
-  // Block private IP ranges and special addresses
-  const blockedPatterns = [
-    /^127\./, // Loopback
-    /^10\./, // Private Class A
-    /^172\.(1[6-9]|2[0-9]|3[0-1])\./, // Private Class B
-    /^192\.168\./, // Private Class C
-    /^169\.254\./, // Link-local (AWS metadata)
-    /^0\./, // Invalid range
-    /^::1$/, // IPv6 loopback
-    /^fe80:/, // IPv6 link-local
-    /^fc00:/, // IPv6 unique local
-    /^fd00:/, // IPv6 unique local
-  ];
-
-  return blockedPatterns.some((pattern) => pattern.test(cleanIP));
-}
-
-/**
- * Validate image URL for security.
- * Enforces HTTPS and blocks private IPs, localhost, and cloud metadata endpoints.
- *
- * DNS Resolution: This function performs DNS resolution to prevent DNS rebinding attacks,
- * where a domain might resolve to different IPs between validation time and request time.
+ * This is the early, readable refusal. The download itself re-checks every
+ * address it connects to and every redirect (`imageToInlineData`), because a
+ * hostname can resolve differently a moment later.
  *
  * @param url - URL to validate
  * @returns The validated URL
  * @throws Error if URL is invalid or insecure
  */
 export async function validateImageUrl(url: string): Promise<string> {
-  // First check for IPv4-mapped IPv6 in the original URL string (before URL parsing normalizes it)
-  // This prevents SSRF bypass via https://[::ffff:127.0.0.1] or https://[::ffff:169.254.169.254]
-  const ipv6MappedMatch = url.match(/\[::ffff:(\d+\.\d+\.\d+\.\d+)\]/i);
-  if (ipv6MappedMatch) {
-    const extractedIPv4 = ipv6MappedMatch[1];
-    logger.warn(`SECURITY: Detected IPv4-mapped IPv6 address in URL: ${url} → ${extractedIPv4}`);
-
-    // Validate the extracted IPv4 directly
-    if (extractedIPv4 === '127.0.0.1' || extractedIPv4.startsWith('127.')) {
-      logger.warn(`SECURITY: Blocked IPv4-mapped IPv6 localhost: ${url}`);
-      throw new Error('Access to localhost is not allowed');
-    }
-
-    // Check against private IP patterns
-    const privatePatterns = [
-      /^10\./, // Private Class A
-      /^172\.(1[6-9]|2[0-9]|3[0-1])\./, // Private Class B
-      /^192\.168\./, // Private Class C
-      /^169\.254\./, // Link-local (AWS metadata)
-      /^0\./, // Invalid range
-    ];
-
-    if (privatePatterns.some((pattern) => pattern.test(extractedIPv4))) {
-      logger.warn(`SECURITY: Blocked IPv4-mapped IPv6 private IP: ${url}`);
-      throw new Error('Access to internal/private IP addresses is not allowed');
-    }
-  }
-
   let parsed: URL;
 
   try {
@@ -130,51 +68,46 @@ export async function validateImageUrl(url: string): Promise<string> {
     throw new Error('Only HTTPS URLs are allowed for security reasons');
   }
 
-  const hostname = parsed.hostname.toLowerCase();
-  const cleanHostname = hostname.replace(/^\[|\]$/g, ''); // Remove IPv6 brackets
+  // `new URL()` has already normalised 0x7f.1, 2130706433 and [::ffff:127.0.0.1]
+  // to canonical forms; the checks below see those.
+  const hostname = bareHost(parsed.hostname);
 
-  // First check if hostname itself is blocked (before DNS resolution)
-  const blockedHosts = ['localhost', 'metadata.google.internal', 'metadata'];
-  if (blockedHosts.includes(cleanHostname)) {
+  if (isBlockedHostname(hostname)) {
     logger.warn(`SECURITY: Blocked access to prohibited hostname: ${hostname}`);
     throw new Error('Access to cloud metadata endpoints is not allowed');
   }
 
-  // Check if hostname is already an IP address (not a domain name)
-  if (isIPv4(cleanHostname) || isIPv6(cleanHostname)) {
-    if (isBlockedIP(cleanHostname)) {
+  if (isIP(hostname)) {
+    if (isBlockedAddress(hostname)) {
       logger.warn(`SECURITY: Blocked access to private/internal IP: ${hostname}`);
       throw new Error('Access to internal/private IP addresses is not allowed');
     }
-  } else {
-    // Hostname is a domain name - perform DNS resolution to prevent DNS rebinding
-    try {
-      logger.debug(`Resolving DNS for hostname: ${hostname}`);
-      const { address } = await lookup(hostname);
-      logger.debug(`DNS resolved ${hostname} → ${address}`);
-
-      if (isBlockedIP(address)) {
-        logger.warn(`SECURITY: DNS resolution of ${hostname} points to blocked IP: ${address}`);
-        throw new Error(`Domain ${hostname} resolves to internal/private IP address`);
-      }
-
-      logger.debug(`DNS validation passed for ${hostname} (resolved to ${address})`);
-    } catch (error) {
-      const { code } = thrownFields(error);
-      const message = errorMessage(error);
-      if (code === 'ENOTFOUND') {
-        logger.warn(`SECURITY: Domain ${hostname} could not be resolved`);
-        throw new Error(`Domain ${hostname} could not be resolved`);
-      } else if (message.includes('resolves to internal')) {
-        // Re-throw our custom error about blocked IPs
-        throw error;
-      } else {
-        logger.warn(`SECURITY: DNS lookup failed for ${hostname}: ${message}`);
-        throw new Error(`Failed to validate domain ${hostname}: ${message}`);
-      }
-    }
+    return url;
   }
 
+  // Every answer, not just the first: a hostname with one public and one private
+  // address could otherwise be connected to on the private one.
+  let answers: LookupAddress[];
+  try {
+    logger.debug(`Resolving DNS for hostname: ${hostname}`);
+    answers = await lookup(hostname, { all: true });
+  } catch (error) {
+    if (thrownFields(error).code === 'ENOTFOUND') {
+      logger.warn(`SECURITY: Domain ${hostname} could not be resolved`);
+      throw new Error(`Domain ${hostname} could not be resolved`, { cause: error });
+    }
+    const message = errorMessage(error);
+    logger.warn(`SECURITY: DNS lookup failed for ${hostname}: ${message}`);
+    throw new Error(`Failed to validate domain ${hostname}: ${message}`, { cause: error });
+  }
+
+  const blocked = answers.find((a) => isBlockedAddress(a.address));
+  if (blocked || answers.length === 0) {
+    logger.warn(`SECURITY: DNS resolution of ${hostname} points to blocked IP: ${blocked?.address ?? '(none)'}`);
+    throw new Error(`Domain ${hostname} resolves to internal/private IP address`);
+  }
+
+  logger.debug(`DNS validation passed for ${hostname} (${answers.map((a) => a.address).join(', ')})`);
   return url;
 }
 
@@ -252,6 +185,10 @@ export async function imageToInlineData(imagePathOrUrl: string): Promise<InlineD
       timeout: 60000, // 60 seconds
       maxContentLength: 50 * 1024 * 1024, // 50MB max
       maxRedirects: 5,
+      // Re-checked where it matters: every address each connection resolves to,
+      // and every redirect before it is followed (src/download-guard.ts).
+      lookup: guardedLookup,
+      beforeRedirect: checkRedirect,
     });
 
     buffer = Buffer.from(response.data);

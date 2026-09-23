@@ -11,6 +11,7 @@ vi.mock('axios', () => ({ default: { get: vi.fn() } }));
 import { lookup } from 'dns/promises';
 import axios from 'axios';
 import { imageToInlineData } from '../src/utils.js';
+import { checkRedirect, guardedLookup } from '../src/download-guard.js';
 
 // A complete 1x1 PNG (file-type needs more than the 8-byte signature).
 const PNG = Buffer.from(
@@ -26,7 +27,7 @@ function serve(body: Buffer, contentType: string): void {
 describe('imageToInlineData: URL downloads', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    (lookup as Mock).mockResolvedValue({ address: '93.184.216.34', family: 4 });
+    (lookup as Mock).mockResolvedValue([{ address: '93.184.216.34', family: 4 }]);
   });
 
   it('accepts an image whose bytes match an allowed type', async () => {
@@ -44,6 +45,15 @@ describe('imageToInlineData: URL downloads', () => {
     serve(JPEG, 'image/png');
     const result = await imageToInlineData('https://example.com/a.png');
     expect(result.mimeType).toBe('image/jpeg');
+  });
+
+  it('downloads through the connect-time lookup guard and the redirect check', async () => {
+    serve(PNG, 'image/png');
+    await imageToInlineData('https://example.com/a.png');
+    expect(axios.get).toHaveBeenCalledWith(
+      'https://example.com/a.png',
+      expect.objectContaining({ lookup: guardedLookup, beforeRedirect: checkRedirect, maxRedirects: 5 })
+    );
   });
 
   it('still rejects a disallowed Content-Type before sniffing', async () => {
