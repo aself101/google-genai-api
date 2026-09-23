@@ -116,7 +116,7 @@ Companion to [`google-genai-api-2.0-spec-v0_4_2.md`](./google-genai-api-2.0-spec
 - [x] V12 live through `dist/`, first attempt each: Fast T2V 720p/4 s → 1280×720, 4.0 s; 3.1 + reference image (`referenceType: 'asset'`, settles the open question) → 1280×720, 8.0 s; 3.1 4k/8 s → 3840×2160, 8.0 s (353 s render). Dimensions read from the mp4 `tkhd`/`mvhd` boxes (no ffprobe); three jobs, three distinct expected values
 - [x] V9 in darkroom against the tarball: `npm test` 345 pass / 0 fail / 1 skip (MySQL contract, needs a DB); live through darkroom's own `ADAPTERS.google`: 3.1 Flash 4:5, 3 Pro with `aspectRatio: ''` (darkroom's default → `undefined`), Flash edit with an input image, Veo 3.1 Fast 720p/4 s — all ok. Veo 3.1 (non-fast) covered by V12
 - [x] `master` fast-forwarded to `release/2.0` (`01ea16b`) and renamed `main`; pushed; GitHub default → `main`; remote `master` deleted; `origin/HEAD` → `main` (Alex's go, 2026-09-22). First CI on `main` failed on all three Node versions: the README control read the 1.x README via `git show 3e52d92`, which a depth-1 CI checkout lacks — now a committed fixture (`test/fixtures/README-1.3.0.md`); reproduced in a depth-1 clone before pushing; CI green on 20/22/24
-- [ ] `npm publish` (Alex); tag `v2.0.0`; GitHub release
+- [x] `npm publish` (Alex, 2026-09-22): `latest` = 2.0.0, `gitHead` `afc2f5a`, shasum `89b394e0…`; tarball HTTP 200, and its `dist/`, README and CHANGELOG byte-identical to `main`'s build. Tag `v2.0.0` at `afc2f5a`; GitHub release v2.0.0 (notes = CHANGELOG 2.0.0 section), marked latest
 - [ ] darkroom: `google-genai-api@^2.0.0` from npmjs; no `file:`/`localhost:4873` for it in the lockfile; resolved URL 200
 - [ ] `npm deprecate google-genai-api@"<2.0.0"` (after darkroom is on 2.0.0)
 
