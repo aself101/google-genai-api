@@ -25,3 +25,16 @@
 {"id": "v9-pro", "ok": true, "secs": 16, "outputs": [{"mime": "image/jpeg", "bytes": 822172}], "phase": "P7 V9 darkroom adapters (tarball)"}
 {"id": "v9-flash-edit", "ok": true, "secs": 7, "outputs": [{"mime": "image/jpeg", "bytes": 959196}], "phase": "P7 V9 darkroom adapters (tarball)"}
 {"id": "v9-veo-fast", "ok": true, "secs": 43, "outputs": [{"mime": "video/mp4", "bytes": 2639060}], "phase": "P7 V9 darkroom adapters (tarball)"}
+{"at": "2026-09-23T01:08:54.981Z", "id": "vu-upload", "ok": true, "secs": 13, "sizeBytesType": "number", "sizeBytes": 2958927, "mimeType": "video/mp4", "state": "ACTIVE", "phase": "Ship stage 5 live checks (dist at 259f0aa)"}
+{"at": "2026-09-23T01:08:56.890Z", "id": "vu-analyze", "ok": true, "chars": 98, "sample": "Golden sunlight reflects on a sandy beach as ocean waves gently crash under a colorful sunset sky.", "phase": "Ship stage 5 live checks (dist at 259f0aa)"}
+{"at": "2026-09-23T01:08:57.503Z", "id": "vu-delete", "ok": true, "phase": "Ship stage 5 live checks (dist at 259f0aa)"}
+{"at": "2026-09-23T01:08:57.685Z", "id": "vu-404", "ok": true, "message": "{\"error\":{\"code\":403,\"message\":\"You do not have permission to access the File doesnotexist123 or it may not exist.\",\"status\":\"PERMISSION_DENIED\"}}", "classification": "AUTH", "status": 403, "surface": "video-understanding", "phase": "Ship stage 5 live checks (dist at 259f0aa)"}
+{"at": "2026-09-23T01:09:19.850Z", "id": "img-4K", "ok": true, "mimeType": "image/jpeg", "h": 3072, "w": 5504, "phase": "Ship stage 5 live checks (dist at 259f0aa)"}
+{"at": "2026-09-23T01:09:35.091Z", "id": "img-pro-thoughts", "ok": true, "rawParts": 1, "thoughtParts": 0, "thoughtImages": 0, "finalImages": 1, "withThoughts": 1, "phase": "Ship stage 5 live checks (dist at 259f0aa)"}
+{"at": "2026-09-23T01:09:35.096Z", "id": "frame", "mimeType": "image/jpeg", "phase": "Ship stage 5 live checks (dist at 259f0aa)"}
+{"at": "2026-09-23T01:10:08.042Z", "id": "veo-interp-lite", "ok": true, "secs": 33, "resumedByName": false, "bytes": 3467813, "w": 720, "h": 1280, "seconds": 8, "phase": "Ship stage 5 live checks (dist at 259f0aa)"}
+{"at": "2026-09-23T01:10:28.324Z", "id": "veo-i2v-fast", "ok": true, "secs": 53, "resumedByName": true, "bytes": 1270678, "w": 720, "h": 1280, "seconds": 4, "phase": "Ship stage 5 live checks (dist at 259f0aa)"}
+{"id": "v9-flash", "ok": true, "secs": 8, "outputs": [{"mime": "image/jpeg", "bytes": 1176823}], "phase": "Ship stage 5 V9 darkroom d0040b3 adapters (tarball 259f0aa)"}
+{"id": "v9-pro", "ok": true, "secs": 14, "outputs": [{"mime": "image/jpeg", "bytes": 862338}], "phase": "Ship stage 5 V9 darkroom d0040b3 adapters (tarball 259f0aa)"}
+{"id": "v9-flash-edit", "ok": true, "secs": 8, "outputs": [{"mime": "image/jpeg", "bytes": 964479}], "phase": "Ship stage 5 V9 darkroom d0040b3 adapters (tarball 259f0aa)"}
+{"id": "v9-veo-fast", "ok": true, "secs": 53, "outputs": [{"mime": "video/mp4", "bytes": 2644023}], "phase": "Ship stage 5 V9 darkroom d0040b3 adapters (tarball 259f0aa)"}
