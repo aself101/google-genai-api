@@ -389,6 +389,7 @@ const imageMode = Boolean(options.gemini || options.gemini3Pro || options.model)
 
 // Show help if no mode selected
 if (!imageMode && !options.video && !options.veo) {
+  console.error('Error: no mode selected. Use --gemini (or --model <id>), --veo, or --video.\n');
   program.outputHelp();
   process.exit(1);
 }
@@ -438,9 +439,15 @@ if (options.video) {
 
 // Validate prompt
 if (!options.prompt || options.prompt.length === 0) {
+  console.error('Error: --prompt is required. Example: google-genai --gemini --prompt "a red apple"\n');
   program.outputHelp();
   process.exit(1);
 }
+
+// Prompts finished before a failure, for the summary in main()'s catch: a batch
+// stops at the first failed prompt, and 1.x did not say which ones had landed.
+let completedPrompts = 0;
+let totalPrompts = 0;
 
 /**
  * Handle video analysis mode.
@@ -515,6 +522,7 @@ async function handleVideoMode(apiKey: string, prompts: string[], inputVideo: st
 
     for (let i = 0; i < prompts.length; i++) {
       const prompt = prompts[i];
+      completedPrompts = i;
       console.log(
         `\nProcessing prompt ${i + 1}/${prompts.length}: "${prompt.substring(0, 50)}${prompt.length > 50 ? '...' : ''}"`
       );
@@ -664,6 +672,7 @@ async function handleVeoMode(apiKey: string, prompts: string[]): Promise<void> {
 
   for (let i = 0; i < prompts.length; i++) {
     const prompt = prompts[i];
+    completedPrompts = i;
 
     console.log(
       `\nProcessing prompt ${i + 1}/${prompts.length}: "${prompt.substring(0, 50)}${prompt.length > 50 ? '...' : ''}"`
@@ -750,6 +759,7 @@ async function main(): Promise<void> {
     // Checked at startup; repeated here because `options` is not narrowed across scopes.
     if (!options.prompt || options.prompt.length === 0) throw new Error('--prompt is required');
     const prompts = Array.isArray(options.prompt) ? options.prompt : [options.prompt];
+    totalPrompts = prompts.length;
 
     // ========================================================================
     // VEO VIDEO GENERATION MODE
@@ -784,6 +794,7 @@ async function main(): Promise<void> {
     // Process each prompt
     for (let i = 0; i < prompts.length; i++) {
       const prompt = prompts[i];
+      completedPrompts = i;
 
       logger.info(`\nProcessing prompt ${i + 1}/${prompts.length}: "${prompt}"`);
 
@@ -891,6 +902,12 @@ async function main(): Promise<void> {
     console.log(`\n✓ All done! Processed ${prompts.length} prompt(s)\n`);
   } catch (error) {
     console.error(`\n✗ Error: ${errorMessage(error)}\n`);
+    if (totalPrompts > 1) {
+      console.error(
+        `Completed ${completedPrompts} of ${totalPrompts} prompts before this failure; ` +
+          `their files are in ${options.outputDir || DEFAULT_OUTPUT_DIR}. Prompt ${completedPrompts + 1} failed.\n`
+      );
+    }
     logger.error(error instanceof Error && error.stack ? error.stack : errorMessage(error));
     process.exit(1);
   }

@@ -81,8 +81,17 @@ describe('CLI — help', () => {
     expect(r.requests).toHaveLength(0);
   });
 
-  it('no mode selected is still an error (exit 1)', () => {
-    expect(cli(['--prompt', 'x']).status).toBe(1);
+  it('no mode selected is an error that says so (exit 1)', () => {
+    const r = cli(['--prompt', 'x']);
+    expect(r.status).toBe(1);
+    expect(r.stderr).toContain('Error: no mode selected');
+  });
+
+  it('a mode without --prompt is an error that says so (exit 1)', () => {
+    const r = cli(['--gemini']);
+    expect(r.status).toBe(1);
+    expect(r.stderr).toContain('Error: --prompt is required');
+    expect(r.requests).toHaveLength(0);
   });
 });
 
@@ -156,6 +165,18 @@ describe('CLI — image generation', () => {
     expect(jpg).toHaveLength(1);
     expect(written.filter((f) => f.endsWith('.png'))).toEqual([]);
     expect(written).toContain(jpg[0].replace(/\.jpg$/, '.json'));
+  });
+
+  it('a batch that fails part-way says how many prompts completed', () => {
+    const rejected = { status: 400, json: { error: { code: 400, message: 'bad prompt', status: 'INVALID_ARGUMENT' } } };
+    const r = cli(
+      ['--gemini', '--prompt', 'first', '--prompt', 'second', '--prompt', 'third'],
+      [imageResponse([{ inlineData: { mimeType: 'image/png', data: PNG } }]), rejected]
+    );
+    expect(r.status).toBe(1);
+    expect(r.stderr).toContain('Completed 1 of 3 prompts before this failure');
+    expect(r.stderr).toContain('Prompt 2 failed');
+    expect(files('gemini-3.1-flash-image').filter((f) => f.endsWith('.png'))).toHaveLength(1);
   });
 
   it('--model, --aspect-ratio, --image-size and repeated --input-image all reach the wire', () => {

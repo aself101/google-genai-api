@@ -10,6 +10,8 @@ A TypeScript/Node.js wrapper and CLI for the [Gemini Developer API](https://ai.g
 
 ## Quick Start
 
+Requires Node.js ≥ 20 and a Gemini API key ([Authentication](#authentication)).
+
 ### CLI
 
 ```bash
@@ -304,7 +306,7 @@ Offsets accept `"90s"`, `"90"`, `"1m30s"`, `"1:30"`, `"1:15:30"`. Supported form
 
 **In production**, the caller gets a new `Error` with the same properties and a message that names the category, for example:
 
-```
+```text
 Image generation failed (HTTP 400): Image size 2K is not supported for this model
 Video generation failed: authentication or permission failure (HTTP 403).
 Image generation failed: a temporary error occurred (HTTP 429). Please try again.
@@ -461,7 +463,7 @@ google-genai --video --input-video ./clip.mp4 --prompt "Summarize" --prompt "Lis
 
 The CLI writes under `--output-dir` (default `datasets/google`), one directory per model:
 
-```
+```text
 datasets/google/
 ├── gemini-3.1-flash-image/
 │   ├── 20260922_101530_a-red-apple.jpg
