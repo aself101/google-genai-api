@@ -1,6 +1,6 @@
 {
   "name": "google-genai-api",
-  "version": "2.0.0",
+  "version": "3.0.0",
   "description": "Node.js wrapper for the Google GenAI API: Gemini (Nano Banana) image generation and editing, video understanding, and Gemini Omni video generation and editing",
   "type": "module",
   "main": "dist/api.js",
