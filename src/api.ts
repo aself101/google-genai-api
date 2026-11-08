@@ -10,7 +10,7 @@
 import { GoogleGenAI } from '@google/genai';
 import type { GenerateContentConfig, ImageConfig } from '@google/genai';
 import winston from 'winston';
-import { redactApiKey, DEFAULT_IMAGE_MODEL, MODEL_CONSTRAINTS, detectGeminiMode, getModelViolations } from './config.js';
+import { redactApiKey, DEFAULT_IMAGE_MODEL, MODEL_CONSTRAINTS, detectGeminiMode, getModelViolations, isKnownImageModel } from './config.js';
 import { ValidationError, toPublicError, errorMessage } from './errors.js';
 import { noOutputReason } from './no-output.js';
 import type {
@@ -225,9 +225,16 @@ export class GoogleGenAIAPI {
    * @private
    */
   private _checkParams(model: string, params: Parameters<typeof getModelViolations>[1]): void {
-    if (!Object.prototype.hasOwnProperty.call(MODEL_CONSTRAINTS, model) && !this.warnedUnknownModels.has(model)) {
+    // "Known" here means a cataloged IMAGE model (isKnownImageModel), not any key
+    // of MODEL_CONSTRAINTS, which also holds the video-understanding model
+    // (consumer-validate run #8: gemini-3.8-flash passed silently as an image model).
+    if (!isKnownImageModel(model) && !this.warnedUnknownModels.has(model)) {
       this.warnedUnknownModels.add(model);
-      this.logger.warn(`Model '${model}' is not in this package's catalog; sending without capability validation`);
+      this.logger.warn(
+        Object.prototype.hasOwnProperty.call(MODEL_CONSTRAINTS, model)
+          ? `Model '${model}' is cataloged for video understanding, not image generation; sending without capability validation`
+          : `Model '${model}' is not in this package's catalog; sending without capability validation`
+      );
     }
     const violations = getModelViolations(model, params);
     const shape = violations.filter((v) => v.kind === 'shape');

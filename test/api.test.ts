@@ -384,6 +384,15 @@ describe('GoogleGenAIAPI Class', () => {
       expect(mockClient.models.generateContent).toHaveBeenCalledTimes(2);
     });
 
+    it('the video-understanding model is not treated as a known image model (consumer-validate #8)', async () => {
+      const warn = vi.spyOn(api.logger, 'warn').mockImplementation(() => undefined);
+      mockClient.models.generateContent.mockResolvedValue(ok);
+      await api.generateWithGemini({ prompt: 'x', model: MODELS.GEMINI_VIDEO });
+      const messages = warn.mock.calls.map((c) => String(c[0]));
+      expect(messages).toContain(`Model '${MODELS.GEMINI_VIDEO}' is cataloged for video understanding, not image generation; sending without capability validation`);
+      expect(mockClient.models.generateContent).toHaveBeenCalledTimes(1);
+    });
+
     it('a ValidationError is not rewritten by production sanitization', async () => {
       const originalEnv = process.env.NODE_ENV;
       process.env.NODE_ENV = 'production';

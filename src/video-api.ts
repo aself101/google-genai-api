@@ -352,7 +352,7 @@ export class GoogleGenAIVideoAPI {
       // "You do not have permission to access the File … or it may not exist"
       // (observed live 2026-09-23), not 404 — so 1.x's 404-only check never fired
       // and the caller was told it was an auth failure. A 404 that names a model
-      // is not a file: the fixed video model being retired must not read as
+      // is not a file: the fixed video model being shut down must not read as
       // "your file expired".
       const message = errorMessage(error);
       const missingFile =

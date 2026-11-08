@@ -27,7 +27,7 @@ import {
   getOmniViolations,
   redactApiKey,
 } from './config.js';
-import { ValidationError, errorMessage, toPublicError } from './errors.js';
+import { ValidationError, errorMessage, thrownFields, toPublicError } from './errors.js';
 import type {
   GoogleGenAIClientOptions,
   OmniGenerateParams,
@@ -191,11 +191,23 @@ export class GoogleGenAIOmniAPI {
    *
    * Synchronous: resolves when the video is done (typically tens of seconds to
    * minutes), bounded by `timeoutMs`. Never retried automatically — every
-   * attempt is a billed generation (spec 3.0 D22).
+   * attempt is a billed generation, and one that times out may still be billed.
    *
+   * @param params - `prompt` (required) plus optional inputs (`images`, `video`),
+   *   output settings (`aspectRatio`, `resolution`, `durationSeconds`, `delivery`),
+   *   and `previousInteractionId` to edit or extend an earlier result. `task`
+   *   cannot be combined with `previousInteractionId`; pass the video as `video`.
+   * @returns The interaction id (pass it as `previousInteractionId` to continue),
+   *   the model, and the video as inline `data` or a Files API `uri` (per
+   *   `delivery`); pass the whole result to {@link saveVideo}.
    * @throws ValidationError before any network call when params are invalid
-   * @throws Error with `classification`/`surface` (spec D13) when the API fails,
-   *   the interaction fails, or it completes without a video
+   * @throws Error with `classification` and `surface` when the API fails, the
+   *   interaction fails, or it completes without a video; the last two also
+   *   carry `interactionId`
+   *
+   * @example
+   * const clip = await omni.generate({ prompt: 'a cat playing piano', durationSeconds: 8 });
+   * const longer = await omni.generate({ prompt: 'Extend this video: the cat bows.', previousInteractionId: clip.interactionId });
    */
   async generate(params: OmniGenerateParams): Promise<OmniResult> {
     if (!this.apiKey) throw new Error('API key is not set. Please provide a valid API key.');
@@ -239,6 +251,10 @@ export class GoogleGenAIOmniAPI {
         `Omni interaction ${interaction.id} completed without a video${text ? `. Model said: ${text}` : ''}`
       );
       error.interactionId = interaction.id;
+      // Our own message, carrying the model's text: read as the operation's
+      // message so a refusal that names safety or policy classifies SAFETY_BLOCKED.
+      // Nothing in our prefix matches that pattern (wire test control).
+      if (text) error.operationError = { message: error.message };
       throw toPublicError(error, { surface: 'video' });
     }
 
@@ -257,6 +273,14 @@ export class GoogleGenAIOmniAPI {
   /**
    * Write a generated video to disk. Inline videos are decoded; `uri` videos
    * are polled until the Files API marks them ACTIVE, then downloaded.
+   *
+   * @param result - What {@link generate} returned.
+   * @param outputPath - File to write; parent directories are created.
+   * @returns The path written, its size in bytes, and the interaction id.
+   * @throws Error when the result has no video, the file FAILED processing, or
+   *   the download fails (with `classification` and `surface`)
+   * @throws Error with `isTimeout: true` when a `uri` video never became ACTIVE,
+   *   thrown as is in every environment
    */
   async saveVideo(result: OmniResult, outputPath: string): Promise<OmniSaveResult> {
     await fs.mkdir(path.dirname(outputPath), { recursive: true });
@@ -276,6 +300,9 @@ export class GoogleGenAIOmniAPI {
       await this.client.files.download({ file: name, downloadPath: outputPath });
     } catch (error) {
       this.logger.error(`Download failed: ${errorMessage(error)}`);
+      // The poll timeout is this package's own error and carries no vendor data:
+      // thrown as is, with `isTimeout: true`, as video understanding does.
+      if (thrownFields(error).isTimeout === true) throw error;
       throw toPublicError(error, { surface: 'video' });
     }
     const { size } = await fs.stat(outputPath);

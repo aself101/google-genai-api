@@ -8,14 +8,19 @@
 /**
  * One reason a set of parameters was rejected.
  *
- * - `shape`: the value is malformed (missing prompt, empty image data, a ratio
- *   that is not `W:H`). Always enforced, for every model id, including ids this
- *   package does not know.
- * - `capability`: the value is well-formed but the model's constraint table
- *   says it does not accept it (a ratio or size outside the model's list, too
- *   many input images). Enforced only for known models, and downgradable to a
- *   warning with `capabilityValidation: 'warn'`, because the table is derived
- *   from vendor docs that have been wrong before.
+ * The two kinds differ in scope, not in where the rule came from (3.0 spec D30):
+ *
+ * - `shape`: a rule this package applies to every model id, cataloged or not,
+ *   and never downgrades. Well-formedness (missing prompt, empty image data, a
+ *   ratio that is not `W:H`), parameters no current model accepts (the 2.x Veo
+ *   parameters), and the prompt-length ceiling (the model's own when cataloged,
+ *   else a package default).
+ * - `capability`: a rule about one cataloged model: its constraint table (a
+ *   ratio or size outside its list, too many input images, a duration out of
+ *   range) or behaviour observed live on it (Omni rejects `task` with
+ *   `previousInteractionId`). Enforced only for that model, and downgradable to
+ *   a warning with `capabilityValidation: 'warn'`, because per-model knowledge
+ *   comes from vendor docs and observation, and both go stale.
  */
 export interface Violation {
   kind: 'shape' | 'capability';
@@ -140,6 +145,9 @@ interface ErrorLike {
   cause?: unknown;
   status?: unknown;
   operationError?: { code?: unknown; message?: unknown };
+  isTimeout?: unknown;
+  /** Set by the Omni client on an interaction that failed or produced no video. */
+  interactionId?: unknown;
   /**
    * The raw response body, on errors from the SDK's Interactions client (the
    * Omni surface). Its `message` is not the vendor body — it reads like
@@ -190,8 +198,16 @@ function classify(status: number | undefined, code: number | undefined, err: Err
     if (code === 4 || code === 8 || code === 14) cls = 'TRANSIENT';
     else if (code === 7 || code === 16) cls = 'AUTH';
     else cls = 'USER_ACTIONABLE';
-  } else if (err.name === 'AbortError') {
+  } else if (err.name === 'AbortError' || err.name === 'APIConnectionTimeoutError' || err.isTimeout === true) {
+    // AbortError: the models client's timeout. APIConnectionTimeoutError: the
+    // Interactions client's (Omni `timeoutMs`), which has no status and is not an
+    // AbortError, so it fell to USER_ACTIONABLE until consumer-validate run #8.
+    // isTimeout: this package's own poll timeouts.
     cls = 'TIMEOUT';
+  } else if (err.name === 'APIConnectionError') {
+    // The Interactions client's wrapper for a failed connection (its `cause` is
+    // the fetch TypeError). Matched by name: SDK 2.32 does not export the class.
+    cls = 'NETWORK';
   } else if (err.name === 'TypeError' && (err.message === 'fetch failed' || err.cause !== undefined)) {
     // What fetch throws when the connection fails: TypeError('fetch failed')
     // with the socket error as `cause`. Any other TypeError is a bug (e.g. SDK
@@ -224,7 +240,11 @@ function productionMessage(cls: PublicErrorClass, surface: PublicErrorSurface, s
     case 'NETWORK':
       return `${Subject} failed: network error. Please try again.`;
     case 'TIMEOUT':
-      return `${Subject} failed: the request timed out. Please try again.`;
+      // An Omni generation is billed once Google starts it, and a client-side
+      // timeout does not cancel it: retrying can pay twice.
+      return surface === 'video'
+        ? `${Subject} failed: the request timed out. The video may still have been generated and billed; raise timeoutMs rather than retrying.`
+        : `${Subject} failed: the request timed out. Please try again.`;
     case 'SAFETY_BLOCKED':
       return `${Subject} was blocked due to content safety policies.${detail ? ` ${detail}` : ''}`;
     case 'AUDIO_BLOCKED':
@@ -311,5 +331,8 @@ export function toPublicError(error: unknown, context: { surface: PublicErrorSur
   }
   const publicError = new Error(productionMessage(classification, context.surface, status, detail));
   for (const [key, value] of Object.entries(fields)) attach(publicError, key, value);
+  // An interaction id is an opaque reference, not vendor data, and a failed
+  // interaction may be billed: the caller needs it to report or trace one.
+  if (typeof err.interactionId === 'string') attach(publicError, 'interactionId', err.interactionId);
   return publicError as Error & PublicErrorFields;
 }

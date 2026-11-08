@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| Version | v0.1.1 (built on branch `release/3.0`; live battery run 2026-11-08; not yet reviewed) |
+| Version | v0.1.2 (built on branch `release/3.0`; live battery run 2026-11-08; consumer-validate run #8 folded in) |
 | Date | 2026-11-08 |
 | Target repo | `misc/npm-packages/google-genai-api`, branch `release/3.0` |
 | From → To | 2.0.0 (`5d9c1ba`, published 2026-09-23) → 3.0.0 |
@@ -71,6 +71,16 @@ Numbering continues from the 2.0 spec.
 
 **D29 — The Interactions API's own error format is read too, only from `body`.** Request-validation errors arrive as `{"error":{"message":…,"code":"invalid_request"}}`, with no gRPC status, no array and a string code. Gateway errors (402, a bad key, 503) arrive as an array of one gRPC-style Gemini error. D26 recognised only the second, so in production "1:1 is not supported … Supported values: '16:9', '9:16'" became "the request was rejected" (live check P1). The new form is trusted only from `body` (which only the Interactions client sets) and only with a lowercase-identifier `code`. A test shows a JSON body with any other code is still not trusted. Negative control: the format test failed before the fix; P1 re-ran live and passed.
 
+**D30 — Shape and capability are told apart by scope, not by where a rule came from.** consumer-validate run #8 (wittgenstein-analyst) found the declared definitions did not predict membership: "shape = malformed, capability = from the constraint table" put the table-derived prompt-length ceiling on the wrong side, and the Veo parameters and D28a's live-observed `task` + `previousInteractionId` rule on no side at all. The rule that operates is scope: a **shape** rule holds for every model id and is never downgraded; a **capability** rule is about one cataloged model, from its table or from behaviour seen live on it, and `capabilityValidation: 'warn'` downgrades it. The definitions in `src/errors.ts` and README §Validation now say that. **No rule moved** (Alex: "fold all the critical, high and suggested findings", 2026-11-08). Rejected: moving the prompt ceiling to capability, which would stop checking prompts sent to unknown ids, a behaviour change no test or live run covers; and making D28a shape, which would refuse the pair for `gemini-omni-1.1-flash`, an id this package does not catalog and was never observed. Left open (§11): should `warn` downgrade a rule seen enforced live? Today it does. The cost is one rejected request, about 140 ms and unbilled, sent by a caller who asked for `warn`.
+
+**D31 — Omni errors keep their meaning across the Interactions client and production (consumer-validate run #8).** Five fixes, each with a test that failed first:
+- **(a)** The Interactions client's `APIConnectionTimeoutError` (`timeoutMs`) is TIMEOUT and `APIConnectionError` is NETWORK. Both carry no status and are not `AbortError`, so `classify()` returned USER_ACTIONABLE, and production showed "Unable to make request: TypeError: fetch failed". Matched by `name`: SDK 2.32 does not export the classes, and their names survive in the ESM build. In production an Omni TIMEOUT says the video may still have been generated and billed, and to raise `timeoutMs` rather than retry.
+- **(b)** In production, `interactionId` is kept on the error. A failed interaction may be billed, and README promised the id.
+- **(c)** The `saveVideo` file-poll timeout is thrown as is, with `isTimeout: true`, as video understanding's already was. Before, production rewrote it and dropped `isTimeout`.
+- **(d)** "Completed without a video" with model text reads that text as the operation's message, so a refusal naming safety or policy is SAFETY_BLOCKED. A control test shows our own prefix triggers nothing.
+- **(e)** `seed` and `personGeneration` no longer get the `negativePrompt` advice.
+Also from run #8, not D13 errors: the image client's "known" means a cataloged image model, so `gemini-3.8-flash` gets a warning ("cataloged for video understanding, not image generation") and no longer autocompletes as an `ImageModelId`.
+
 **Documented, not guarded (live 2026-11-08):** continuing a `store: false` interaction is silently a fresh, billed generation (10 s default, unrelated); extending past 30 s in total fails with a generic 400 after ~60 s. The client cannot know an earlier interaction's storage or length, so a guard would need state the package does not have. README: the `store` row and Known limitations.
 
 ## 5. Target catalog
@@ -124,8 +134,10 @@ README → Known limitations: an Omni call that times out may still be billed. T
 
 - D19: is editing in 3.0 the right call? (Built; Alex to confirm.)
 - D20: does Alex want the default changed at all, given that it changes output for every caller who omits `model`? (Built as recommended; one-line revert.)
+- D30: should `capabilityValidation: 'warn'` downgrade a rule seen enforced live (D28a), or only table-derived rules? Today it downgrades both. Recommendation: keep it. `warn` is an explicit opt-in, and the cost is one unbilled rejection.
 
 ## Revision history
 
+- **v0.1.2** (2026-11-08) — consumer-validate run #8 (6 agents, PASS, 86.3 average): D30 (shape/capability by scope, definitions restated, no rule moved) and D31 (five Omni error fixes plus the known-image-model fix). File renamed from `…-v0_1_0.md` so the filename carries the version.
 - **v0.1.1** (2026-11-08) — live battery run (§7b); D28 and D29 added from its findings; the `store`/30 s behaviours recorded as documented-not-guarded. The [VERIFY] on the 15-minute timeout is settled: 4k 15 s took 213 s.
 - **v0.1.0** (2026-11-08) — first draft, written alongside the build on `release/3.0`; live battery blocked on billing.

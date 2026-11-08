@@ -70,9 +70,10 @@ export type GeminiImageModel = Exclude<GeminiModel, 'gemini-3.8-flash'>;
 /**
  * Any image model id. Known ids autocomplete; any other string is accepted and
  * sent without capability validation (spec D3), so a model Google releases
- * after this package does, or a retired id Google still serves, stays usable.
+ * after this package does, or one dropped from the catalog that Google still
+ * serves, stays usable.
  */
-export type ImageModelId = GeminiModel | (string & {});
+export type ImageModelId = GeminiImageModel | (string & {});
 
 /**
  * All supported models.

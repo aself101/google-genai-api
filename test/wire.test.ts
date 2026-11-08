@@ -23,7 +23,7 @@ import path from 'node:path';
 import { GoogleGenAIAPI } from '../src/api.js';
 import { GoogleGenAIOmniAPI } from '../src/omni-api.js';
 import { GoogleGenAIVideoAPI } from '../src/video-api.js';
-import { DEFAULT_IMAGE_MODEL, MODELS, OMNI_MODELS } from '../src/config.js';
+import { DEFAULT_IMAGE_MODEL, MODELS, OMNI_MODELS, OMNI_TIMEOUTS } from '../src/config.js';
 
 interface Captured {
   url: URL;
@@ -386,6 +386,26 @@ describe('Omni request on the wire (spec 3.0 D19, D22)', () => {
     expect(calls.map((c) => c.url.pathname)).toEqual(['/v1beta/files/bad1']);
   });
 
+  it.each(['development', 'production'])(
+    'saveVideo: the file-poll timeout is thrown as is, with isTimeout (%s) — parity with video understanding',
+    async (env) => {
+      vi.stubEnv('NODE_ENV', env);
+      const saved = { ...OMNI_TIMEOUTS };
+      Object.assign(OMNI_TIMEOUTS, { FILE_POLL_MAX_ATTEMPTS: 2, FILE_POLL_INTERVAL: 0 });
+      try {
+        const uri = 'https://generativelanguage.googleapis.com/v1beta/files/slow1:download?alt=media';
+        const result = { interactionId: 'v1_abc', model: 'gemini-omni-1.2-flash', status: 'completed', video: { mimeType: 'video/mp4', uri } };
+        nextResponse = respondJson(200, { name: 'files/slow1', state: 'PROCESSING' });
+        const err = await rejection(omni().saveVideo(result, path.join(mkdtempSync(path.join(tmpdir(), 'omni-wire-')), 'never-written.mp4')));
+        expect(err.isTimeout).toBe(true);
+        expect(err.message).toBe('Video file files/slow1 was not ready after 2 checks');
+        expect(calls).toHaveLength(2);
+      } finally {
+        Object.assign(OMNI_TIMEOUTS, saved);
+      }
+    }
+  );
+
   it('completed with no video → an error naming the interaction and what the model said', async () => {
     nextResponse = respondJson(200, { ...OMNI_OK, steps: [{ type: 'model_output', content: [{ type: 'text', text: 'I cannot generate that.' }] }] });
     const err = await rejection(omni().generate({ prompt: 'x' }));
@@ -447,8 +467,72 @@ describe('Omni errors from the wire (spec D13, 3.0 D22)', () => {
     expect(err.surface).toBe('video');
   });
 
+  // The Interactions client wraps transport failures in its own classes, which
+  // carry no status: APIConnectionError and APIConnectionTimeoutError (SDK 2.32).
+  it('a connection failure is NETWORK, as on the image client (consumer-validate #8)', async () => {
+    nextResponse = () => {
+      throw new TypeError('fetch failed');
+    };
+    const err = await failure();
+    expect(err.constructor.name).toBe('APIConnectionError');
+    expect(err.classification).toBe('NETWORK');
+  });
+
+  it('timeoutMs expiring is TIMEOUT, not USER_ACTIONABLE (consumer-validate #8)', async () => {
+    vi.stubGlobal('fetch', (input: string | URL | Request, init: RequestInit = {}) => {
+      const signal = input instanceof Request ? input.signal : init.signal;
+      return new Promise((_resolve, reject) => {
+        signal?.addEventListener('abort', () => reject(signal.reason ?? new DOMException('aborted', 'AbortError')));
+      });
+    });
+    const err = await rejection(new GoogleGenAIOmniAPI('test-key', 'error').generate({ prompt: 'x', timeoutMs: 50 }));
+    expect(err.constructor.name).toBe('APIConnectionTimeoutError');
+    expect(err.classification).toBe('TIMEOUT');
+  });
+
+  it('completed without a video: a refusal naming safety or policy is SAFETY_BLOCKED; other text is USER_ACTIONABLE', async () => {
+    const said = (text: string) => respondJson(200, { id: 'v1_n', status: 'completed', object: 'interaction', model: 'gemini-omni-1.2-flash', steps: [{ type: 'model_output', content: [{ type: 'text', text }] }] });
+    nextResponse = said('I cannot create this video because it violates our safety policy.');
+    expect((await failure()).classification).toBe('SAFETY_BLOCKED');
+    nextResponse = said('Here is a description instead of a video.');
+    expect((await failure()).classification).toBe('USER_ACTIONABLE'); // control: our own prefix triggers nothing
+  });
+
   describe('in production', () => {
     beforeEach(() => vi.stubEnv('NODE_ENV', 'production'));
+
+    it('a connection failure → the network sentence, not the SDK text', async () => {
+      nextResponse = () => {
+        throw new TypeError('fetch failed');
+      };
+      const err = await failure();
+      expect(err.classification).toBe('NETWORK');
+      expect(err.message).toBe('Video generation failed: network error. Please try again.');
+    });
+
+    it('timeoutMs expiring → says it may be billed and to raise timeoutMs, not "please try again"', async () => {
+      vi.stubGlobal('fetch', (input: string | URL | Request, init: RequestInit = {}) => {
+        const signal = input instanceof Request ? input.signal : init.signal;
+        return new Promise((_resolve, reject) => {
+          signal?.addEventListener('abort', () => reject(signal.reason ?? new DOMException('aborted', 'AbortError')));
+        });
+      });
+      const err = await rejection(new GoogleGenAIOmniAPI('test-key', 'error').generate({ prompt: 'x', timeoutMs: 50 }));
+      expect(err.classification).toBe('TIMEOUT');
+      expect(err.message).toBe('Video generation failed: the request timed out. The video may still have been generated and billed; raise timeoutMs rather than retrying.');
+    });
+
+    it("a failed interaction keeps its interactionId, so a billed failure can be traced (consumer-validate #8)", async () => {
+      nextResponse = respondJson(200, { id: 'v1_f', status: 'failed', object: 'interaction', errors: [{ code: 'x', message: 'Internal error while generating.' }] });
+      const err = await failure();
+      expect(err.interactionId).toBe('v1_f');
+    });
+
+    it('a video completed without a video keeps its interactionId too', async () => {
+      nextResponse = respondJson(200, { id: 'v1_n', status: 'completed', object: 'interaction', steps: [] });
+      const err = await failure();
+      expect(err.interactionId).toBe('v1_n');
+    });
 
     it('400 → the vendor message read from the array body, never details[]', async () => {
       nextResponse = vendor(400, 'INVALID_ARGUMENT', 'Duration must be between 3s and 15s.');

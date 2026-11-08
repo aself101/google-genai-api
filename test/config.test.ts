@@ -782,6 +782,15 @@ describe('getOmniViolations / validateOmniParams', () => {
     }
   });
 
+  it('each removed parameter gets advice that fits it — only negativePrompt is told to use the prompt (consumer-validate #8)', () => {
+    const msg = (key: 'negativePrompt' | 'personGeneration' | 'seed') => getOmniViolations(OMNI, { prompt: 'x', [key]: 'v' })[0].message;
+    expect(msg('negativePrompt')).toMatch(/put negatives in the prompt/);
+    expect(msg('seed')).not.toMatch(/negatives/);
+    expect(msg('seed')).toMatch(/no Omni equivalent/);
+    expect(msg('personGeneration')).not.toMatch(/negatives/);
+    expect(msg('personGeneration')).toMatch(/no Omni equivalent/);
+  });
+
   it('validateOmniParams throws ValidationError with every violation, returns true otherwise', () => {
     expect(validateOmniParams(OMNI, { prompt: 'x' })).toBe(true);
     try {

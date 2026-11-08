@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// Live battery for the 3.0 spec (docs/specs/google-genai-api-3.0-spec-v0_1_0.md §7).
+// Live battery for the 3.0 spec (docs/specs/google-genai-api-3.0-spec-v0_1_2.md §7).
 // Runs THROUGH dist/ — the built package — so it tests what ships. `npm run build` first.
 //
 // PAID. Every parameter of the surfaces 3.0 adds or changes: the Nano Banana 2.1 grid

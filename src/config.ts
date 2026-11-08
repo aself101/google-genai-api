@@ -689,9 +689,16 @@ export function getOmniViolations(model: string, params: OmniValidationParams): 
   };
 
   // ---- shape: every id ----
+  // Veo parameters with no Omni field. Only negativePrompt has a substitute (the
+  // prompt itself); the advice is per parameter (consumer-validate run #8).
+  const removedAdvice = {
+    negativePrompt: 'put negatives in the prompt instead (e.g. "No dialogue")',
+    personGeneration: 'it has no Omni equivalent; remove it',
+    seed: 'it has no Omni equivalent; remove it',
+  } as const;
   for (const removed of ['negativePrompt', 'personGeneration', 'seed'] as const) {
     if (params[removed] !== undefined) {
-      shape(removed, params[removed], `${removed} is not supported by Gemini Omni; put negatives in the prompt instead (e.g. "No dialogue")`);
+      shape(removed, params[removed], `${removed} is not supported by Gemini Omni; ${removedAdvice[removed]}`);
     }
   }
   if (typeof params.prompt !== 'string' || params.prompt.trim() === '') {
