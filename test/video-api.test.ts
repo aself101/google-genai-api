@@ -396,7 +396,7 @@ describe('GoogleGenAIVideoAPI', () => {
       });
 
       expect(api.client.models.generateContent).toHaveBeenCalledWith({
-        model: 'gemini-2.5-flash',
+        model: 'gemini-3.8-flash',
         contents: [{ text: 'Describe this video' }, { fileData: { fileUri: 'files/test123', mimeType: 'video/mp4' } }],
       });
     });
@@ -410,7 +410,7 @@ describe('GoogleGenAIVideoAPI', () => {
       });
 
       expect(api.client.models.generateContent).toHaveBeenCalledWith({
-        model: 'gemini-2.5-flash',
+        model: 'gemini-3.8-flash',
         contents: [
           { text: 'Describe this video' },
           {

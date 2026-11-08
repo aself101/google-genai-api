@@ -6,10 +6,13 @@
  * Refuses to publish when any of these is false:
  *   1. CHANGELOG.md has a `## [<version>] - YYYY-MM-DD` heading for package.json's version
  *   2. `## [Unreleased]` exists and holds no entries
- *   3. a fresh `npm run build` succeeds — dist/ is gitignored here, so the
- *      tarball is always built from the tree being published, never a stale one
+ *   3. a fresh `npm run build` succeeds — dist/ is gitignored here, and the
+ *      build script empties it first, so the tarball is built from the tree
+ *      being published. (Until 3.0 the build did not empty it: tsc never deletes
+ *      output, so a removed module — 3.0 removes veo-api.ts — would have shipped
+ *      its stale dist/ files, and the dist/ allow-list below passed them.)
  *   4. `npm pack --dry-run` lists nothing outside package.json, dist/,
- *      README.md, LICENSE, CHANGELOG.md
+ *      README.md, LICENSE, CHANGELOG.md, and every dist/ file has a src/ module
  *   5. `check:lifecycle` passes — no cataloged model has an announced shutdown
  *      (spec D16). Needs network; `--offline` checks the committed snapshot
  *      instead, with a warning, for when Google's docs are unreachable.
@@ -20,7 +23,7 @@
  */
 
 import { execSync } from 'node:child_process';
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -60,6 +63,11 @@ try {
   const stray = files.filter((f) => !allowed.test(f));
   if (control) stray.push('control/planted-file.txt');
   if (stray.length) failures.push(`npm pack would ship files outside the allow-list:\n    ${stray.join('\n    ')}`);
+  // dist/ is allowed wholesale, so a stale build output would pass the allow-list:
+  // every dist/ file must come from a module that exists in src/ now.
+  const orphans = files.filter((f) => f.startsWith('dist/') && !existsSync(path.join(root, f.replace(/^dist\//, 'src/').replace(/\.(d\.ts\.map|d\.ts|js\.map|js)$/, '.ts'))));
+  if (control) orphans.push('dist/control-removed-module.js');
+  if (orphans.length) failures.push(`npm pack would ship dist/ file(s) with no src/ module (stale build output):\n    ${orphans.join('\n    ')}`);
   // The allow-list only stops extra files. The README's upgrade guide links to
   // CHANGELOG.md, which 2.0.0's first pack left out, so required files are checked too.
   const required = ['README.md', 'LICENSE', 'CHANGELOG.md', 'dist/api.js', 'dist/api.d.ts', 'dist/cli.js'];

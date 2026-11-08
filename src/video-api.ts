@@ -1,7 +1,7 @@
 /**
  * Google GenAI Video API
  *
- * Video understanding capabilities using Google's Gemini 2.5 Flash model
+ * Video understanding capabilities using a Gemini model (`MODELS.GEMINI_VIDEO`; gemini-3.8-flash since 3.0)
  * and Files API for video upload and processing.
  *
  * Supports:
@@ -60,7 +60,7 @@ function toFileInfo(file: SdkFile): FileInfo {
 
 /**
  * Google GenAI Video API client.
- * Provides video understanding capabilities using Gemini 2.5 Flash.
+ * Provides video understanding capabilities using `MODELS.GEMINI_VIDEO`.
  *
  * @class GoogleGenAIVideoAPI
  *
@@ -185,7 +185,7 @@ export class GoogleGenAIVideoAPI {
       // left it, and the CLI's cleanup never ran on this path. Best-effort.
       if (uploadedName) await this.deleteVideoFile(uploadedName);
       // The poll timeout is this package's own message and carries no vendor
-      // data; like Veo's, it is thrown as is (`isTimeout: true`).
+      // data; like Omni's file-state timeout, it is thrown as is (`isTimeout: true`).
       if (thrownFields(error).isTimeout === true) throw error;
       const publicError = toPublicError(error, { surface: 'video-understanding' });
       this.logger.error(`Upload failed (${publicError.classification}): ${errorMessage(error)}`);
@@ -256,7 +256,7 @@ export class GoogleGenAIVideoAPI {
           continue;
         }
 
-        // Retry by source, as Veo polling does (spec D13): only a failed poll
+        // Retry by source, not by message (spec D13): only a failed poll
         // request — network error, timeout, 408/5xx. 1.x also matched message
         // text ("network", "timeout", "processing"), which retried errors that
         // merely mentioned those words.

@@ -7,17 +7,23 @@
  * stubbed `fetch` captures what would go on the wire; the assertions are on the
  * parsed request body.
  *
- * The seam: the SDK resolves the global `fetch` per call (1.30 and 2.24; spec
- * §1.5) and does not retry without `retryOptions`, so each call is exactly one
- * fetch — asserted, so a retry wrapper can never let a check pass on the wrong
- * request.
+ * The seam: the SDK resolves the global `fetch` per call (1.30, 2.24 and 2.32;
+ * spec §1.5) and its `models` client does not retry without `retryOptions`, so
+ * each call is exactly one fetch — asserted, so a retry wrapper can never let a
+ * check pass on the wrong request. The Interactions client (Omni) also uses the
+ * global `fetch`, but passes a `Request` object rather than `(url, init)`, and
+ * DOES retry by default (five calls on a 503, observed 2026-11-08) — which is
+ * why the Omni client turns retries off, and why a test below counts calls.
  */
 
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+import { mkdtempSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
 import { GoogleGenAIAPI } from '../src/api.js';
-import { GoogleGenAIVeoAPI } from '../src/veo-api.js';
+import { GoogleGenAIOmniAPI } from '../src/omni-api.js';
 import { GoogleGenAIVideoAPI } from '../src/video-api.js';
-import { DEFAULT_IMAGE_MODEL, MODELS, VEO_MODELS } from '../src/config.js';
+import { DEFAULT_IMAGE_MODEL, MODELS, OMNI_MODELS } from '../src/config.js';
 
 interface Captured {
   url: URL;
@@ -43,11 +49,16 @@ beforeEach(() => {
   calls = [];
   nextResponse = respondJson(200, IMAGE_OK);
   vi.stubGlobal('fetch', async (input: string | URL | Request, init: RequestInit = {}) => {
-    calls.push({
-      url: new URL(String(input)),
-      method: String(init.method),
-      body: init.body ? JSON.parse(String(init.body)) : {},
-    });
+    if (input instanceof Request) {
+      const text = await input.clone().text();
+      calls.push({ url: new URL(input.url), method: input.method, body: text ? JSON.parse(text) : {} });
+    } else {
+      calls.push({
+        url: new URL(String(input)),
+        method: String(init.method),
+        body: init.body ? JSON.parse(String(init.body)) : {},
+      });
+    }
     return nextResponse();
   });
 });
@@ -66,6 +77,16 @@ function only(): Captured {
   return calls[0];
 }
 
+/** The error a promise rejects with; fails the test if it resolves. */
+async function rejection(p: Promise<unknown>): Promise<Error & Record<string, unknown>> {
+  try {
+    await p;
+  } catch (e) {
+    return e as Error & Record<string, unknown>;
+  }
+  throw new Error('expected a rejection');
+}
+
 describe('image request on the wire', () => {
   it('model id goes in the URL: …/models/{model}:generateContent', async () => {
     await api().generateWithGemini({ prompt: 'x', model: MODELS.GEMINI_3_PRO });
@@ -75,7 +96,7 @@ describe('image request on the wire', () => {
     expect(url.pathname).toBe('/v1beta/models/gemini-3-pro-image:generateContent');
   });
 
-  it('default model is gemini-3.1-flash-image', async () => {
+  it('default model is gemini-nano-banana-2.1', async () => {
     await api().generateWithGemini({ prompt: 'x' });
     expect(only().url.pathname).toBe(`/v1beta/models/${DEFAULT_IMAGE_MODEL}:generateContent`);
   });
@@ -252,136 +273,217 @@ describe('video understanding request on the wire', () => {
   });
 });
 
-describe('Veo polling through the real SDK', () => {
-  const NAME = 'models/veo-3.1-generate-preview/operations/op42';
-  const DONE = {
-    name: NAME,
-    done: true,
-    response: { generateVideoResponse: { generatedSamples: [{ video: { uri: 'https://example.test/v.mp4' } }] } },
+describe('Omni request on the wire (spec 3.0 D19, D22)', () => {
+  const OMNI_OK = {
+    id: 'v1_abc',
+    status: 'completed',
+    model: 'gemini-omni-1.2-flash',
+    object: 'interaction',
+    steps: [{ type: 'model_output', content: [{ type: 'video', mime_type: 'video/mp4', data: 'AAAAIGZ0eXA=' }] }],
   };
-
-  it('waitForCompletion accepts a plain { name, done: false } (e.g. rebuilt from a saved operation name)', async () => {
-    nextResponse = respondJson(200, DONE);
-    const veo = new GoogleGenAIVeoAPI('test-key', 'error');
-
-    // 1.x cast this object to the SDK's class; the SDK then called its
-    // _fromAPIResponse method and threw "is not a function".
-    const done = await veo.waitForCompletion({ name: NAME, done: false }, { intervalMs: 1 });
-
-    expect(only().method).toBe('GET');
-    expect(only().url.pathname).toBe(`/v1beta/${NAME}`);
-    expect(done.name).toBe(NAME);
-    expect(done.done).toBe(true);
-    expect(done.response?.generatedVideos?.[0]?.video.uri).toBe('https://example.test/v.mp4');
-  });
-
-  it('a submission with no operation name is an error, not an operation that cannot be polled', async () => {
-    nextResponse = respondJson(200, { done: false });
-    await expect(new GoogleGenAIVeoAPI('test-key', 'error').generateVideo({ prompt: 'x' })).rejects.toThrow('without a name');
-  });
-});
-
-describe('Veo request on the wire (spec D7, D12)', () => {
-  const OP = { name: 'models/veo/operations/op1', done: false };
-  const img = { imageBytes: 'SU1H', mimeType: 'image/png' };
-  const lastFrame = { imageBytes: 'TEFTVA==', mimeType: 'image/png' };
-  let sdkWarnings: string[];
+  const omni = (options?: ConstructorParameters<typeof GoogleGenAIOmniAPI>[2]) => new GoogleGenAIOmniAPI('test-key', 'error', options);
+  const img = { data: 'aGVsbG8=', mimeType: 'image/png' };
 
   beforeEach(() => {
-    nextResponse = respondJson(200, OP);
-    sdkWarnings = [];
-    vi.spyOn(console, 'warn').mockImplementation((...args: unknown[]) => {
-      sdkWarnings.push(args.map(String).join(' '));
-    });
+    nextResponse = respondJson(200, OMNI_OK);
   });
 
-  afterEach(() => {
-    // The SDK warns when prompt/image/video are passed top-level instead of in
-    // `source` (2.24 index.mjs:15469). Using `source` must never trigger it.
-    expect(sdkWarnings.filter((w) => w.includes('deprecated'))).toEqual([]);
-    vi.restoreAllMocks();
+  it('POST …/v1beta/interactions with the model in the body', async () => {
+    await omni().generate({ prompt: 'x' });
+    const { url, method, body } = only();
+    expect(method).toBe('POST');
+    expect(url.host).toBe(GEMINI_HOST);
+    expect(url.pathname).toBe('/v1beta/interactions');
+    expect(body.model).toBe(OMNI_MODELS.OMNI_1_2_FLASH);
   });
 
-  const veo = () => new GoogleGenAIVeoAPI('test-key', 'error');
-  const instance = () => only().body.instances[0];
-  const parameters = () => only().body.parameters;
-
-  it('durationSeconds 0 is sent (in warn mode), not silently dropped to the default', async () => {
-    const veoWarn = new GoogleGenAIVeoAPI('test-key', 'error', { capabilityValidation: 'warn' });
-    await veoWarn.generateVideo({ prompt: 'x', durationSeconds: 0 });
-    expect(parameters()).toEqual({ durationSeconds: 0 });
+  it('a bare prompt is sent as a string, with no response_format or generation_config', async () => {
+    await omni().generate({ prompt: 'a red ball bounces' });
+    expect(only().body).toEqual({ model: 'gemini-omni-1.2-flash', input: 'a red ball bounces' });
   });
 
-  it('model id in the URL: …/models/{model}:predictLongRunning', async () => {
-    await veo().generateVideo({ prompt: 'x', model: VEO_MODELS.VEO_3_1_LITE });
-    expect(only().url.pathname).toBe('/v1beta/models/veo-3.1-lite-generate-preview:predictLongRunning');
-    expect(only().url.host).toBe(GEMINI_HOST);
+  it('settings → response_format: aspect_ratio, resolution, duration as "<n>s", delivery', async () => {
+    await omni().generate({ prompt: 'x', aspectRatio: '9:16', resolution: '1080p', durationSeconds: 8, delivery: 'uri' });
+    expect(only().body.response_format).toEqual({ type: 'video', aspect_ratio: '9:16', resolution: '1080p', duration: '8s', delivery: 'uri' });
   });
 
-  it('text-to-video: prompt → instances[0].prompt; settings → parameters (durationSeconds numeric)', async () => {
-    await veo().generateVideo({
-      prompt: 't2v',
-      aspectRatio: '9:16',
-      resolution: '4k',
-      durationSeconds: '8',
-      negativePrompt: 'blur',
-      personGeneration: 'allow_all',
-    });
-    expect(instance()).toEqual({ prompt: 't2v' });
-    expect(parameters()).toEqual({
-      aspectRatio: '9:16',
-      resolution: '4k',
-      durationSeconds: 8,
-      negativePrompt: 'blur',
-      personGeneration: 'allow_all',
-    });
+  it('a string duration from the CLI is sent the same way', async () => {
+    await omni().generate({ prompt: 'x', durationSeconds: '12' });
+    expect(only().body.response_format).toEqual({ type: 'video', duration: '12s' });
   });
 
-  it('image-to-video: image → instances[0].image', async () => {
-    await veo().generateFromImage({ prompt: 'i2v', image: img });
-    expect(instance()).toEqual({ prompt: 'i2v', image: { bytesBase64Encoded: 'SU1H', mimeType: 'image/png' } });
-  });
-
-  it("reference images → instances[0].referenceImages, referenceType sent as given ('asset')", async () => {
-    await veo().generateWithReferences({ prompt: 'refs', referenceImages: [{ image: img, referenceType: 'asset' }] });
-    expect(instance().referenceImages).toEqual([
-      { image: { bytesBase64Encoded: 'SU1H', mimeType: 'image/png' }, referenceType: 'asset' },
+  it('images → input blocks before the text, order preserved (first frame, last frame)', async () => {
+    await omni().generate({ prompt: 'from the first frame to the last', images: [img, { uri: 'https://generativelanguage.googleapis.com/v1beta/files/end' }] });
+    expect(only().body.input).toEqual([
+      { type: 'image', data: 'aGVsbG8=', mime_type: 'image/png' },
+      { type: 'image', uri: 'https://generativelanguage.googleapis.com/v1beta/files/end' },
+      { type: 'text', text: 'from the first frame to the last' },
     ]);
-    expect(parameters()).toEqual({ durationSeconds: 8 });
   });
 
-  it('interpolation: firstFrame → instances[0].image, lastFrame → instances[0].lastFrame, duration 8', async () => {
-    await veo().generateWithInterpolation({ prompt: 'interp', firstFrame: img, lastFrame });
-    expect(instance()).toEqual({
-      prompt: 'interp',
-      image: { bytesBase64Encoded: 'SU1H', mimeType: 'image/png' },
-      lastFrame: { bytesBase64Encoded: 'TEFTVA==', mimeType: 'image/png' },
-    });
-    expect(parameters()).toEqual({ durationSeconds: 8 });
+  it('video → a video block first (Google guide order: video, images, text)', async () => {
+    await omni().generate({ prompt: 'extend', video: { uri: 'https://generativelanguage.googleapis.com/v1beta/files/v1', mimeType: 'video/mp4' }, images: [img] });
+    expect(only().body.input.map((b: { type: string }) => b.type)).toEqual(['video', 'image', 'text']);
+    expect(only().body.input[0]).toEqual({ type: 'video', uri: 'https://generativelanguage.googleapis.com/v1beta/files/v1', mime_type: 'video/mp4' });
   });
 
-  it('extension: video → instances[0].video; sampleCount 1, 720p', async () => {
-    await veo().extendVideo({ prompt: 'ext', video: { uri: 'https://example.test/v.mp4' } });
-    expect(instance()).toEqual({ prompt: 'ext', video: { uri: 'https://example.test/v.mp4' } });
-    expect(parameters()).toEqual({ sampleCount: 1, resolution: '720p' });
+  it('previousInteractionId and store map to their wire names', async () => {
+    await omni().generate({ prompt: 'Make the violin invisible.', previousInteractionId: 'v1_prev', store: false });
+    const { body } = only();
+    expect(body.previous_interaction_id).toBe('v1_prev');
+    expect(body.store).toBe(false);
+    expect(body).not.toHaveProperty('generation_config');
   });
 
-  it('unknown Veo id: sent with every declared param (spec D3)', async () => {
-    await veo().generateVideo({ prompt: 'x', model: 'veo-9-imaginary', resolution: '8k', durationSeconds: '30' });
-    expect(only().url.pathname).toBe('/v1beta/models/veo-9-imaginary:predictLongRunning');
-    expect(parameters()).toEqual({ resolution: '8k', durationSeconds: 30 });
+  it('task → generation_config.video_config.task', async () => {
+    await omni().generate({ prompt: 'Make this anime.', video: { uri: 'https://generativelanguage.googleapis.com/v1beta/files/v1' }, task: 'edit' });
+    expect(only().body.generation_config).toEqual({ video_config: { task: 'edit' } });
   });
 
-  it('seed never reaches the network (spec D15)', async () => {
-    await expect(veo().generateVideo({ prompt: 'x', seed: 42 } as never)).rejects.toThrow('seed was removed in 2.0');
+  it('task with previousInteractionId never reaches the network (the API rejects the pair, live 2026-11-08)', async () => {
+    await expect(omni().generate({ prompt: 'x', previousInteractionId: 'v1_prev', task: 'edit' })).rejects.toThrow(/previousInteractionId/);
     expect(calls).toHaveLength(0);
   });
 
-  it('Vertex environment variables do not reroute Veo either', async () => {
+  it('durationSeconds 0 is sent in warn mode, not silently dropped to the default', async () => {
+    await omni({ capabilityValidation: 'warn' }).generate({ prompt: 'x', durationSeconds: 0 });
+    expect(only().body.response_format.duration).toBe('0s');
+  });
+
+  it('unknown Omni id: sent with every param, no capability check (spec D3)', async () => {
+    await omni().generate({ prompt: 'x', model: 'gemini-omni-9-flash', resolution: '8k', durationSeconds: 60 });
+    expect(only().body).toMatchObject({ model: 'gemini-omni-9-flash', response_format: { resolution: '8k', duration: '60s' } });
+  });
+
+  it('a rejected parameter never reaches the network', async () => {
+    await expect(omni().generate({ prompt: 'x', resolution: '8k' })).rejects.toThrow(/Invalid resolution/);
+    await expect(omni().generate({ prompt: 'x', negativePrompt: 'blur' } as never)).rejects.toThrow(/not supported by Gemini Omni/);
+    expect(calls).toHaveLength(0);
+  });
+
+  it('returns the interaction id and the inline video', async () => {
+    const result = await omni().generate({ prompt: 'x' });
+    expect(result).toEqual({
+      interactionId: 'v1_abc',
+      model: 'gemini-omni-1.2-flash',
+      status: 'completed',
+      video: { mimeType: 'video/mp4', data: 'AAAAIGZ0eXA=' },
+    });
+  });
+
+  it('a uri delivery returns the uri, not data', async () => {
+    const uri = 'https://generativelanguage.googleapis.com/v1beta/files/abc123:download?alt=media';
+    nextResponse = respondJson(200, { ...OMNI_OK, steps: [{ type: 'model_output', content: [{ type: 'video', mime_type: 'video/mp4', uri }] }] });
+    const result = await omni().generate({ prompt: 'x', delivery: 'uri' });
+    expect(result.video).toEqual({ mimeType: 'video/mp4', uri });
+  });
+
+  it('saveVideo: a uri video whose file FAILED processing throws at once, without downloading', async () => {
+    const uri = 'https://generativelanguage.googleapis.com/v1beta/files/bad1:download?alt=media';
+    const result = { interactionId: 'v1_abc', model: 'gemini-omni-1.2-flash', status: 'completed', video: { mimeType: 'video/mp4', uri } };
+    nextResponse = respondJson(200, { name: 'files/bad1', state: 'FAILED' });
+    await expect(omni().saveVideo(result, path.join(mkdtempSync(path.join(tmpdir(), 'omni-wire-')), 'never-written.mp4'))).rejects.toThrow('files/bad1 failed processing');
+    expect(calls.map((c) => c.url.pathname)).toEqual(['/v1beta/files/bad1']);
+  });
+
+  it('completed with no video → an error naming the interaction and what the model said', async () => {
+    nextResponse = respondJson(200, { ...OMNI_OK, steps: [{ type: 'model_output', content: [{ type: 'text', text: 'I cannot generate that.' }] }] });
+    const err = await rejection(omni().generate({ prompt: 'x' }));
+    expect(err.message).toBe('Omni interaction v1_abc completed without a video. Model said: I cannot generate that.');
+    expect(err.interactionId).toBe('v1_abc');
+    expect(err.surface).toBe('video');
+  });
+
+  it("status 'failed' → an error carrying the interaction's own message", async () => {
+    nextResponse = respondJson(200, { id: 'v1_f', status: 'failed', object: 'interaction', errors: [{ code: 'x', message: 'Video generation was blocked by safety filters.' }] });
+    const err = await rejection(omni().generate({ prompt: 'x' }));
+    expect(err.message).toContain("ended with status 'failed': Video generation was blocked by safety filters.");
+    expect(err.classification).toBe('SAFETY_BLOCKED');
+  });
+
+  it('Vertex environment variables do not reroute Omni', async () => {
     vi.stubEnv('GOOGLE_GENAI_USE_VERTEXAI', 'true');
     vi.stubEnv('GOOGLE_CLOUD_PROJECT', 'some-project');
     vi.stubEnv('GOOGLE_CLOUD_LOCATION', 'us-central1');
-    await veo().generateVideo({ prompt: 'x' });
+    await omni().generate({ prompt: 'x' });
     expect(only().url.host).toBe(GEMINI_HOST);
+  });
+});
+
+describe('Omni errors from the wire (spec D13, 3.0 D22)', () => {
+  // The Interactions client's error body: a JSON ARRAY of one Gemini error (observed live 2026-11-08).
+  const vendor = (code: number, status: string, message: string) => () =>
+    new Response(JSON.stringify([{ error: { code, message, status, details: [{ metadata: { consumer: 'projects/123456789' } }] } }]), {
+      status: code,
+      headers: { 'content-type': 'application/json' },
+    });
+
+  async function failure(): Promise<Error & Record<string, unknown>> {
+    try {
+      await new GoogleGenAIOmniAPI('test-key', 'error').generate({ prompt: 'x' });
+    } catch (e) {
+      return e as Error & Record<string, unknown>;
+    }
+    throw new Error('expected a failure');
+  }
+
+  it('a 503 is NOT retried: one billed generation attempt, never five (the SDK default)', async () => {
+    nextResponse = vendor(503, 'UNAVAILABLE', 'The model is overloaded.');
+    const err = await failure();
+    expect(calls).toHaveLength(1);
+    expect(err.classification).toBe('TRANSIENT');
+  });
+
+  it('outside production: the SDK error itself, with status/classification/surface added', async () => {
+    nextResponse = vendor(400, 'INVALID_ARGUMENT', 'Duration must be between 3s and 15s.');
+    const err = await failure();
+    expect(err.constructor.name).toBe('BadRequestError'); // identity kept
+    // The Interactions client's own message is `400 API error occurred: {"httpMeta":…}`;
+    // it is replaced by the vendor error, as the models client's ApiError message already is (3.0 D27).
+    expect(err.message).not.toContain('httpMeta');
+    expect(JSON.parse(err.message)).toMatchObject({ error: { code: 400, status: 'INVALID_ARGUMENT', message: 'Duration must be between 3s and 15s.' } });
+    expect(err.status).toBe(400);
+    expect(err.classification).toBe('USER_ACTIONABLE');
+    expect(err.surface).toBe('video');
+  });
+
+  describe('in production', () => {
+    beforeEach(() => vi.stubEnv('NODE_ENV', 'production'));
+
+    it('400 → the vendor message read from the array body, never details[]', async () => {
+      nextResponse = vendor(400, 'INVALID_ARGUMENT', 'Duration must be between 3s and 15s.');
+      const err = await failure();
+      expect(err.message).toBe('Video generation failed (HTTP 400): Duration must be between 3s and 15s.');
+      expect(err.message).not.toContain('projects/');
+      expect(err.message).not.toContain('httpMeta');
+      expect(err.cause).toBeUndefined();
+    });
+
+    it("400 in the Interactions API's own format ({error: {message, code: 'invalid_request'}}) → the vendor message", async () => {
+      // Observed live 2026-11-08 for request validation (aspect_ratio 1:1): no gRPC status, a string code, no array.
+      const message = "The value '1:1' is not supported for 'response_format.aspect_ratio'. Supported values: '16:9', '9:16'.";
+      nextResponse = respondJson(400, { error: { message, code: 'invalid_request' } });
+      const err = await failure();
+      expect(err.message).toBe(`Video generation failed (HTTP 400): ${message}`);
+    });
+
+    it('a JSON body whose code is not a lowercase identifier is not trusted as a vendor message', async () => {
+      nextResponse = respondJson(400, { error: { message: 'internal stack trace at proxy.js:12', code: 'Some Proxy 1.0' } });
+      const err = await failure();
+      expect(err.message).toBe('Video generation failed (HTTP 400): the request was rejected. Please check your inputs.');
+    });
+
+    it('402 (prepaid credits depleted) → the vendor message, so the user learns it is billing', async () => {
+      nextResponse = vendor(402, 'RESOURCE_EXHAUSTED', 'Your prepayment credits are depleted. Please go to AI Studio to manage your project and billing. ');
+      const err = await failure();
+      expect(err.message).toBe('Video generation failed (HTTP 402): Your prepayment credits are depleted. Please go to AI Studio to manage your project and billing.');
+      expect(err.classification).toBe('USER_ACTIONABLE');
+    });
+
+    it('403 → auth sentence, no vendor text', async () => {
+      nextResponse = vendor(403, 'PERMISSION_DENIED', 'Your API key was reported as leaked.');
+      const err = await failure();
+      expect(err.message).toBe('Video generation failed: authentication or permission failure (HTTP 403).');
+    });
   });
 });

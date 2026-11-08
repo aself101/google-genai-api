@@ -33,17 +33,15 @@ import type {
   ModelValidationParams,
   Models,
   ParsedTimeOffsets,
-  VeoAspectRatio,
-  VeoMode,
-  VeoModes,
-  VeoModel,
-  VeoModelConstraint,
-  VeoModelConstraints,
-  VeoModels,
-  VeoResolution,
-  VeoReferenceImage,
-  VeoTimeouts,
-  VeoVideoObject,
+  OmniAspectRatio,
+  OmniGenerateParams,
+  OmniModel,
+  OmniModelConstraint,
+  OmniModelConstraints,
+  OmniModels,
+  OmniResolution,
+  OmniTask,
+  OmniTimeouts,
   VideoTimeouts,
   VideoSizeLimits,
 } from './types/index.js';
@@ -68,14 +66,22 @@ export type { Violation };
  * id and sent without capability validation (spec D3).
  */
 export const MODELS: Models = {
+  GEMINI_NANO_BANANA_2_1: 'gemini-nano-banana-2.1',
   GEMINI_3_1_FLASH: 'gemini-3.1-flash-image',
   GEMINI_3_1_FLASH_LITE: 'gemini-3.1-flash-lite-image',
   GEMINI_3_PRO: 'gemini-3-pro-image',
-  GEMINI_VIDEO: 'gemini-2.5-flash', // Video analysis uses standard Gemini model
+  // Video understanding. 2.x used gemini-2.5-flash, which shuts down 2026-12-01
+  // (then routes to gemini-3.5-flash-lite); gemini-3.8-flash is the model
+  // Google's video-understanding guide uses (spec 3.0 D21).
+  GEMINI_VIDEO: 'gemini-3.8-flash',
 };
 
-/** Image model used when a caller does not pass one (spec D4). */
-export const DEFAULT_IMAGE_MODEL: GeminiImageModel = 'gemini-3.1-flash-image';
+/**
+ * Image model used when a caller does not pass one (spec D4). Nano Banana 2.1
+ * since 3.0 — Google recommends it for all new projects in place of
+ * gemini-3.1-flash-image (spec 3.0 D20).
+ */
+export const DEFAULT_IMAGE_MODEL: GeminiImageModel = 'gemini-nano-banana-2.1';
 
 // ============================================================================
 // VIDEO CONFIGURATION
@@ -158,6 +164,23 @@ export const GEMINI_MODES: GeminiModes = {
  * Model parameter constraints
  */
 export const MODEL_CONSTRAINTS: ModelConstraints = {
+  // Same family as 3.1 Flash Image: all 14 ratios, up to 14 inputs (10 object +
+  // 4 character). No 512 tier ("not supported on Gemini Nano Banana 2.1",
+  // image-generation guide, 2026-11-08).
+  'gemini-nano-banana-2.1': {
+    aspectRatios: ASPECT_RATIOS,
+    imageSizes: ['1K', '2K', '4K'],
+    promptMaxLength: 10000,
+    inputImagesMax: 14,
+    supportedModes: Object.values(GEMINI_MODES) as GeminiMode[],
+    features: {
+      textToImage: true,
+      imageToImage: true,
+      semanticMasking: true,
+      naturalLanguageEditing: true,
+    },
+    responseFormat: 'parts',
+  },
   'gemini-3.1-flash-image': {
     aspectRatios: ASPECT_RATIOS,
     imageSizes: ['512', '1K', '2K', '4K'],
@@ -203,7 +226,7 @@ export const MODEL_CONSTRAINTS: ModelConstraints = {
     },
     responseFormat: 'parts',
   },
-  'gemini-2.5-flash': {
+  'gemini-3.8-flash': {
     promptMaxLength: 10000,
     video: {
       supportedFormats: VIDEO_MIME_TYPES,
@@ -306,6 +329,7 @@ export function redactApiKey(apiKey: string): string {
 }
 
 const IMAGE_MODEL_IDS: readonly string[] = [
+  MODELS.GEMINI_NANO_BANANA_2_1,
   MODELS.GEMINI_3_1_FLASH,
   MODELS.GEMINI_3_1_FLASH_LITE,
   MODELS.GEMINI_3_PRO,
@@ -316,9 +340,9 @@ export function isKnownImageModel(id: string): id is GeminiImageModel {
   return IMAGE_MODEL_IDS.includes(id);
 }
 
-/** True for a Veo model this package catalogs. */
-export function isKnownVeoModel(id: string): id is VeoModel {
-  return Object.prototype.hasOwnProperty.call(VEO_MODEL_CONSTRAINTS, id);
+/** True for an Omni model this package catalogs. */
+export function isKnownOmniModel(id: string): id is OmniModel {
+  return Object.prototype.hasOwnProperty.call(OMNI_MODEL_CONSTRAINTS, id);
 }
 
 // Shape patterns are deliberately open (spec D3): a ratio or size a future
@@ -577,220 +601,85 @@ export function validateVideoParams(params: VideoTimeParams): ParsedTimeOffsets 
 }
 
 // ============================================================================
-// VEO VIDEO GENERATION CONFIGURATION
+// OMNI VIDEO GENERATION CONFIGURATION (3.0 — replaces Veo, shut down 2026-10-22)
 // ============================================================================
 
 /**
- * Veo video generation models.
+ * Gemini Omni video models. `gemini-omni-1.1-flash` is not listed: it routes to
+ * 1.2 from 2026-12-03 (deprecations page), so it has an announced end (spec D2).
  */
-export const VEO_MODELS: VeoModels = {
-  VEO_3_1: 'veo-3.1-generate-preview',
-  VEO_3_1_FAST: 'veo-3.1-fast-generate-preview',
-  VEO_3_1_LITE: 'veo-3.1-lite-generate-preview',
+export const OMNI_MODELS: OmniModels = {
+  OMNI_1_2_FLASH: 'gemini-omni-1.2-flash',
 };
 
-/**
- * Veo supported aspect ratios.
- */
-export const VEO_ASPECT_RATIOS: VeoAspectRatio[] = ['16:9', '9:16'];
+/** Omni output aspect ratios. */
+export const OMNI_ASPECT_RATIOS: OmniAspectRatio[] = ['16:9', '9:16'];
+
+/** Omni output resolutions. */
+export const OMNI_RESOLUTIONS: OmniResolution[] = ['360p', '720p', '1080p', '4k'];
 
 /**
- * Veo supported resolutions.
+ * Values `generation_config.video_config.task` accepts — the API's own list
+ * (live 2026-11-08). SDK 2.32's `Task` type also has `upscale`; the API rejects
+ * it ("The value 'upscale' is not supported").
  */
-export const VEO_RESOLUTIONS: VeoResolution[] = ['720p', '1080p', '4k'];
+export const OMNI_TASKS: OmniTask[] = ['text_to_video', 'image_to_video', 'reference_to_video', 'edit', 'extend'];
 
 /**
- * Veo generation durations by model.
- * Duration in seconds as strings.
+ * Omni timeouts. Generation is one synchronous call that returns when the video
+ * is done, so the request timeout bounds the whole job.
  */
-export const VEO_DURATIONS = {
-  'veo-3.1-generate-preview': ['4', '6', '8'],
-  'veo-3.1-fast-generate-preview': ['4', '6', '8'],
-  'veo-3.1-lite-generate-preview': ['4', '6', '8'],
-} as Record<VeoModel, string[]>;
-
-/**
- * Person generation settings. The 1.x set, kept for compatibility — but the Veo
- * 3.1 models accept only some values, per mode: see `VEO_PERSON_GENERATION_BY_MODE`.
- * `dont_allow` is rejected in every mode ("currently not supported").
- */
-export const VEO_PERSON_GENERATION = {
-  ALLOW_ALL: 'allow_all',
-  ALLOW_ADULT: 'allow_adult',
-  DONT_ALLOW: 'dont_allow',
-} as const;
-
-/**
- * `personGeneration` values the Veo 3.1 API accepts, by mode. Observed live on
- * 2026-09-23 (one key, US): text-to-video took `allow_all` and rejected
- * `allow_adult` and `dont_allow`; image-to-video took `allow_all` and
- * `allow_adult` (Google's table says `allow_adult` only) and rejected
- * `dont_allow`. Extension follows text-to-video per Google's table. Reference
- * and interpolation modes do not send the field. Google restricts EU, UK, CH
- * and MENA to `allow_adult`, so a capability check: `capabilityValidation:
- * 'warn'` sends other values anyway.
- */
-export const VEO_PERSON_GENERATION_BY_MODE: Readonly<Record<string, readonly string[]>> = {
-  'text-to-video': ['allow_all'],
-  extension: ['allow_all'],
-  'image-to-video': ['allow_all', 'allow_adult'],
+export const OMNI_TIMEOUTS: OmniTimeouts = {
+  REQUEST: 900000, // 15 minutes; 4k at 15 s took 213 s live (2026-11-08)
+  FILE_POLL_INTERVAL: 5000, // Google's own example polls every 5 s
+  FILE_POLL_MAX_ATTEMPTS: 120, // 10 minutes
 };
 
-/**
- * Veo generation timeouts and polling configuration.
- */
-export const VEO_TIMEOUTS: VeoTimeouts = {
-  MIN_LATENCY: 11000, // 11 seconds minimum
-  MAX_LATENCY: 360000, // 6 minutes maximum
-  POLL_INTERVAL: 10000, // 10 seconds between polls
-  POLL_MAX_ATTEMPTS: 60, // Max attempts (10 minutes total)
-  VIDEO_RETENTION_HOURS: 48, // Videos retained for 48 hours
-};
-
-/**
- * Veo generation modes.
- */
-export const VEO_MODES: VeoModes = {
-  TEXT_TO_VIDEO: 'text-to-video',
-  IMAGE_TO_VIDEO: 'image-to-video',
-  REFERENCE_IMAGES: 'reference-images',
-  INTERPOLATION: 'interpolation',
-  EXTENSION: 'extension',
-};
-
-/**
- * Veo model constraints.
- * Defines feature support and parameter limits for each model.
- */
-export const VEO_MODEL_CONSTRAINTS: VeoModelConstraints = {
-  [VEO_MODELS.VEO_3_1]: {
-    aspectRatios: VEO_ASPECT_RATIOS,
-    resolutions: VEO_RESOLUTIONS,
-    durations: VEO_DURATIONS[VEO_MODELS.VEO_3_1],
+/** Omni model constraints (omni guide + model page, 2026-11-08). */
+export const OMNI_MODEL_CONSTRAINTS: OmniModelConstraints = {
+  [OMNI_MODELS.OMNI_1_2_FLASH]: {
+    aspectRatios: OMNI_ASPECT_RATIOS,
+    resolutions: OMNI_RESOLUTIONS,
+    durationSeconds: { min: 3, max: 15, default: 10 },
+    interpolationAndExtensionMaxSeconds: 10,
+    extendedTotalMaxSeconds: 30,
+    editInputMaxSeconds: 15,
+    maxImages: 6,
+    tasks: OMNI_TASKS,
     features: {
       textToVideo: true,
       imageToVideo: true,
-      referenceImages: true,
       interpolation: true,
+      subjectReference: true,
+      editing: true,
       extension: true,
       nativeAudio: true,
-      negativePrompt: true,
     },
-    referenceImages: {
-      max: 3,
-    },
-    extension: {
-      maxInputLength: 141, // Max input video length in seconds
-      extensionLength: 7, // Each extension adds ~7 seconds
-      maxTotalLength: 148, // Max total video length
-    },
-    resolution1080p: {
-      requiresDuration: '8', // 1080p requires 8-second duration
-      aspectRatio: null, // All aspect ratios supported
-    },
-    durationRequired: { '1080p': '8', '4k': '8' },
-    promptMaxLength: 1024, // Max prompt length in tokens
-  },
-  [VEO_MODELS.VEO_3_1_FAST]: {
-    aspectRatios: VEO_ASPECT_RATIOS,
-    resolutions: VEO_RESOLUTIONS,
-    durations: VEO_DURATIONS[VEO_MODELS.VEO_3_1_FAST],
-    features: {
-      textToVideo: true,
-      imageToVideo: true,
-      referenceImages: true,
-      interpolation: true,
-      extension: true,
-      nativeAudio: true,
-      negativePrompt: true,
-    },
-    referenceImages: {
-      max: 3,
-    },
-    extension: {
-      maxInputLength: 141,
-      extensionLength: 7,
-      maxTotalLength: 148,
-    },
-    resolution1080p: {
-      requiresDuration: '8',
-      aspectRatio: null,
-    },
-    durationRequired: { '1080p': '8', '4k': '8' },
-    promptMaxLength: 1024,
-  },
-  // Lite: no 4k and no extension (model page + veo.md); reference images
-  // rejected live — "`referenceImages` isn't supported by this model"
-  // (2026-09-22). Interpolation supported.
-  [VEO_MODELS.VEO_3_1_LITE]: {
-    aspectRatios: VEO_ASPECT_RATIOS,
-    resolutions: ['720p', '1080p'],
-    durations: VEO_DURATIONS[VEO_MODELS.VEO_3_1_LITE],
-    features: {
-      textToVideo: true,
-      imageToVideo: true,
-      referenceImages: false,
-      interpolation: true,
-      extension: false,
-      nativeAudio: true,
-      negativePrompt: false,
-    },
-    referenceImages: null,
-    extension: null,
-    resolution1080p: {
-      requiresDuration: '8',
-      aspectRatio: null,
-    },
-    durationRequired: { '1080p': '8' },
-    promptMaxLength: 1024,
   },
 };
 
-/**
- * Parameters for Veo validation.
- */
-interface VeoValidationParams {
-  prompt?: string;
-  aspectRatio?: string;
-  resolution?: string;
-  durationSeconds?: string | number;
-  referenceImages?: VeoReferenceImage[];
-  video?: VeoVideoObject;
-  firstFrame?: { imageBytes: string; mimeType: string };
-  lastFrame?: { imageBytes: string; mimeType: string };
-  personGeneration?: string;
-  negativePrompt?: string;
-  /** Removed in 2.0 (spec D15); present only so a caller who passes it is told why it fails. */
-  seed?: unknown;
-}
+const OMNI_ASPECT_SHAPE = /^\d+:\d+$/;
+const OMNI_RESOLUTION_SHAPE = /^\d+(p|k)$/;
+const OMNI_DURATION_SHAPE = /^\d+$/;
+const OMNI_TASK_SHAPE = /^[a-z_]+$/;
+const OMNI_MIME_SHAPE = /^(image|video)\/[a-z0-9.+-]+$/;
+const OMNI_PROMPT_MAX_LENGTH = 10000;
 
-const VEO_FEATURE_FOR_MODE: Record<string, keyof VeoModelConstraint['features']> = {
-  'text-to-video': 'textToVideo',
-  'image-to-video': 'imageToVideo',
-  'reference-images': 'referenceImages',
-  interpolation: 'interpolation',
-  extension: 'extension',
-};
-const VEO_ASPECT_SHAPE = /^\d+:\d+$/;
-const VEO_RESOLUTION_SHAPE = /^\d+(p|k)$/;
-const VEO_DURATION_SHAPE = /^\d+$/;
-const PERSON_GENERATION_SHAPE = /^[a-z_]+$/;
-const VEO_PROMPT_MAX_TOKENS = 1024;
+/** The fields of `OmniGenerateParams` the validator reads, plus removed Veo names (so a 2.x caller is told). */
+type OmniValidationParams = Partial<OmniGenerateParams> & { negativePrompt?: unknown; personGeneration?: unknown; seed?: unknown };
 
 /**
- * Check Veo parameters against the shape rules and, for a known model, its
- * constraint table (spec D3/D5). Pure: never throws, never logs. Violations are
- * in the order 1.x threw its errors, so `validateVeoParams`' message matches 1.x
- * for the rules 1.x had.
+ * Check Omni parameters against the shape rules and, for a known model, its
+ * constraint table (spec D3/D5). Pure: never throws, never logs.
+ *
+ * Not checked, on purpose: which mode a prompt selects (Omni decides that from
+ * the prompt), so the 10-second ceiling for interpolation and extension is
+ * left to the API.
  */
-export function getVeoViolations(
-  model: string,
-  params: VeoValidationParams,
-  mode: VeoMode = VEO_MODES.TEXT_TO_VIDEO
-): Violation[] {
+export function getOmniViolations(model: string, params: OmniValidationParams): Violation[] {
   const v: Violation[] = [];
-  const c = Object.prototype.hasOwnProperty.call(VEO_MODEL_CONSTRAINTS, model)
-    ? (VEO_MODEL_CONSTRAINTS[model] as VeoModelConstraint)
+  const c: OmniModelConstraint | undefined = Object.prototype.hasOwnProperty.call(OMNI_MODEL_CONSTRAINTS, model)
+    ? OMNI_MODEL_CONSTRAINTS[model]
     : undefined;
   const shape = (param: string, value: unknown, message: string): void => {
     v.push({ kind: 'shape', param, value, message });
@@ -800,115 +689,100 @@ export function getVeoViolations(
   };
 
   // ---- shape: every id ----
-  if (params.seed !== undefined) {
-    shape('seed', params.seed, 'seed was removed in 2.0: the Gemini Developer API does not support it for Veo');
-  }
-  if (mode !== VEO_MODES.EXTENSION && mode !== VEO_MODES.INTERPOLATION) {
-    if (!params.prompt || typeof params.prompt !== 'string') {
-      shape('prompt', params.prompt, 'Prompt is required and must be a string');
-    } else {
-      // promptMaxLength is in tokens; ~4 characters per token as a rough bound
-      const maxTokens = c?.promptMaxLength ?? VEO_PROMPT_MAX_TOKENS;
-      if (params.prompt.length > maxTokens * 4) {
-        shape('prompt', params.prompt.length, `Prompt exceeds maximum length of approximately ${maxTokens} tokens`);
-      }
+  for (const removed of ['negativePrompt', 'personGeneration', 'seed'] as const) {
+    if (params[removed] !== undefined) {
+      shape(removed, params[removed], `${removed} is not supported by Gemini Omni; put negatives in the prompt instead (e.g. "No dialogue")`);
     }
   }
-  const aspectOk = params.aspectRatio === undefined || VEO_ASPECT_SHAPE.test(String(params.aspectRatio));
+  if (typeof params.prompt !== 'string' || params.prompt.trim() === '') {
+    shape('prompt', params.prompt, 'Prompt is required and must be a non-empty string');
+  } else if (params.prompt.length > OMNI_PROMPT_MAX_LENGTH) {
+    shape('prompt', params.prompt.length, `Prompt exceeds maximum length of ${OMNI_PROMPT_MAX_LENGTH} characters`);
+  }
+  const aspectOk = params.aspectRatio === undefined || OMNI_ASPECT_SHAPE.test(String(params.aspectRatio));
   if (!aspectOk) shape('aspectRatio', params.aspectRatio, `Invalid aspect ratio '${params.aspectRatio}': expected W:H, e.g. '16:9'`);
-  const resolutionOk = params.resolution === undefined || VEO_RESOLUTION_SHAPE.test(String(params.resolution));
-  if (!resolutionOk) shape('resolution', params.resolution, `Invalid resolution '${params.resolution}': expected e.g. '720p', '1080p', '4k'`);
-  const durationOk = params.durationSeconds === undefined || VEO_DURATION_SHAPE.test(String(params.durationSeconds));
-  if (!durationOk) shape('durationSeconds', params.durationSeconds, `Invalid duration '${params.durationSeconds}': expected whole seconds, e.g. '8'`);
-  if (mode === VEO_MODES.REFERENCE_IMAGES && params.referenceImages !== undefined) {
-    if (!Array.isArray(params.referenceImages)) {
-      shape('referenceImages', params.referenceImages, 'referenceImages must be an array');
-    } else if (params.referenceImages.length === 0) {
-      shape('referenceImages', 0, 'At least one reference image is required');
+  const resolutionOk = params.resolution === undefined || OMNI_RESOLUTION_SHAPE.test(String(params.resolution));
+  if (!resolutionOk) shape('resolution', params.resolution, `Invalid resolution '${params.resolution}': expected e.g. '720p', '4k'`);
+  const durationOk = params.durationSeconds === undefined || OMNI_DURATION_SHAPE.test(String(params.durationSeconds));
+  if (!durationOk) shape('durationSeconds', params.durationSeconds, `Invalid duration '${params.durationSeconds}': expected whole seconds, e.g. 8`);
+  const taskOk = params.task === undefined || OMNI_TASK_SHAPE.test(String(params.task));
+  if (!taskOk) shape('task', params.task, `Invalid task '${params.task}': expected e.g. 'image_to_video'`);
+  if (params.delivery !== undefined && params.delivery !== 'inline' && params.delivery !== 'uri') {
+    shape('delivery', params.delivery, `Invalid delivery '${String(params.delivery)}': must be 'inline' or 'uri'`);
+  }
+  if (params.images !== undefined) {
+    if (!Array.isArray(params.images)) {
+      shape('images', params.images, 'images must be an array');
     } else {
-      params.referenceImages.forEach((ref, i) => {
-        if (!ref.image) shape(`referenceImages[${i}].image`, undefined, `Reference image ${i + 1} is missing 'image' property`);
-        if (!ref.referenceType) shape(`referenceImages[${i}].referenceType`, undefined, `Reference image ${i + 1} is missing 'referenceType' property`);
-      });
+      params.images.forEach((img, i) => checkMedia(`images[${i}]`, img, 'image', shape));
     }
   }
-  if (mode === VEO_MODES.INTERPOLATION) {
-    if (!params.firstFrame) shape('firstFrame', undefined, 'firstFrame image is required for interpolation mode');
-    if (!params.lastFrame) shape('lastFrame', undefined, 'lastFrame image is required for interpolation mode');
+  if (params.video !== undefined) checkMedia('video', params.video, 'video', shape);
+  if (params.previousInteractionId !== undefined && (typeof params.previousInteractionId !== 'string' || params.previousInteractionId === '')) {
+    shape('previousInteractionId', params.previousInteractionId, 'previousInteractionId must be a non-empty string');
   }
-  if (mode === VEO_MODES.EXTENSION && !params.video) {
-    shape('video', undefined, 'video object is required for extension mode');
-  }
-  const personOk = params.personGeneration === undefined || PERSON_GENERATION_SHAPE.test(String(params.personGeneration));
-  if (!personOk) shape('personGeneration', params.personGeneration, `Invalid personGeneration value: '${params.personGeneration}'`);
-
   if (!c) return v;
 
   // ---- capability: known ids only ----
-  if (params.aspectRatio !== undefined && aspectOk && !c.aspectRatios.includes(params.aspectRatio as VeoAspectRatio)) {
+  if (params.aspectRatio !== undefined && aspectOk && !c.aspectRatios.includes(params.aspectRatio as OmniAspectRatio)) {
     cap('aspectRatio', params.aspectRatio, `Invalid aspect ratio '${params.aspectRatio}' for ${model}. Must be one of: ${c.aspectRatios.join(', ')}`, c.aspectRatios);
   }
-  if (params.resolution !== undefined && resolutionOk && !c.resolutions.includes(params.resolution as VeoResolution)) {
+  if (params.resolution !== undefined && resolutionOk && !c.resolutions.includes(params.resolution as OmniResolution)) {
     cap('resolution', params.resolution, `Invalid resolution '${params.resolution}' for ${model}. Must be one of: ${c.resolutions.join(', ')}`, c.resolutions);
   }
-  if (params.durationSeconds !== undefined && durationOk && !c.durations.includes(String(params.durationSeconds))) {
-    cap('durationSeconds', params.durationSeconds, `Invalid duration '${params.durationSeconds}' for ${model}. Must be one of: ${c.durations.join(', ')}`, c.durations);
-  }
-  const required = params.resolution ? c.durationRequired?.[params.resolution as VeoResolution] : undefined;
-  if (required && params.durationSeconds !== undefined && String(params.durationSeconds) !== required) {
-    cap('durationSeconds', params.durationSeconds, `${params.resolution} resolution requires ${required}-second duration for ${model}. Got: ${params.durationSeconds}s`, [required]);
-  }
-  const feature = VEO_FEATURE_FOR_MODE[mode];
-  if (feature && !c.features[feature]) {
-    cap('mode', mode, `${mode} mode is not supported by ${model}.`);
-  }
-  if (mode === VEO_MODES.REFERENCE_IMAGES && Array.isArray(params.referenceImages) && c.referenceImages
-      && params.referenceImages.length > c.referenceImages.max) {
-    cap('referenceImages', params.referenceImages.length, `Maximum ${c.referenceImages.max} reference images allowed. Got: ${params.referenceImages.length}`);
-  }
-  if (mode === VEO_MODES.EXTENSION && params.resolution && resolutionOk && params.resolution !== '720p') {
-    cap('resolution', params.resolution, `Video extension requires 720p resolution. Got: ${params.resolution}`, ['720p']);
-  }
-  const validPerson = Object.values(VEO_PERSON_GENERATION) as string[];
-  if (params.personGeneration !== undefined && personOk && !validPerson.includes(params.personGeneration)) {
-    cap('personGeneration', params.personGeneration, `Invalid personGeneration value: '${params.personGeneration}'. Must be one of: ${validPerson.join(', ')}`, validPerson);
-  } else if (params.personGeneration !== undefined && personOk) {
-    const forMode = VEO_PERSON_GENERATION_BY_MODE[mode];
-    if (forMode && !forMode.includes(params.personGeneration)) {
-      cap('personGeneration', params.personGeneration, `personGeneration '${params.personGeneration}' is not accepted in ${mode} mode. Must be one of: ${forMode.join(', ')}`, forMode);
+  if (params.durationSeconds !== undefined && durationOk) {
+    const n = Number(params.durationSeconds);
+    const { min, max } = c.durationSeconds;
+    if (n < min || n > max) {
+      cap('durationSeconds', params.durationSeconds, `Invalid duration ${n}s for ${model}. Must be ${min}-${max} seconds`);
     }
   }
-  if (params.negativePrompt && c.features.negativePrompt === false) {
-    cap('negativePrompt', params.negativePrompt, `negativePrompt is not supported by ${model}.`);
+  if (params.task !== undefined && taskOk && !c.tasks.includes(params.task as OmniTask)) {
+    cap('task', params.task, `Invalid task '${params.task}' for ${model}. Must be one of: ${c.tasks.join(', ')}`, c.tasks);
+  }
+  if (params.task !== undefined && params.previousInteractionId !== undefined) {
+    // Live 2026-11-08: "previous_interaction_id is not allowed when video task is set."
+    // To edit or extend with a task, pass the video as `video` instead.
+    cap('task', params.task, `task cannot be combined with previousInteractionId on ${model} (the API rejects the pair). Drop task and describe the edit in the prompt, or pass the video as \`video\``);
+  }
+  if (Array.isArray(params.images) && params.images.length > c.maxImages) {
+    cap('images', params.images.length, `Maximum ${c.maxImages} images allowed for ${model}. Got: ${params.images.length}`);
   }
   return v;
 }
 
+/** Shape of one image or video input: base64 `data` + `mimeType`, or a `uri`. */
+function checkMedia(
+  param: string,
+  media: unknown,
+  kind: 'image' | 'video',
+  shape: (param: string, value: unknown, message: string) => void
+): void {
+  if (typeof media !== 'object' || media === null) {
+    shape(param, media, `${param} must be an object with data + mimeType, or uri`);
+    return;
+  }
+  const m: { data?: unknown; uri?: unknown; mimeType?: unknown } = media;
+  const hasData = typeof m.data === 'string' && m.data !== '';
+  const hasUri = typeof m.uri === 'string' && m.uri !== '';
+  if (hasData === hasUri) {
+    shape(param, undefined, `${param} needs exactly one of data (base64) or uri`);
+    return;
+  }
+  if (hasData && (typeof m.mimeType !== 'string' || m.mimeType === '')) {
+    shape(`${param}.mimeType`, m.mimeType, `${param}.mimeType is required with data`);
+  } else if (m.mimeType !== undefined && (typeof m.mimeType !== 'string' || !OMNI_MIME_SHAPE.test(m.mimeType) || !m.mimeType.startsWith(`${kind}/`))) {
+    shape(`${param}.mimeType`, m.mimeType, `${param}.mimeType must be a ${kind}/* type. Got: ${String(m.mimeType)}`);
+  }
+}
+
 /**
- * Validate Veo generation parameters before making API calls. Same contract
- * as 1.x — throws on the first problem, returns `true` otherwise — now as
- * `ValidationError`. Unlike 1.x, an id with no constraint entry is not rejected:
- * it gets shape checks only (spec D3).
- *
- * @param model - Veo model name
- * @param params - Parameters to validate
- * @param mode - Generation mode
- * @throws ValidationError if validation fails
- *
- * @example
- * validateVeoParams('veo-3.1-generate-preview', {
- *   prompt: 'A cat running',
- *   aspectRatio: '16:9',
- *   resolution: '720p',
- *   durationSeconds: '8'
- * });
+ * Validate Omni parameters: throws `ValidationError` on any violation (shape or
+ * capability), returns `true` otherwise. The clients use `getOmniViolations`
+ * directly so `capabilityValidation: 'warn'` can downgrade capability rules.
  */
-export function validateVeoParams(
-  model: string,
-  params: VeoValidationParams,
-  mode: VeoMode = VEO_MODES.TEXT_TO_VIDEO
-): boolean {
-  const violations = getVeoViolations(model, params, mode);
+export function validateOmniParams(model: string, params: OmniValidationParams): boolean {
+  const violations = getOmniViolations(model, params);
   if (violations.length > 0) throw new ValidationError(violations);
   return true;
 }

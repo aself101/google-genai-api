@@ -2,6 +2,182 @@
 
 
 
+## [3.0.0](https://github.com/googleapis/js-genai/compare/v2.32.0...v3.0.0) (2026-11-06)
+
+
+### ⚠ BREAKING CHANGES
+
+* **Default Gemini Developer API version is now `v1` (was `v1beta`)** ([3f477bf](https://github.com/googleapis/js-genai/commit/3f477bfbbf26ba596e4ad0469f8c9663b340c872))
+  * Clients targeting the **Gemini Developer API** now default to API version `v1` instead of `v1beta`.
+  * **No effect on Gemini Enterprise (Vertex AI) defaults:** Clients with `vertexai: true` are **unaffected** by this default change and continue to default to `v1beta1`.
+  * **How to configure or restore the previous default via environment variable (Node.js):** Set `GOOGLE_GENAI_API_VERSION` (works for both Gemini Developer API and Enterprise / Vertex AI clients when no version is set in code):
+    ```bash
+    # Restores the beta default ('v1beta' on Gemini Developer API, 'v1beta1' on Enterprise / Vertex AI)
+    export GOOGLE_GENAI_API_VERSION=beta
+
+    # Or set an explicit API version string on either platform (e.g. 'v1', 'v1beta', 'v1beta1')
+    export GOOGLE_GENAI_API_VERSION=v1beta
+    ```
+  * **How to set the API version in code:** Pass `apiVersion` (or `httpOptions.apiVersion`) to `GoogleGenAI` (takes precedence over `GOOGLE_GENAI_API_VERSION`):
+    ```ts
+    import { GoogleGenAI } from '@google/genai';
+
+    const ai = new GoogleGenAI({
+      apiVersion: 'v1beta',
+    });
+    ```
+
+* **Minimum supported Node.js version is now 22 (was 20)** ([7b9fbf0](https://github.com/googleapis/js-genai/commit/7b9fbf06b4bc729be60e433c458a3b80fffee5f0))
+  * Following Node.js 20 reaching end-of-life (2026-04-30), `package.json` `engines.node` now requires `>=22.0.0`.
+  * There are no runtime API or bundle changes resulting from this bump, and both CommonJS and ESM bundles continue to be published.
+  * Users who must remain on Node.js 20 should pin to `@google/genai@^2` (or ignore engine checks if supported by their environment).
+
+* **interactions:** `CodeExecutionResultStep.result` is now typed as `Array<Content> | string` (`CodeExecutionResultStepResult`) instead of `string` ([b36ce99](https://github.com/googleapis/js-genai/commit/b36ce993edaaface54b3c603176f08e7ef057f19)). The JSON and runtime value for text-only results are still a plain `string`, but TypeScript code reading `step.result` as a `string` may need to narrow the union (`typeof step.result === 'string'`).
+
+### Features
+
+* Add `source_text` to `AudioTranscriptionConfig` and `SmartTranscriptionMode`. ([ddb5158](https://github.com/googleapis/js-genai/commit/ddb5158860a255baaa36e6138a501803082150ce))
+* Add MALFORMED_RESPONSE to FinishReason ([032d50c](https://github.com/googleapis/js-genai/commit/032d50c8b25a99f8072e76a065076f5f9585c9d6)), refs [#2937](https://github.com/googleapis/js-genai/issues/2937)
+* **cli:** use gemini-3.5-transcribe as default model for transcribe command ([df29944](https://github.com/googleapis/js-genai/commit/df2994493dd07c0d9900e7c46e768e525abc6277))
+* default Gemini API version to v1 instead of v1beta across SDKs ([3f477bf](https://github.com/googleapis/js-genai/commit/3f477bfbbf26ba596e4ad0469f8c9663b340c872))
+* Disable GenerateVideos for Gemini API, update tests/READMEs ([3f65d02](https://github.com/googleapis/js-genai/commit/3f65d021308199fe0af9dd95e8aff4a3b7c89a6c))
+* drop support for Node 20; Node.js &gt;=22 is now required ([7b9fbf0](https://github.com/googleapis/js-genai/commit/7b9fbf06b4bc729be60e433c458a3b80fffee5f0))
+* **interactions:** add Office and OpenDocument MIME types ([b24cfc2](https://github.com/googleapis/js-genai/commit/b24cfc2212905946f74c86de78c0e13117a23b20))
+* **interactions:** support multimodal content in CodeExecutionResultStep.result ([b36ce99](https://github.com/googleapis/js-genai/commit/b36ce993edaaface54b3c603176f08e7ef057f19))
+* support GOOGLE_GENAI_API_VERSION environment variable across SDKs ([3f477bf](https://github.com/googleapis/js-genai/commit/3f477bfbbf26ba596e4ad0469f8c9663b340c872))
+* update discovery doc ([8be9344](https://github.com/googleapis/js-genai/commit/8be934486e01c6ba50905634d354f02e6ba12311))
+
+
+### Bug Fixes
+
+* Raise protobufjs and ws minimums to patched versions ([71827d0](https://github.com/googleapis/js-genai/commit/71827d05bdde09fecc05ed177531d3497c6be86a)), refs [#1611](https://github.com/googleapis/js-genai/issues/1611)
+* Reject Live.connect() when the WebSocket errors or closes before setup completes ([04eaa81](https://github.com/googleapis/js-genai/commit/04eaa818b75b9870f85470f2646323befa70956b)), refs [#1257](https://github.com/googleapis/js-genai/issues/1257)
+* respect configured and default API version for Gemini API file uploads across SDKs ([bdb4e42](https://github.com/googleapis/js-genai/commit/bdb4e42ddfac71e5fdbc53d6d64c8db9956ba966))
+* stop emitting array indices in auth token fieldMask ([80e7b3d](https://github.com/googleapis/js-genai/commit/80e7b3d32c1f521ea730671aa4b6cb5518d67312)), refs [#1492](https://github.com/googleapis/js-genai/issues/1492)
+
+## [2.32.0](https://github.com/googleapis/js-genai/compare/v2.31.0...v2.32.0) (2026-10-29)
+
+
+### Features
+
+* Add support for continuation_token and requires_continuation status ([c7b2fd2](https://github.com/googleapis/js-genai/commit/c7b2fd217981551a4c242b708c713bef132f598c))
+* add video upscale task parameter ([54b9b19](https://github.com/googleapis/js-genai/commit/54b9b1951751e411b74ef22ef595ce1977262bc4))
+* **interactions:** add automatic_continuation to interactions.create in the TypeScript SDK ([99f1892](https://github.com/googleapis/js-genai/commit/99f1892164d3988a0c2f056a25f122d1652dc3fe))
+* **interactions:** declare continuation_ids on Interaction ([9cf3280](https://github.com/googleapis/js-genai/commit/9cf3280ece6eba1a421541dbe79bc930f5ae85d9))
+* support video understanding in Gemini Developer API ([7c82322](https://github.com/googleapis/js-genai/commit/7c82322c2b78249d03da308bee2fdaea1bd93202))
+
+
+### Bug Fixes
+
+* **interactions:** align SDK User-Agent and x-goog-api-client headers ([dda511e](https://github.com/googleapis/js-genai/commit/dda511e175984ea4bb72b2e850ac7b7f520ea66a))
+
+## [2.31.0](https://github.com/googleapis/js-genai/compare/v2.30.0...v2.31.0) (2026-10-22)
+
+
+### Features
+
+* Add `store` to `GenerateContentConfig` (Gemini Developer API only) and `labels` to `LiveConnectConfig`. ([0b52aa5](https://github.com/googleapis/js-genai/commit/0b52aa5ffad1016e1106c5d0918eb8d0d9c26702))
+* add base_voice to PromptedVoice in GAOS SDK ([d62820b](https://github.com/googleapis/js-genai/commit/d62820bb92119c11171cb28ccdd43bb4f6f0734b))
+* Add generation_output_config to GenerateContentConfig ([e82a75a](https://github.com/googleapis/js-genai/commit/e82a75a8bfe56529ff2651645b19509199360cbc))
+* Add Live API in-session context updates (`send_context_update`) and types across GenAI SDKs. ([177ee68](https://github.com/googleapis/js-genai/commit/177ee684ada5d2fd39450e88a9416b301eaa6ff4))
+* include AudioContent, DocumentContent, and VideoContent in FunctionResultSubContent ([aeaed4e](https://github.com/googleapis/js-genai/commit/aeaed4ed17a2e15f29962d390fb2220712fa3b36))
+* **sdks:** enable `fixes.openSingleValueEnumsOct2026` across all SDKs ([0059474](https://github.com/googleapis/js-genai/commit/0059474f74758a6f2e9930985b749bc6a7277eb9))
+* update discovery doc ([40d6e98](https://github.com/googleapis/js-genai/commit/40d6e98aca99d0a08e9d318da51f5a418c7695da))
+
+
+### Bug Fixes
+
+* **genai:** raise mid-stream SSE errors and dropped connections consistently across SDKs; add continuation conformance tests ([38f6ebc](https://github.com/googleapis/js-genai/commit/38f6ebcda2c39edc588f4274f4abdd2d41e31e9c))
+* **interactions:** sync InteractionSseEventInteractionStatus enum with InteractionStatus ([be6aa9f](https://github.com/googleapis/js-genai/commit/be6aa9fc5d3425d37c96138a9bdc0e7b81ccc080))
+* **triggers:** fix agent triggers OpenAPI overlays, numeric fields, and SDK patches ([0e9031d](https://github.com/googleapis/js-genai/commit/0e9031d2e355ead32a274860f1ebb2b066aab0cc))
+
+## [2.30.0](https://github.com/googleapis/js-genai/compare/v2.29.1...v2.30.0) (2026-10-14)
+
+
+### Features
+
+* **interactions:** add gemini-4-argon to Model enum ([8a3c307](https://github.com/googleapis/js-genai/commit/8a3c3074a6688cc12c9f30c2366089cd94622fd6))
+
+
+### Bug Fixes
+
+* clear continuation state and preserve prompt feedback when continuation hop returns no candidates ([e63d1f1](https://github.com/googleapis/js-genai/commit/e63d1f184811ac2ddec2a17e206e5a6c1c79ed6e))
+* fix the grounding metadata merging for automatic continuation in generate content and generate content stream ([6bfba87](https://github.com/googleapis/js-genai/commit/6bfba8790e9a3a663884db10290b2909b7ca4b0b))
+* make continuation streams retry dropped hops, stop on prompt_feedback, and keep real errors in generate_content ([6bdc0d9](https://github.com/googleapis/js-genai/commit/6bdc0d98709df070c935e812bb126dcffaedff97))
+* type GeminiNextGen signatures with public, importable names ([ad3fb89](https://github.com/googleapis/js-genai/commit/ad3fb891c91b8b57fee846f3319442150d77d622))
+
+## [2.29.1](https://github.com/googleapis/js-genai/compare/v2.29.0...v2.29.1) (2026-10-13)
+
+
+### Bug Fixes
+
+* concatenate output_text across multi-step model responses in a turn ([567cc8a](https://github.com/googleapis/js-genai/commit/567cc8a1731850d3d3f22c0f9cf3b0b3664cf79f))
+
+## [2.29.0](https://github.com/googleapis/js-genai/compare/v2.28.0...v2.29.0) (2026-10-13)
+
+
+### Features
+
+* accumulate streaming continuation usage metadata and expose initialPromptTokenCount ([dbc961f](https://github.com/googleapis/js-genai/commit/dbc961f0294e3fdc9d8fc277b9921bada8f97b90))
+* Add `continuation_token` to the Interactions `interaction.status_update` event. ([a93776c](https://github.com/googleapis/js-genai/commit/a93776c9479d69d280ca1d2fc9784a8cebc5417a))
+* Add a CONTINUATION_REQUIRED Interaction status ([754f71f](https://github.com/googleapis/js-genai/commit/754f71f0f90d0355f32f100a1c338b008a1c89e1))
+* add billable token counts fields ([839ffc2](https://github.com/googleapis/js-genai/commit/839ffc25de12a47a66db10d236d53d59d97d0530))
+* Add startOffset/endOffset to Transcription and interimTranscriptTimestampEnabled to RealtimeInputConfig ([bdbf156](https://github.com/googleapis/js-genai/commit/bdbf1560751d333c6391ca5b4a29799af2baef3c))
+* Add usage in InteractionStatusUpdate events ([8892aea](https://github.com/googleapis/js-genai/commit/8892aeace095b90805890e0fd5cfa027d87bbc70))
+* automatically consume the continuation token ([98637d1](https://github.com/googleapis/js-genai/commit/98637d1f60dd5a02d978aa354d576ce160b5c65c))
+* **cli:** update Speakeasy generator to v2.948.0, bump CLI to v0.4.2, and apply CLI overlay fixes ([22d53ec](https://github.com/googleapis/js-genai/commit/22d53ec2f7dc94416fac20bbbf68585712c527c3))
+
+
+### Bug Fixes
+
+* clear intermediate CONTINUATION finishReason in streaming continuation ([22706af](https://github.com/googleapis/js-genai/commit/22706af4f7d770a64df2aa0557011549380d2350))
+* do not record incomplete continuation stream turns in curated chat history ([81c3c49](https://github.com/googleapis/js-genai/commit/81c3c49bd2a86c300b23693327df41382f94e535))
+* **gemini-api-cli:** remove unsupported 2.5 and 1.6 models from Interactions model options and CLI examples ([1002720](https://github.com/googleapis/js-genai/commit/1002720893eef0663d020312da552c64d7c5e65e))
+* **js:** do not set initial prompt token count for requests that do not use automatic consumption of continuation token ([0885fb9](https://github.com/googleapis/js-genai/commit/0885fb917cba113fcbe4294731473de5be1fc55f))
+* **js:** fix streaming continuation edge cases (stale token, AbortError, initialPromptTokenCount) ([f3d10a6](https://github.com/googleapis/js-genai/commit/f3d10a68f010825ebf07b13857012ac78ea92546))
+* Raise default HTTP timeouts so long-running requests aren't killed client-side ([10e850c](https://github.com/googleapis/js-genai/commit/10e850c21ab87d00c7e63e7c8afa592c5d407f0e))
+* resume streaming generation from the latest checkpoint continuation token on mid-stream errors or cutoffs ([625ac2c](https://github.com/googleapis/js-genai/commit/625ac2c3a663719e57efbf51055a36b1e27a86d8))
+* Update EnvironmentConfig.env schema to map keys to EnvVar or string. ([8478e12](https://github.com/googleapis/js-genai/commit/8478e1222137e288fa3eaedbc5111bd090dbf400))
+
+## [2.28.0](https://github.com/googleapis/js-genai/compare/v2.27.0...v2.28.0) (2026-10-07)
+
+
+### Features
+
+* Support `"allowlist": "disabled"` in environment network config. ([18bc392](https://github.com/googleapis/js-genai/commit/18bc39223fd7f7f31c85ce9c60d3007046c787ee))
+* update discovery doc ([4e996fe](https://github.com/googleapis/js-genai/commit/4e996fec6389945d55d04e3a65948a4358eeb34e))
+
+## [2.27.0](https://github.com/googleapis/js-genai/compare/v2.26.0...v2.27.0) (2026-10-02)
+
+
+### Features
+
+* add `lyria-3.5`, `gemini-omni-1.1-flash`, and `gemini-omni-flash-preview` to Interactions `Model` enum ([4ce63d1](https://github.com/googleapis/js-genai/commit/4ce63d11497cc86567ecc7e44677cd687f28deac))
+* support continuation_token in Interactions ([a888ad7](https://github.com/googleapis/js-genai/commit/a888ad73abda6a64dfb140599438afca1033ee2f))
+
+## [2.26.0](https://github.com/googleapis/js-genai/compare/v2.25.0...v2.26.0) (2026-10-01)
+
+
+### Features
+
+* support continuation_token in GenerateContent ([ac628c5](https://github.com/googleapis/js-genai/commit/ac628c57aaf5ed6b5e2f08aed68731edb18100fc))
+
+## [2.25.0](https://github.com/googleapis/js-genai/compare/v2.24.0...v2.25.0) (2026-09-30)
+
+
+### Features
+
+* add gcs_metrics_uri for exporting tuning job metrics. ([bc085fb](https://github.com/googleapis/js-genai/commit/bc085fbd32e00bf8355ff5f6c63d1ef7eb9ec686))
+* Add Gemini 3.8 Flash TTS and Gemini 3.8 Flash Lite TTS models to SDKs ([b12dad0](https://github.com/googleapis/js-genai/commit/b12dad09079feee92bc843be0965543baa1ec88d))
+* **genai-sdk:** Add environments dedicated module and from_environment support ([4d7e80b](https://github.com/googleapis/js-genai/commit/4d7e80b03dda3b9104649cb69bd8471f52f0c207))
+* include labels for LiveClientSetup ([d4bcdad](https://github.com/googleapis/js-genai/commit/d4bcdad45f105a7b4c035872406c04e2d42d63d4))
+* support labels for Gemini API GenerateContent ([71c3997](https://github.com/googleapis/js-genai/commit/71c3997f7ede070a6ff6aa7062920efaa7eb21de))
+
+
+### Bug Fixes
+
+* use `CreateAgentInteraction` for `Trigger.interaction` and `TriggerCreateParams.interaction` ([c4341e1](https://github.com/googleapis/js-genai/commit/c4341e113281426e15c5a3bda4bbbd60c10d26b1))
+
 ## [2.24.0](https://github.com/googleapis/js-genai/compare/v2.23.0...v2.24.0) (2026-09-22)
 
 

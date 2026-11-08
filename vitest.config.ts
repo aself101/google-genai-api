@@ -27,7 +27,8 @@ export default defineConfig({
         'src/utils.ts',
         'src/config.ts',
         'src/video-api.ts',
-        'src/veo-api.ts',
+        'src/omni-api.ts',
+        'src/errors.ts',
       ],
       thresholds: {
         lines: 70,

@@ -61,3 +61,6 @@ build/
 
 # Live probe outputs (images/video are regenerable; results are in docs/specs/probes-*.jsonl)
 test-outputs/probes/
+
+# live battery media (3.0)
+test-outputs/live-3.0/

@@ -2,7 +2,7 @@
  * Google GenAI API Type Definitions
  *
  * Comprehensive TypeScript types for the Google GenAI API wrapper,
- * including Gemini image, video-understanding, and Veo models.
+ * including Gemini image, video-understanding, and Gemini Omni video models.
  */
 
 // ==================== API CONFIGURATION TYPES ====================
@@ -28,16 +28,6 @@ export interface GoogleGenAIVideoApiOptions {
 }
 
 /**
- * Options for initializing the GoogleGenAIVeoAPI class.
- */
-export interface GoogleGenAIVeoApiOptions {
-  /** Google GenAI API key */
-  apiKey?: string | null;
-  /** Logging level (debug, info, warn, error) */
-  logLevel?: string;
-}
-
-/**
  * Options for `extractGeminiParts`.
  */
 export interface ExtractGeminiPartsOptions {
@@ -46,7 +36,7 @@ export interface ExtractGeminiPartsOptions {
 }
 
 /**
- * Third constructor argument of `GoogleGenAIAPI` and `GoogleGenAIVeoAPI`.
+ * Third constructor argument of `GoogleGenAIAPI` and `GoogleGenAIOmniAPI`.
  */
 export interface GoogleGenAIClientOptions {
   /**
@@ -65,16 +55,17 @@ export interface GoogleGenAIClientOptions {
  * Gemini model identifiers.
  */
 export type GeminiModel =
+  | 'gemini-nano-banana-2.1'
   | 'gemini-3.1-flash-image'
   | 'gemini-3.1-flash-lite-image'
   | 'gemini-3-pro-image'
-  | 'gemini-2.5-flash';
+  | 'gemini-3.8-flash';
 
 /**
  * Gemini image-generation model identifiers this package catalogs
  * (current models only — spec D2).
  */
-export type GeminiImageModel = Exclude<GeminiModel, 'gemini-2.5-flash'>;
+export type GeminiImageModel = Exclude<GeminiModel, 'gemini-3.8-flash'>;
 
 /**
  * Any image model id. Known ids autocomplete; any other string is accepted and
@@ -84,36 +75,15 @@ export type GeminiImageModel = Exclude<GeminiModel, 'gemini-2.5-flash'>;
 export type ImageModelId = GeminiModel | (string & {});
 
 /**
- * Veo model identifiers.
- */
-export type VeoModel =
-  | 'veo-3.1-generate-preview'
-  | 'veo-3.1-fast-generate-preview'
-  | 'veo-3.1-lite-generate-preview';
-
-/**
- * Any Veo model id. Known ids autocomplete; any other string is accepted and
- * sent with shape checks only (spec D3) — every Veo model is preview-class.
- */
-export type VeoModelId = VeoModel | (string & {});
-
-/**
  * All supported models.
  */
 export interface Models {
+  /** Added in 3.0. */
+  GEMINI_NANO_BANANA_2_1: GeminiModel;
   GEMINI_3_1_FLASH: GeminiModel;
   GEMINI_3_1_FLASH_LITE: GeminiModel;
   GEMINI_3_PRO: GeminiModel;
   GEMINI_VIDEO: GeminiModel;
-}
-
-/**
- * Veo models mapping.
- */
-export interface VeoModels {
-  VEO_3_1: VeoModel;
-  VEO_3_1_FAST: VeoModel;
-  VEO_3_1_LITE: VeoModel;
 }
 
 // ==================== ASPECT RATIO & RESOLUTION TYPES ====================
@@ -144,26 +114,6 @@ export type AspectRatio =
  */
 export type ImageSize = '512' | '1K' | '2K' | '4K' | (string & {});
 
-/**
- * Veo video aspect ratios.
- */
-export type VeoAspectRatio = '16:9' | '9:16';
-
-/**
- * Veo video resolutions.
- */
-export type VeoResolution = '720p' | '1080p' | '4k';
-
-/**
- * Veo video durations (in seconds as strings).
- */
-export type VeoDuration = '4' | '6' | '8';
-
-/**
- * Person generation settings for Veo.
- */
-export type VeoPersonGeneration = 'allow_all' | 'allow_adult' | 'dont_allow';
-
 // ==================== MODE TYPES ====================
 
 /**
@@ -172,33 +122,12 @@ export type VeoPersonGeneration = 'allow_all' | 'allow_adult' | 'dont_allow';
 export type GeminiMode = 'text-to-image' | 'image-to-image' | 'semantic-masking';
 
 /**
- * Veo generation modes.
- */
-export type VeoMode =
-  | 'text-to-video'
-  | 'image-to-video'
-  | 'reference-images'
-  | 'interpolation'
-  | 'extension';
-
-/**
  * Gemini modes object.
  */
 export interface GeminiModes {
   TEXT_TO_IMAGE: GeminiMode;
   IMAGE_TO_IMAGE: GeminiMode;
   SEMANTIC_MASKING: GeminiMode;
-}
-
-/**
- * Veo modes object.
- */
-export interface VeoModes {
-  TEXT_TO_VIDEO: VeoMode;
-  IMAGE_TO_VIDEO: VeoMode;
-  REFERENCE_IMAGES: VeoMode;
-  INTERPOLATION: VeoMode;
-  EXTENSION: VeoMode;
 }
 
 // ==================== DATA TYPES ====================
@@ -211,26 +140,6 @@ export interface InlineData {
   mimeType: string;
   /** Base64-encoded image data */
   data: string;
-}
-
-/**
- * Veo image format for video generation.
- */
-export interface VeoImage {
-  /** Base64-encoded image data */
-  imageBytes: string;
-  /** MIME type (e.g., 'image/png', 'image/jpeg') */
-  mimeType: string;
-}
-
-/**
- * Reference image for Veo reference-images mode.
- */
-export interface VeoReferenceImage {
-  /** Image data */
-  image: VeoImage;
-  /** Reference type (e.g., 'asset') */
-  referenceType: string;
 }
 
 /**
@@ -267,62 +176,6 @@ export interface GeminiGenerateParams {
   model?: ImageModelId;
   /** Override auto-detection mode */
   mode?: GeminiMode;
-}
-
-/**
- * Base parameters for Veo video generation.
- */
-export interface VeoGenerateParams {
-  /** Generation prompt */
-  prompt: string;
-  /** Veo model to use (default `veo-3.1-generate-preview`); unknown ids pass through with a warning */
-  model?: VeoModelId;
-  /** Video aspect ratio (known values autocomplete; others pass to unknown models, spec D3) */
-  aspectRatio?: VeoAspectRatio | (string & {});
-  /** Video resolution (known values autocomplete; others pass to unknown models, spec D3) */
-  resolution?: VeoResolution | (string & {});
-  /** Video duration in seconds; sent as a number */
-  durationSeconds?: VeoDuration | string | number;
-  /** Negative prompt (what to avoid) */
-  negativePrompt?: string;
-  /** Person generation setting */
-  personGeneration?: VeoPersonGeneration;
-}
-
-/**
- * Parameters for Veo image-to-video generation.
- */
-export interface VeoImageToVideoParams extends VeoGenerateParams {
-  /** Image to animate */
-  image: VeoImage;
-}
-
-/**
- * Parameters for Veo reference images generation.
- */
-export interface VeoReferenceParams extends VeoGenerateParams {
-  /** 1-3 reference images */
-  referenceImages: VeoReferenceImage[];
-}
-
-/**
- * Parameters for Veo interpolation generation.
- */
-export interface VeoInterpolationParams extends Omit<VeoGenerateParams, 'prompt'> {
-  /** Optional prompt */
-  prompt?: string;
-  /** First frame image */
-  firstFrame: VeoImage;
-  /** Last frame image */
-  lastFrame: VeoImage;
-}
-
-/**
- * Parameters for Veo video extension.
- */
-export interface VeoExtendParams extends VeoGenerateParams {
-  /** Video object from previous generation */
-  video: VeoVideoObject;
 }
 
 /**
@@ -406,69 +259,6 @@ export interface GeminiResponsePart {
 }
 
 /**
- * Veo video object from generation.
- */
-export interface VeoVideoObject {
-  /** Video identifier or data */
-  [key: string]: unknown;
-}
-
-/**
- * Veo operation object (returned from generation, used for polling).
- */
-export interface VeoOperation {
-  /** Operation name/ID */
-  name: string;
-  /** Whether operation is complete */
-  done: boolean;
-  /** Response when complete */
-  response?: VeoOperationResponse;
-  /** Error if failed */
-  error?: VeoError;
-  /** Operation metadata */
-  metadata?: VeoOperationMetadata;
-}
-
-/**
- * Veo operation response.
- */
-export interface VeoOperationResponse {
-  /** Generated videos */
-  generatedVideos?: VeoGeneratedVideo[];
-  /** How many generated videos Google withheld under its safety filters */
-  raiMediaFilteredCount?: number;
-  /** Google's reasons for withholding them */
-  raiMediaFilteredReasons?: string[];
-}
-
-/**
- * Veo generated video.
- */
-export interface VeoGeneratedVideo {
-  /** Video object for download/extension */
-  video: VeoVideoObject;
-}
-
-/**
- * Veo operation metadata.
- */
-export interface VeoOperationMetadata {
-  /** Model used */
-  model?: string;
-  [key: string]: unknown;
-}
-
-/**
- * Veo error object.
- */
-export interface VeoError {
-  /** Error message */
-  message?: string;
-  /** Error code */
-  code?: number;
-}
-
-/**
  * Video upload result from Files API.
  */
 export interface VideoUploadResult {
@@ -522,55 +312,6 @@ export interface VideoFrame {
   timestamp: string;
   /** Description/context around timestamp */
   description: string;
-}
-
-/**
- * Veo download result.
- */
-export interface VeoDownloadResult {
-  /** Output file path */
-  path: string;
-  /** Video object */
-  video: VeoVideoObject;
-}
-
-/**
- * Extracted video info for extension.
- */
-export interface VeoExtractedVideo {
-  /** Video object for extension */
-  video: VeoVideoObject;
-  /** Whether video has audio */
-  hasAudio: boolean;
-}
-
-/**
- * Veo model info.
- */
-export interface VeoModelInfo {
-  /** Model identifier */
-  model: VeoModel;
-  /** Supported aspect ratios */
-  aspectRatios: VeoAspectRatio[];
-  /** Supported resolutions */
-  resolutions: VeoResolution[];
-  /** Supported durations */
-  durations: string[];
-  /** Feature flags */
-  features: VeoFeatures;
-  /** Reference images constraints */
-  referenceImages?: { max: number } | null;
-  /** Extension constraints */
-  extension?: VeoExtensionConstraints | null;
-  /**
-   * 1080p constraints.
-   * @deprecated Use `durationRequired`.
-   */
-  resolution1080p?: Veo1080pConstraints | null;
-  /** Duration each resolution requires */
-  durationRequired?: Partial<Record<VeoResolution, VeoDuration>>;
-  /** Maximum prompt length in tokens */
-  promptMaxLength: number;
 }
 
 // ==================== CONSTRAINT TYPES ====================
@@ -633,82 +374,6 @@ export interface ModelConstraints {
   [model: string]: ModelConstraint;
 }
 
-/**
- * Veo model constraint.
- */
-export interface VeoModelConstraint {
-  /** Supported aspect ratios */
-  aspectRatios: VeoAspectRatio[];
-  /** Supported resolutions */
-  resolutions: VeoResolution[];
-  /** Supported durations */
-  durations: string[];
-  /** Feature flags */
-  features: VeoFeatures;
-  /** Reference images constraints (Veo 3.1 only) */
-  referenceImages?: { max: number } | null;
-  /** Extension constraints (Veo 3.1 only) */
-  extension?: VeoExtensionConstraints | null;
-  /**
-   * 1080p-specific constraints.
-   * @deprecated Use `durationRequired`, which also covers 4k. Still populated.
-   */
-  resolution1080p?: Veo1080pConstraints | null;
-  /** Duration each resolution requires, e.g. `{ '1080p': '8', '4k': '8' }` */
-  durationRequired?: Partial<Record<VeoResolution, VeoDuration>>;
-  /** Maximum prompt length in tokens */
-  promptMaxLength: number;
-}
-
-/**
- * Veo feature flags.
- */
-export interface VeoFeatures {
-  /** Text-to-video support */
-  textToVideo: boolean;
-  /** Image-to-video support */
-  imageToVideo: boolean;
-  /** Reference images support (Veo 3.1) */
-  referenceImages: boolean;
-  /** Frame interpolation support (Veo 3.1) */
-  interpolation: boolean;
-  /** Video extension support (Veo 3.1) */
-  extension: boolean;
-  /** Native audio generation (Veo 3.x) */
-  nativeAudio: boolean;
-  /** Accepts `negativePrompt` (Veo 3.1 Lite does not; observed live 2026-09-23). Optional: added in 2.0. */
-  negativePrompt?: boolean;
-}
-
-/**
- * Veo extension constraints.
- */
-export interface VeoExtensionConstraints {
-  /** Maximum input video length in seconds */
-  maxInputLength: number;
-  /** Length added per extension */
-  extensionLength: number;
-  /** Maximum total video length */
-  maxTotalLength: number;
-}
-
-/**
- * Veo 1080p-specific constraints.
- */
-export interface Veo1080pConstraints {
-  /** Required duration for 1080p */
-  requiresDuration: string;
-  /** Required aspect ratio (null = any) */
-  aspectRatio: VeoAspectRatio | null;
-}
-
-/**
- * Veo model constraints mapping.
- */
-export interface VeoModelConstraints {
-  [model: string]: VeoModelConstraint;
-}
-
 // ==================== VALIDATION TYPES ====================
 
 /**
@@ -769,30 +434,6 @@ export interface VideoTimeParams {
   endOffset?: string;
 }
 
-/**
- * Parameters for Veo validation.
- */
-export interface VeoValidationParams {
-  /** Generation prompt */
-  prompt?: string;
-  /** Aspect ratio */
-  aspectRatio?: string;
-  /** Resolution */
-  resolution?: string;
-  /** Duration in seconds */
-  durationSeconds?: string;
-  /** Reference images */
-  referenceImages?: VeoReferenceImage[];
-  /** Video for extension */
-  video?: VeoVideoObject;
-  /** First frame for interpolation */
-  firstFrame?: VeoImage;
-  /** Last frame for interpolation */
-  lastFrame?: VeoImage;
-  /** Person generation setting */
-  personGeneration?: string;
-}
-
 // ==================== ERROR TYPES ====================
 
 /**
@@ -810,10 +451,162 @@ export interface ClassifiedError extends Error {
   fileState?: string;
   /** Whether error is a timeout */
   isTimeout?: boolean;
-  /** Operation name (for Veo timeouts) */
-  operationName?: string;
-  /** Operation error details */
-  operationError?: VeoError;
+  /** Interaction id, when an Omni interaction failed after it was created */
+  interactionId?: string;
+}
+
+// ==================== OMNI VIDEO GENERATION TYPES (3.0) ====================
+
+/** Gemini Omni video model identifiers this package catalogs (current models only — spec D2). */
+export type OmniModel = 'gemini-omni-1.2-flash';
+
+/**
+ * Any Omni model id. Known ids autocomplete; any other string is accepted and
+ * sent with shape checks only (spec D3).
+ */
+export type OmniModelId = OmniModel | (string & {});
+
+/** Omni models mapping. */
+export interface OmniModels {
+  OMNI_1_2_FLASH: OmniModel;
+}
+
+/** Omni output aspect ratios (`response_format.aspect_ratio`). Default 16:9. */
+export type OmniAspectRatio = '16:9' | '9:16';
+
+/** Omni output resolutions (`response_format.resolution`). Default 720p; 1080p and 4k are upscaled. */
+export type OmniResolution = '360p' | '720p' | '1080p' | '4k';
+
+/**
+ * `generation_config.video_config.task`. Google's advice: leave it unset and say
+ * in the prompt what you want; set it only when the prompt does not select the mode.
+ * Not with `previousInteractionId`: the API rejects that pair (pass `video` instead).
+ */
+export type OmniTask = 'text_to_video' | 'image_to_video' | 'reference_to_video' | 'edit' | 'extend';
+
+/**
+ * How the video comes back. `inline`: base64 in the response (Google's default).
+ * `uri`: a Files API URI, downloaded by `saveVideo` — Google recommends it for
+ * videos over 4 MB.
+ */
+export type OmniDelivery = 'inline' | 'uri';
+
+/** An image input: base64 bytes, or a Files API URI. */
+export type OmniImageInput = { data: string; mimeType: string } | { uri: string; mimeType?: string };
+
+/** A video input (to edit or extend): a Files API URI, or base64 bytes. */
+export type OmniVideoInput = { uri: string; mimeType?: string } | { data: string; mimeType: string };
+
+/**
+ * One Omni generation. There are no separate modes: Omni reads the mode from
+ * the prompt and the inputs (spec D19). Text only = text-to-video; one image =
+ * image-to-video; two images described as first and last frame = interpolation;
+ * up to six images described as references = subject reference;
+ * `previousInteractionId` or `video` + an edit or "extend" prompt = editing or
+ * extension.
+ */
+export interface OmniGenerateParams {
+  /** What to generate, or how to change or continue the previous video */
+  prompt: string;
+  /** Model (default `gemini-omni-1.2-flash`); unknown ids pass through with a warning */
+  model?: OmniModelId;
+  /** Images, in the order the prompt refers to them (up to 6) */
+  images?: OmniImageInput[];
+  /** A video to edit or extend (up to 15 s). One video per request. */
+  video?: OmniVideoInput;
+  /** Continue an earlier interaction: edit or extend the video it produced */
+  previousInteractionId?: string;
+  aspectRatio?: OmniAspectRatio | (string & {});
+  resolution?: OmniResolution | (string & {});
+  /**
+   * Whole seconds, 3-15 (default 10). Interpolation and per-turn extension
+   * accept 3-10; the API rejects more, and this package does not guess which
+   * of those modes a prompt selects.
+   */
+  durationSeconds?: number | string;
+  /** Mode fallback; see `OmniTask` */
+  task?: OmniTask | (string & {});
+  /** Default `inline` */
+  delivery?: OmniDelivery;
+  /**
+   * `false` asks Google not to store the interaction: faster, but its video can
+   * then not be edited or extended with `previousInteractionId`. Default: not sent (Google stores).
+   */
+  store?: boolean;
+  /** Request timeout in ms (default `OMNI_TIMEOUTS.REQUEST`) */
+  timeoutMs?: number;
+}
+
+/** The video an interaction produced. Exactly one of `data` and `uri` is set. */
+export interface OmniVideo {
+  mimeType: string;
+  /** Base64 bytes (`delivery: 'inline'`) */
+  data?: string;
+  /** Files API URI (`delivery: 'uri'`) */
+  uri?: string;
+}
+
+/** What `generate` returns. */
+export interface OmniResult {
+  /** Pass as `previousInteractionId` to edit or extend this video */
+  interactionId: string;
+  model: string;
+  status: string;
+  video: OmniVideo;
+  /** Text the model returned alongside the video, if any */
+  text?: string;
+}
+
+/** What `saveVideo` returns. */
+export interface OmniSaveResult {
+  path: string;
+  bytes: number;
+  interactionId: string;
+}
+
+/** Omni model constraint (vendor docs, 2026-11-08). */
+export interface OmniModelConstraint {
+  aspectRatios: OmniAspectRatio[];
+  resolutions: OmniResolution[];
+  /** Whole seconds accepted for `durationSeconds` */
+  durationSeconds: { min: number; max: number; default: number };
+  /** Longest duration with first and last frames, or per extension turn (seconds) */
+  interpolationAndExtensionMaxSeconds: number;
+  /** Longest a video can get by repeated extension (seconds) */
+  extendedTotalMaxSeconds: number;
+  /** Longest input video for editing (seconds) */
+  editInputMaxSeconds: number;
+  maxImages: number;
+  tasks: OmniTask[];
+  features: {
+    textToVideo: boolean;
+    imageToVideo: boolean;
+    interpolation: boolean;
+    subjectReference: boolean;
+    editing: boolean;
+    extension: boolean;
+    nativeAudio: boolean;
+  };
+}
+
+/** Omni model constraints mapping. */
+export interface OmniModelConstraints {
+  [model: string]: OmniModelConstraint;
+}
+
+/** Omni model info (`getModelInfo`). */
+export interface OmniModelInfo extends OmniModelConstraint {
+  model: string;
+}
+
+/** Omni timeouts. */
+export interface OmniTimeouts {
+  /** One `interactions.create` call, in ms (generation is synchronous) */
+  REQUEST: number;
+  /** Interval between Files API state checks for a `uri` delivery, in ms */
+  FILE_POLL_INTERVAL: number;
+  /** Maximum Files API state checks */
+  FILE_POLL_MAX_ATTEMPTS: number;
 }
 
 // ==================== UTILITY TYPES ====================
@@ -828,69 +621,6 @@ export interface SpinnerObject {
   stop(finalMessage?: string | null): void;
   /** Update the spinner message */
   update(newMessage: string): void;
-}
-
-/**
- * Veo spinner with elapsed time tracking.
- */
-export interface VeoSpinnerObject {
-  /** Start the spinner animation */
-  start(): void;
-  /** Stop the spinner and optionally show final message */
-  stop(finalMessage?: string | null): void;
-  /** Update elapsed time in milliseconds */
-  updateElapsed(ms: number): void;
-  /** Update the spinner message */
-  updateMessage(newMessage: string): void;
-}
-
-/**
- * Options for Veo wait/polling.
- */
-export interface VeoWaitOptions {
-  /** Maximum polling attempts */
-  maxAttempts?: number;
-  /** Polling interval in milliseconds */
-  intervalMs?: number;
-  /** Progress callback */
-  onProgress?: (operation: VeoOperation, elapsedMs: number) => void;
-}
-
-/**
- * Veo metadata input for saving.
- */
-export interface VeoMetadataInput {
-  /** Operation name/ID */
-  operationName: string;
-  /** Model used */
-  model: string;
-  /** Generation mode */
-  mode: VeoMode;
-  /** Generation parameters */
-  parameters: Record<string, unknown>;
-  /** Optional timestamp (auto-generated if not provided) */
-  timestamp?: string;
-}
-
-/**
- * Saved Veo metadata structure.
- */
-export interface VeoSavedMetadata {
-  /** Operation name */
-  operation_name: string;
-  /** Model used */
-  model: string;
-  /** Generation mode */
-  mode: VeoMode;
-  /** ISO timestamp */
-  timestamp: string;
-  /** Generation parameters */
-  parameters: Record<string, unknown>;
-  /** Result info */
-  result: {
-    video_path: string;
-    status: string;
-  };
 }
 
 // ==================== TIMEOUT CONFIGURATION TYPES ====================
@@ -909,22 +639,6 @@ export interface VideoTimeouts {
   POLL_INTERVAL_MAX: number;
   /** Maximum polling attempts */
   POLL_MAX_ATTEMPTS: number;
-}
-
-/**
- * Veo generation timeouts.
- */
-export interface VeoTimeouts {
-  /** Minimum latency in ms */
-  MIN_LATENCY: number;
-  /** Maximum latency in ms */
-  MAX_LATENCY: number;
-  /** Poll interval in ms */
-  POLL_INTERVAL: number;
-  /** Maximum polling attempts */
-  POLL_MAX_ATTEMPTS: number;
-  /** Video retention hours */
-  VIDEO_RETENTION_HOURS: number;
 }
 
 /**
@@ -951,8 +665,8 @@ export interface CliOptions {
   gemini3Pro?: boolean;
   /** Video analysis mode */
   video?: boolean;
-  /** Veo video generation mode */
-  veo?: boolean;
+  /** Omni video generation mode */
+  omni?: boolean;
   /** Generation prompts */
   prompt?: string[];
   /** Input image path */
@@ -965,20 +679,24 @@ export interface CliOptions {
   videoStart?: string;
   /** Video end offset */
   videoEnd?: string;
-  /** Veo model */
-  veoModel?: string;
-  /** Veo aspect ratio */
-  veoAspectRatio?: string;
-  /** Veo resolution */
-  veoResolution?: string;
-  /** Veo duration */
-  veoDuration?: string;
-  /** Veo negative prompt */
-  veoNegativePrompt?: string;
-  /** Veo input image */
-  veoImage?: string;
-  /** Veo person generation setting */
-  veoPersonGeneration?: string;
+  /** Omni model */
+  omniModel?: string;
+  /** Omni aspect ratio */
+  omniAspectRatio?: string;
+  /** Omni resolution */
+  omniResolution?: string;
+  /** Omni duration in whole seconds */
+  omniDuration?: string;
+  /** Omni input images (frames or references), in order */
+  omniImage?: string[];
+  /** Omni input video (uploaded through the Files API) to edit or extend */
+  omniVideo?: string;
+  /** Omni interaction to continue (edit or extend its video) */
+  omniPrevious?: string;
+  /** Omni task fallback */
+  omniTask?: string;
+  /** Omni delivery: inline or uri */
+  omniDelivery?: string;
   /** Output directory */
   outputDir?: string;
   /** API key */

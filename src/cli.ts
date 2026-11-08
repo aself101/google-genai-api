@@ -4,16 +4,16 @@
  * Google GenAI CLI
  *
  * Command-line tool for generating images using Google GenAI API.
- * Supports Gemini image models, video understanding, and Veo video generation.
+ * Supports Gemini image models, video understanding, and Gemini Omni video generation.
  *
  * Usage:
  *   google-genai --gemini --prompt "a serene landscape"
  *   google-genai --gemini --prompt "make it sunset" --input-image photo.jpg
  *   google-genai --model gemini-3-pro-image --prompt "..." --image-size 2K
- *   google-genai --veo --prompt "waves at dusk" --veo-resolution 4k
+ *   google-genai --omni --prompt "waves at dusk" --omni-resolution 1080p
  *
  * Image models (current only; any other id is sent with a warning):
- *   gemini-3.1-flash-image (default), gemini-3.1-flash-lite-image, gemini-3-pro-image
+ *   gemini-nano-banana-2.1 (default), gemini-3.1-flash-image, gemini-3.1-flash-lite-image, gemini-3-pro-image
  */
 
 import { Command } from 'commander';
@@ -22,7 +22,7 @@ import {
   extractGeminiParts,
   GoogleGenAIVideoAPI,
 } from './api.js';
-import { GoogleGenAIVeoAPI, VEO_MODELS, VEO_MODES } from './veo-api.js';
+import { GoogleGenAIOmniAPI } from './omni-api.js';
 import { errorMessage } from './errors.js';
 import { noOutputReason } from './no-output.js';
 import {
@@ -34,8 +34,10 @@ import {
   ASPECT_RATIOS,
   IMAGE_SIZES,
   VIDEO_MIME_TYPES,
-  VEO_ASPECT_RATIOS,
-  VEO_RESOLUTIONS,
+  OMNI_MODELS,
+  OMNI_ASPECT_RATIOS,
+  OMNI_RESOLUTIONS,
+  OMNI_TASKS,
 } from './config.js';
 import {
   saveBase64Image,
@@ -48,9 +50,6 @@ import {
   logger,
   formatTimeOffset,
   extractVideoMetadata,
-  imageToVeoInput,
-  saveVeoMetadata,
-  createVeoSpinner,
 } from './utils.js';
 import path from 'path';
 import fs from 'fs/promises';
@@ -61,11 +60,9 @@ import type {
   GeminiResponse,
   GoogleGenAIClientOptions,
   VideoUploadResult,
-  VeoMode,
-  VeoOperation,
-  VeoPersonGeneration,
-  VeoGenerateParams,
-  VeoImageToVideoParams,
+  OmniDelivery,
+  OmniGenerateParams,
+  OmniResult,
 } from './types/index.js';
 
 // Get __dirname equivalent for ES modules
@@ -85,7 +82,7 @@ interface CliOptions {
   gemini3Pro?: boolean;
   model?: string;
   video?: boolean;
-  veo?: boolean;
+  omni?: boolean;
   prompt?: string | string[];
   inputImage?: string[];
   aspectRatio?: string;
@@ -94,13 +91,15 @@ interface CliOptions {
   inputVideo?: string;
   videoStart?: string;
   videoEnd?: string;
-  veoModel?: string;
-  veoAspectRatio?: string;
-  veoResolution?: string;
-  veoDuration?: string;
-  veoNegativePrompt?: string;
-  veoImage?: string;
-  veoPersonGeneration?: string;
+  omniModel?: string;
+  omniAspectRatio?: string;
+  omniResolution?: string;
+  omniDuration?: string;
+  omniImage?: string[];
+  omniVideo?: string;
+  omniPrevious?: string;
+  omniTask?: string;
+  omniDelivery?: string;
   outputDir?: string;
   apiKey?: string;
   logLevel?: string;
@@ -196,7 +195,7 @@ D. Global config
 
 Get your API key at: https://aistudio.google.com/apikey
 
-VIDEO UNDERSTANDING (Gemini 2.5 Flash)
+VIDEO UNDERSTANDING (${MODELS.GEMINI_VIDEO})
 
 11. Basic video analysis
     $ google-genai --video \\
@@ -234,57 +233,55 @@ TIME OFFSET FORMATS:
 ASPECT RATIOS (Image, per model): ${ASPECT_RATIOS.join(', ')}
 IMAGE SIZES (per model): ${IMAGE_SIZES.join(', ')}
 
-VEO VIDEO GENERATION (Veo 3.1)
+OMNI VIDEO GENERATION (Gemini Omni Flash; replaces Veo, shut down 2026-10-22)
 
-15. Text-to-video generation
-    $ google-genai --veo \\
-        --prompt "A majestic lion walking through the savannah" \\
-        --veo-aspect-ratio "16:9" \\
-        --veo-duration 8
+Omni picks the mode from the prompt and the inputs. Say how each image is
+meant to be used ("first frame", "last frame", "the character in the
+reference image"). Every run prints its interaction id; pass it to
+--omni-previous to edit or extend that video.
+
+15. Text-to-video
+    $ google-genai --omni \\
+        --prompt "Continuous shot: a paper airplane glides through a library" \\
+        --omni-duration 8
 
 16. Image-to-video (animate an image)
-    $ google-genai --veo \\
-        --prompt "The cat wakes up and stretches" \\
-        --veo-image ./cat.png \\
-        --veo-duration 8
+    $ google-genai --omni \\
+        --prompt "Bring this drawing to life as realistic footage" \\
+        --omni-image ./drawing.png
 
-17. High resolution video (1080p, or 4k on Veo 3.1 / 3.1 Fast; both need 8s)
-    $ google-genai --veo \\
-        --prompt "Cinematic sunset over the ocean" \\
-        --veo-resolution "4k" \\
-        --veo-duration 8
+17. First and last frame (3-10 s)
+    $ google-genai --omni \\
+        --prompt "Transition from the first frame to the last frame" \\
+        --omni-image ./start.png --omni-image ./end.png --omni-duration 6
 
-18. Lower-cost generation (Veo 3.1 Lite: 720p/1080p, no reference images or extension)
-    $ google-genai --veo \\
-        --prompt "Waves crashing against a lighthouse" \\
-        --veo-model "veo-3.1-lite-generate-preview"
+18. Edit the video an earlier run produced (keep the rest the same)
+    $ google-genai --omni \\
+        --prompt "Make the violin invisible. Keep everything else the same." \\
+        --omni-previous v1_abc123
 
-19. Fast generation mode
-    $ google-genai --veo \\
-        --prompt "A butterfly landing on a flower" \\
-        --veo-model "veo-3.1-fast-generate-preview"
+19. Extend an earlier video by 3-10 s (up to 30 s total)
+    $ google-genai --omni \\
+        --prompt "Extend this video: the camera pans to the mountains" \\
+        --omni-previous v1_abc123 --omni-duration 6
 
-20. Negative prompts (avoid certain content)
-    $ google-genai --veo \\
-        --prompt "A beautiful landscape" \\
-        --veo-negative-prompt "blurry, low quality, cartoon"
+20. Edit your own video (uploaded through the Files API; up to 15 s)
+    $ google-genai --omni \\
+        --prompt "Make this video anime" \\
+        --omni-video ./clip.mp4
 
-VEO MODELS:
-  - veo-3.1-generate-preview (default) - Full quality, native audio, up to 4k
-  - veo-3.1-fast-generate-preview - Faster generation, up to 4k
-  - veo-3.1-lite-generate-preview - Lowest cost; 720p/1080p; no reference images or extension
-
-VEO ASPECT RATIOS: ${VEO_ASPECT_RATIOS.join(', ')}
-VEO RESOLUTIONS: ${VEO_RESOLUTIONS.join(', ')} (1080p and 4k require 8s; no 4k on Lite)
-VEO DURATIONS: 4s, 6s, 8s
+OMNI MODELS: ${Object.values(OMNI_MODELS).join(', ')}
+OMNI ASPECT RATIOS: ${OMNI_ASPECT_RATIOS.join(', ')}
+OMNI RESOLUTIONS: ${OMNI_RESOLUTIONS.join(', ')} (1080p and 4k are upscaled)
+OMNI DURATIONS: 3-15 s (default 10); 3-10 s with first+last frame or per extension
 
 FEATURES:
   - All images include SynthID watermarking
   - Gemini supports natural language editing without masks
   - Gemini image models: up to 14 aspect ratios, sizes 512–4K, up to 14 input images (per model)
-  - Video understanding with Gemini 2.5 Flash
+  - Video understanding with ${MODELS.GEMINI_VIDEO}
   - Video clipping with start/end offsets
-  - Video generation with Veo 3.1 (native audio)
+  - Video generation and conversational editing with Gemini Omni (native audio)
 ${'='.repeat(70)}
   `);
 }
@@ -296,7 +293,7 @@ const program = new Command();
 
 program
   .name('google-genai')
-  .description('Google GenAI API - Gemini image generation, video understanding, Veo video')
+  .description('Google GenAI API - Gemini image generation, video understanding, Omni video')
   .version(version);
 
 // Model selection flags
@@ -305,10 +302,10 @@ program
   .option('--gemini-3-pro', `Image generation/editing with ${MODELS.GEMINI_3_PRO} (same as --model ${MODELS.GEMINI_3_PRO})`)
   .option(
     '--model <id>',
-    `Image model (implies image mode): ${[MODELS.GEMINI_3_1_FLASH, MODELS.GEMINI_3_1_FLASH_LITE, MODELS.GEMINI_3_PRO].join(', ')}; other ids are sent with a warning`
+    `Image model (implies image mode): ${[MODELS.GEMINI_NANO_BANANA_2_1, MODELS.GEMINI_3_1_FLASH, MODELS.GEMINI_3_1_FLASH_LITE, MODELS.GEMINI_3_PRO].join(', ')}; other ids are sent with a warning`
   )
   .option('--video', 'Analyze video content (requires --input-video)')
-  .option('--veo', 'Generate video with Veo 3.1 models');
+  .option('--omni', 'Generate or edit video with Gemini Omni');
 
 // Generation options
 program
@@ -335,22 +332,21 @@ program
   .option('--video-start <offset>', 'Start offset for video clipping (e.g., "30s", "1:30")')
   .option('--video-end <offset>', 'End offset for video clipping (e.g., "60s", "2:00")');
 
-// Veo video generation options
+// Omni video generation options
 program
-  .option('--veo-model <model>', `Veo model (${Object.values(VEO_MODELS).join(', ')})`, VEO_MODELS.VEO_3_1)
+  .option('--omni-model <model>', `Omni model (${Object.values(OMNI_MODELS).join(', ')}); other ids are sent with a warning`)
+  .option('--omni-aspect-ratio <ratio>', `Omni aspect ratio (${OMNI_ASPECT_RATIOS.join(', ')}; default 16:9)`)
+  .option('--omni-resolution <res>', `Omni resolution (${OMNI_RESOLUTIONS.join(', ')}; default 720p)`)
+  .option('--omni-duration <seconds>', 'Video duration in whole seconds, 3-15 (default 10)')
   .option(
-    '--veo-aspect-ratio <ratio>',
-    `Veo aspect ratio (${VEO_ASPECT_RATIOS.join(', ')})`,
-    '16:9'
+    '--omni-image <path>',
+    'Input image: to animate, a first/last frame, or a reference (repeatable, up to 6; order matters)',
+    (value: string, previous: string[] = []) => [...previous, value]
   )
-  .option('--veo-resolution <res>', `Veo resolution (${VEO_RESOLUTIONS.join(', ')})`, '720p')
-  .option('--veo-duration <seconds>', 'Video duration in seconds (4, 6, or 8)', '8')
-  .option('--veo-negative-prompt <text>', 'What to avoid in the video')
-  .option('--veo-image <path>', 'Image file to animate (image-to-video mode)')
-  .option(
-    '--veo-person-generation <value>',
-    'Person generation (allow_all, allow_adult, dont_allow)'
-  );
+  .option('--omni-video <path>', 'Video to edit or extend (uploaded through the Files API; up to 15 s)')
+  .option('--omni-previous <id>', 'Interaction id from an earlier run: edit or extend that video')
+  .option('--omni-task <task>', `Mode fallback when the prompt does not select it (${OMNI_TASKS.join(', ')})`)
+  .option('--omni-delivery <mode>', "'inline' (default) or 'uri' (Google recommends uri over 4 MB)");
 
 // General options
 program
@@ -359,6 +355,20 @@ program
   .option('--log-level <level>', 'Logging level (debug, info, warn, error)', 'info')
   .option('--examples', 'Show usage examples')
   .option('-h, --help', 'Display help');
+
+// Veo was removed in 3.0 (Google shut its models down). Checked before parsing:
+// commander would reject a 2.x flag such as --veo-duration as an unknown option
+// and never reach a message that says what happened.
+if (process.argv.slice(2).some((arg) => /^--veo(-|=|$)/.test(arg))) {
+  console.error(
+    'Error: --veo and the --veo-* flags were removed in 3.0. Google shut down every Veo model on the\n' +
+      'Gemini API on 2026-10-22. Use --omni (Gemini Omni Flash): --veo-aspect-ratio, --veo-resolution,\n' +
+      '--veo-duration and --veo-image become --omni-aspect-ratio, --omni-resolution, --omni-duration and\n' +
+      '--omni-image. There is no negative prompt or person-generation setting: write negatives into the\n' +
+      'prompt (e.g. "No dialogue").\n'
+  );
+  process.exit(1);
+}
 
 // Parse arguments
 program.parse(process.argv);
@@ -388,8 +398,8 @@ if (!process.argv.slice(2).length) {
 const imageMode = Boolean(options.gemini || options.gemini3Pro || options.model);
 
 // Show help if no mode selected
-if (!imageMode && !options.video && !options.veo) {
-  console.error('Error: no mode selected. Use --gemini (or --model <id>), --veo, or --video.\n');
+if (!imageMode && !options.video && !options.omni) {
+  console.error('Error: no mode selected. Use --gemini (or --model <id>), --omni, or --video.\n');
   program.outputHelp();
   process.exit(1);
 }
@@ -406,21 +416,21 @@ if (options.capabilityValidation !== 'error' && options.capabilityValidation !==
 const clientOptions: GoogleGenAIClientOptions = { capabilityValidation: options.capabilityValidation };
 
 // Count modes selected
-const modesSelected = [imageMode, options.video, options.veo].filter(Boolean).length;
+const modesSelected = [imageMode, options.video, options.omni].filter(Boolean).length;
 
 // Ensure only one mode is selected
 if (modesSelected > 1) {
-  if (options.video && (imageMode || options.veo)) {
+  if (options.video && (imageMode || options.omni)) {
     console.error(
-      'Error: --video cannot be used with --gemini, --gemini-3-pro, --model, or --veo.'
+      'Error: --video cannot be used with --gemini, --gemini-3-pro, --model, or --omni.'
     );
-    console.error('Video analysis uses Gemini 2.5 Flash automatically.\n');
-  } else if (options.veo && imageMode) {
-    console.error('Error: --veo cannot be used with --gemini, --gemini-3-pro, or --model.');
-    console.error('Veo is for video generation; use --veo-model to choose a Veo model.\n');
+    console.error(`Video analysis uses ${MODELS.GEMINI_VIDEO} automatically.\n`);
+  } else if (options.omni && imageMode) {
+    console.error('Error: --omni cannot be used with --gemini, --gemini-3-pro, or --model.');
+    console.error('Omni is for video generation; use --omni-model to choose an Omni model.\n');
   } else {
     console.error(
-      'Error: Cannot use multiple model modes. Please choose one: --gemini, --gemini-3-pro, --video, or --veo.\n'
+      'Error: Cannot use multiple model modes. Please choose one: --gemini, --gemini-3-pro, --video, or --omni.\n'
     );
   }
   process.exit(1);
@@ -628,121 +638,102 @@ ${analysisText}
 }
 
 /**
- * Handle Veo video generation mode.
- *
- * @param apiKey - Google GenAI API key
- * @param prompts - Array of generation prompts
+ * Run one Omni generation behind a spinner that shows elapsed time: the call is
+ * synchronous and can take minutes.
  */
-async function generateAndWait(
-  veoApi: GoogleGenAIVeoAPI,
-  label: string,
-  submit: () => Promise<VeoOperation>
-): Promise<VeoOperation> {
-  const spinner = createVeoSpinner(label);
+async function generateWithSpinner(omniApi: GoogleGenAIOmniAPI, params: OmniGenerateParams): Promise<OmniResult> {
+  const started = Date.now();
+  const spinner = createSpinner('Generating video...');
   spinner.start();
+  const tick = setInterval(() => spinner.update(`Generating video... (${Math.floor((Date.now() - started) / 1000)}s)`), 1000);
   try {
-    const operation = await submit();
-    spinner.updateMessage('Video generation in progress...');
-    const done = await veoApi.waitForCompletion(operation, {
-      onProgress: (_op, elapsed) => {
-        spinner.updateElapsed(elapsed);
-      },
-    });
-    spinner.stop('✓ Video generated\n');
-    return done;
+    const result = await omniApi.generate(params);
+    spinner.stop(`✓ Video generated in ${((Date.now() - started) / 1000).toFixed(0)}s`);
+    return result;
   } catch (error) {
-    spinner.stop('✗ Generation failed\n');
+    spinner.stop('✗ Generation failed');
     throw error;
+  } finally {
+    clearInterval(tick);
   }
 }
 
-async function handleVeoMode(apiKey: string, prompts: string[]): Promise<void> {
-  const veoApi = new GoogleGenAIVeoAPI(apiKey, options.logLevel, clientOptions);
-
-  const model = options.veoModel || VEO_MODELS.VEO_3_1;
-  const outputDir = path.join(
-    options.outputDir || DEFAULT_OUTPUT_DIR,
-    'veo',
-    model.replace(/[^a-z0-9.-]/gi, '-')
-  );
+/**
+ * Handle Omni video generation mode. Each prompt is its own interaction; with
+ * --omni-previous every prompt continues that same earlier interaction.
+ */
+async function handleOmniMode(apiKey: string, prompts: string[]): Promise<void> {
+  const omniApi = new GoogleGenAIOmniAPI(apiKey, options.logLevel, clientOptions);
+  const model = options.omniModel || OMNI_MODELS.OMNI_1_2_FLASH;
+  const outputDir = path.join(options.outputDir || DEFAULT_OUTPUT_DIR, 'omni', model.replace(/[^a-z0-9.-]/gi, '-'));
   await ensureDirectory(outputDir);
 
-  logger.info(`Starting Veo video generation with ${model}`);
-  logger.info(`Processing ${prompts.length} prompt(s)`);
-
-  for (let i = 0; i < prompts.length; i++) {
-    const prompt = prompts[i];
-    completedPrompts = i;
-
-    console.log(
-      `\nProcessing prompt ${i + 1}/${prompts.length}: "${prompt.substring(0, 50)}${prompt.length > 50 ? '...' : ''}"`
-    );
-
-    // Build generation parameters
-    const params: VeoGenerateParams = {
-      prompt,
-      model,
-      aspectRatio: options.veoAspectRatio,
-      resolution: options.veoResolution,
-      durationSeconds: options.veoDuration,
-    };
-
-    if (options.veoNegativePrompt) {
-      params.negativePrompt = options.veoNegativePrompt;
-    }
-    if (options.veoPersonGeneration) {
-      // SAFETY: raw CLI text; the client checks it against the allowed values
-      // (getVeoViolations) before anything is sent.
-      params.personGeneration = options.veoPersonGeneration as VeoPersonGeneration;
-    }
-
-    // Determine generation mode
-    let mode: VeoMode = VEO_MODES.TEXT_TO_VIDEO;
-    let operation: VeoOperation;
-
-    // Image-to-video mode
-    if (options.veoImage) {
-      mode = VEO_MODES.IMAGE_TO_VIDEO;
-      logger.info(`Loading input image: ${options.veoImage}`);
-
-      const image = await imageToVeoInput(options.veoImage);
-      // Validated by the client before any network call (capabilityValidation applies)
-      const imageParams: VeoImageToVideoParams = { ...params, image };
-
-      operation = await generateAndWait(veoApi, 'Generating video from image...', () => veoApi.generateFromImage(imageParams));
-    } else {
-      // Text-to-video mode (validated by the client before any network call)
-      mode = VEO_MODES.TEXT_TO_VIDEO;
-
-      operation = await generateAndWait(veoApi, 'Generating video...', () => veoApi.generateVideo(params));
-    }
-
-    // Download video
-    const filename = generateFilename(prompt, 'mp4', 40);
-    const videoPath = path.join(outputDir, filename);
-
-    logger.info('Downloading video...');
-    await veoApi.downloadVideo(operation, videoPath);
-    console.log(`✓ Saved video: ${videoPath}`);
-
-    // Save metadata
-    const metadataPath = await saveVeoMetadata(videoPath, {
-      operationName: operation.name,
-      model,
-      mode,
-      parameters: {
-        prompt,
-        aspectRatio: params.aspectRatio,
-        resolution: params.resolution,
-        durationSeconds: params.durationSeconds,
-        ...(params.negativePrompt && { negativePrompt: params.negativePrompt }),
-        ...(options.veoImage && { inputImage: options.veoImage }),
-      },
-    });
-    console.log(`✓ Saved metadata: ${metadataPath}`);
+  // Inputs shared by every prompt: read (and uploaded) once.
+  const images = [];
+  for (const imagePath of options.omniImage ?? []) {
+    logger.info(`Loading input image: ${imagePath}`);
+    images.push(await imageToInlineData(imagePath));
   }
+  let uploaded: VideoUploadResult | undefined;
+  const videoApi = options.omniVideo ? new GoogleGenAIVideoAPI(apiKey, options.logLevel) : undefined;
+  try {
+    if (videoApi && options.omniVideo) {
+      console.log(`Uploading video: ${options.omniVideo}`);
+      uploaded = await videoApi.uploadVideoFile(options.omniVideo);
+    }
 
-  console.log(`\n✓ All done! Generated ${prompts.length} video(s)\n`);
+    for (let i = 0; i < prompts.length; i++) {
+      const prompt = prompts[i];
+      completedPrompts = i;
+      console.log(`\nProcessing prompt ${i + 1}/${prompts.length}: "${prompt.substring(0, 50)}${prompt.length > 50 ? '...' : ''}"`);
+
+      const params: OmniGenerateParams = { prompt, model };
+      if (options.omniAspectRatio !== undefined) params.aspectRatio = options.omniAspectRatio;
+      if (options.omniResolution !== undefined) params.resolution = options.omniResolution;
+      if (options.omniDuration !== undefined) params.durationSeconds = options.omniDuration;
+      if (images.length > 0) params.images = images;
+      if (uploaded) params.video = { uri: uploaded.uri, mimeType: uploaded.mimeType };
+      if (options.omniPrevious !== undefined) params.previousInteractionId = options.omniPrevious;
+      if (options.omniTask !== undefined) params.task = options.omniTask;
+      // SAFETY: raw CLI text; the client rejects anything but 'inline' / 'uri' (shape) before sending.
+      if (options.omniDelivery !== undefined) params.delivery = options.omniDelivery as OmniDelivery;
+
+      const result = await generateWithSpinner(omniApi, params);
+      const videoPath = path.join(outputDir, generateFilename(prompt, 'mp4', 40));
+      const saved = await omniApi.saveVideo(result, videoPath);
+      console.log(`✓ Saved video: ${saved.path} (${(saved.bytes / 1024 / 1024).toFixed(1)} MB)`);
+      console.log(`  Interaction: ${result.interactionId}  (edit or extend it: --omni-previous ${result.interactionId})`);
+      if (result.text) console.log(`  Model said: ${result.text}`);
+
+      const metadataPath = videoPath.replace(/\.mp4$/i, '.json');
+      await saveMetadata(metadataPath, {
+        interaction_id: result.interactionId,
+        model: result.model,
+        timestamp: new Date().toISOString(),
+        parameters: {
+          prompt,
+          ...(params.aspectRatio && { aspectRatio: params.aspectRatio }),
+          ...(params.resolution && { resolution: params.resolution }),
+          ...(params.durationSeconds !== undefined && { durationSeconds: params.durationSeconds }),
+          ...(options.omniImage && { inputImages: options.omniImage }),
+          ...(options.omniVideo && { inputVideo: options.omniVideo }),
+          ...(params.previousInteractionId && { previousInteractionId: params.previousInteractionId }),
+          ...(params.task && { task: params.task }),
+        },
+        result: { video_path: saved.path, bytes: saved.bytes, ...(result.text && { text: result.text }) },
+      });
+      console.log(`✓ Saved metadata: ${metadataPath}`);
+    }
+    console.log(`\n✓ All done! Generated ${prompts.length} video(s)\n`);
+  } finally {
+    if (videoApi && uploaded?.uri) {
+      try {
+        await videoApi.deleteVideoFile(uploaded.uri);
+      } catch (error) {
+        logger.warn(`Failed to delete uploaded video: ${errorMessage(error)}`);
+      }
+    }
+  }
 }
 
 /**
@@ -762,10 +753,10 @@ async function main(): Promise<void> {
     totalPrompts = prompts.length;
 
     // ========================================================================
-    // VEO VIDEO GENERATION MODE
+    // OMNI VIDEO GENERATION MODE
     // ========================================================================
-    if (options.veo) {
-      await handleVeoMode(apiKey, prompts);
+    if (options.omni) {
+      await handleOmniMode(apiKey, prompts);
       return;
     }
 

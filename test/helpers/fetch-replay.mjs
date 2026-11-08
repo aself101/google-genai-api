@@ -21,7 +21,8 @@ let served = 0;
 globalThis.fetch = async (input, init = {}) => {
   const url = input instanceof Request ? input.url : String(input);
   const method = init.method ?? (input instanceof Request ? input.method : 'GET');
-  const body = typeof init.body === 'string' ? init.body : null;
+  // The Interactions client (Omni) passes a Request with the body on it, not (url, init).
+  const body = typeof init.body === 'string' ? init.body : input instanceof Request ? (await input.clone().text()) || null : null;
   appendFileSync(process.env.WIRE_LOG, `${JSON.stringify({ url, method, body })}\n`);
 
   const fixture = fixtures[served++];

@@ -1,7 +1,7 @@
 {
   "name": "google-genai-api",
   "version": "2.0.0",
-  "description": "Node.js wrapper for the Google GenAI API: Gemini image generation and editing, video understanding, and Veo 3.1 video generation",
+  "description": "Node.js wrapper for the Google GenAI API: Gemini (Nano Banana) image generation and editing, video understanding, and Gemini Omni video generation and editing",
   "type": "module",
   "main": "dist/api.js",
   "types": "dist/api.d.ts",
@@ -21,9 +21,9 @@
       "import": "./dist/video-api.js",
       "types": "./dist/video-api.d.ts"
     },
-    "./veo": {
-      "import": "./dist/veo-api.js",
-      "types": "./dist/veo-api.d.ts"
+    "./omni": {
+      "import": "./dist/omni-api.js",
+      "types": "./dist/omni-api.d.ts"
     },
     "./utils": {
       "import": "./dist/utils.js",
@@ -41,7 +41,8 @@
     "LICENSE"
   ],
   "scripts": {
-    "build": "tsc",
+    "build": "npm run clean && tsc",
+    "clean": "node -e \"require('node:fs').rmSync('dist', { recursive: true, force: true })\"",
     "dev": "tsx src/cli.ts",
     "test": "vitest run",
     "test:watch": "vitest",
@@ -51,8 +52,7 @@
     "google:help": "tsx src/cli.ts --help",
     "google:examples": "tsx src/cli.ts --examples",
     "google:gemini": "tsx src/cli.ts --gemini",
-    "google:veo": "tsx src/cli.ts --veo",
-    "google:veo:fast": "tsx src/cli.ts --veo --veo-model veo-3.1-fast-generate-preview",
+    "google:omni": "tsx src/cli.ts --omni",
     "prepublishOnly": "npm run check:release",
     "typecheck": "tsc --noEmit && tsc -p tsconfig.test.json",
     "verify": "npm run typecheck && npm run build && npm test",
@@ -64,7 +64,7 @@
     "google",
     "genai",
     "gemini",
-    "veo",
+    "omni",
     "ai",
     "image-generation",
     "video-generation",
@@ -72,7 +72,9 @@
     "text-to-video",
     "image-to-image",
     "image-to-video",
-    "semantic-masking"
+    "semantic-masking",
+    "nano-banana",
+    "video-editing"
   ],
   "author": "img-gen Contributors",
   "license": "MIT",
@@ -91,7 +93,7 @@
     "access": "public"
   },
   "dependencies": {
-    "@google/genai": "^2.24.0",
+    "@google/genai": "^2.32.0",
     "axios": "^1.20.0",
     "commander": "^11.1.0",
     "dotenv": "^16.3.1",

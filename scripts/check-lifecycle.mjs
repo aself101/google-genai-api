@@ -3,7 +3,7 @@
  * Model lifecycle gate (spec D16). The package catalogs only models Google has
  * announced no shutdown for (D2); this check is what keeps that true.
  *
- * Fails (exit 1) when, for any id in MODELS / VEO_MODELS:
+ * Fails (exit 1) when, for any id in MODELS / OMNI_MODELS:
  *   - Google's deprecations page lists a shutdown date for it, or
  *   - the id is not on the page at all (unless allowlisted below), or
  *   - the id appears with conflicting shutdown values.
@@ -23,13 +23,17 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-const PAGE_URL = 'https://ai.google.dev/gemini-api/docs/deprecations.md.txt';
+// The ai.google.dev URL now redirects here (2026-11); fetch the canonical one.
+const PAGE_URL = 'https://aistudio.google.com/docs/deprecations.md';
 const SNAPSHOT = path.join(root, 'docs/api/deprecations.md');
+// The page in its pre-2026-11 pipe-table format. --control also parses it, so
+// neither format's parser can rot unnoticed while the live page uses the other.
+const PIPE_FIXTURE = path.join(root, 'test/fixtures/deprecations-2026-09-22-pipe-format.md');
 const NO_SHUTDOWN = 'No shutdown date announced';
 
 // Cataloged ids Google does not list on the deprecations page. Each entry is a
 // judgment call recorded in the spec (D16); keep it short.
-const NOT_LISTED_ALLOWLIST = new Set(['gemini-3.1-flash-lite-image']);
+const NOT_LISTED_ALLOWLIST = new Set([]);
 
 // The last 1.x release. --control reads its catalog from git so the control
 // does not depend on anything this release changes.
@@ -46,21 +50,48 @@ async function loadPage() {
   return { text: await res.text(), source: PAGE_URL };
 }
 
-/** Rows of the form `| \`model-id\` | release | shutdown | replacement |`. */
+/**
+ * Model rows, keyed by id. Two page formats are read:
+ *   - pipe tables: `| \`model-id\` | release | shutdown | replacement |`
+ *     (the page until 2026-11; still the format of older snapshots)
+ *   - Markdoc tables: `{% table %}` blocks whose rows are separated by `---`
+ *     lines and whose cells are `* value` list items (the page from 2026-11)
+ * A row counts only when its first cell is a backticked id, so header rows
+ * ("Model", "Release date", ...) are skipped in both formats.
+ */
 function parseRows(text) {
   const rows = new Map();
-  const row = /^\|\s*`([^`]+)`\s*\|([^|]*)\|([^|]*)\|([^|]*)\|/;
+  const add = (cells) => {
+    const id = /^`([^`]+)`$/.exec(cells[0] ?? '');
+    if (!id || cells.length < 3) return;
+    if (!rows.has(id[1])) rows.set(id[1], []);
+    rows.get(id[1]).push({ shutdown: cells[2], replacement: cells[3] ?? '' });
+  };
+
+  const pipe = /^\|\s*(`[^`]+`)\s*\|([^|]*)\|([^|]*)\|([^|]*)\|/;
+  let inTable = false;
+  let cells = [];
   for (const line of text.split('\n')) {
-    const m = row.exec(line);
-    if (!m) continue;
-    const [, id, , shutdown, replacement] = m.map((s) => s.trim());
-    if (!rows.has(id)) rows.set(id, []);
-    rows.get(id).push({ shutdown, replacement });
+    const trimmed = line.trim();
+    const p = pipe.exec(line);
+    if (p) { add(p.slice(1).map((c) => c.trim())); continue; }
+    if (trimmed.startsWith('{% table')) { inTable = true; cells = []; continue; }
+    if (!inTable) continue;
+    if (trimmed === '{% /table %}' || trimmed === '---') {
+      add(cells);
+      cells = [];
+      if (trimmed === '{% /table %}') inTable = false;
+      continue;
+    }
+    // A cell starts at a `*` list item; any other line continues the cell
+    // (only the first line of a cell is kept — ids and dates are one-liners).
+    const cell = /^\s*\*(?:\s(.*))?$/.exec(line);
+    if (cell) cells.push((cell[1] ?? '').trim());
   }
   return rows;
 }
 
-/** Model-id string values inside `export const MODELS…{…}` / `VEO_MODELS…{…}`. */
+/** Model-id string values inside `export const MODELS…{…}` / `VEO_MODELS…{…}` (the 1.x catalog). */
 function idsFromSource(source) {
   const ids = [];
   for (const name of ['MODELS', 'VEO_MODELS']) {
@@ -78,7 +109,7 @@ async function loadCatalog() {
   }
   const config = await import(path.join(root, 'src/config.ts'));
   return {
-    ids: [...Object.values(config.MODELS), ...Object.values(config.VEO_MODELS)],
+    ids: [...Object.values(config.MODELS), ...Object.values(config.OMNI_MODELS)],
     source: 'src/config.ts',
   };
 }
@@ -110,6 +141,11 @@ for (const id of new Set(catalog.ids)) {
 
 const header = `check-lifecycle: ${catalog.ids.length} catalog ids (${catalog.source}) vs ${rows.size} page models (${page.source})`;
 if (control) {
+  const pipeRows = parseRows(readFileSync(PIPE_FIXTURE, 'utf8')).size;
+  if (pipeRows === 0) {
+    console.error(`${header}\ncheck-lifecycle --control: the pipe-format fixture parsed to zero rows — that parser is broken`);
+    process.exit(1);
+  }
   if (failures.length === 0) {
     console.error(`${header}\ncheck-lifecycle --control: the 1.x catalog passed — the gate is inert`);
     process.exit(1);

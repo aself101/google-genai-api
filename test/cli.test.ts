@@ -128,10 +128,30 @@ describe('CLI — validation exits (no network)', () => {
     expect(r.stderr).toContain("unknown option '--imagen'");
   });
 
-  it('Veo: rejects 4k on Lite before any request', () => {
-    const r = cli(['--veo', '--veo-model', 'veo-3.1-lite-generate-preview', '--prompt', 'x', '--veo-resolution', '4k']);
+  it('Omni: rejects a resolution the model does not list, before any request', () => {
+    const r = cli(['--omni', '--prompt', 'x', '--omni-resolution', '8k']);
     expect(r.status).toBe(1);
-    expect(r.stderr).toContain("Invalid resolution '4k'");
+    expect(r.stderr).toContain("Invalid resolution '8k'");
+    expect(r.requests).toHaveLength(0);
+  });
+
+  it('Omni: rejects a duration outside 3-15 s, before any request', () => {
+    const r = cli(['--omni', '--prompt', 'x', '--omni-duration', '20']);
+    expect(r.status).toBe(1);
+    expect(r.stderr).toContain('Must be 3-15 seconds');
+    expect(r.requests).toHaveLength(0);
+  });
+
+  it.each([
+    [['--veo', '--prompt', 'x']],
+    [['--veo', '--veo-duration', '8', '--prompt', 'x']],
+    [['--veo-model=veo-3.1-generate-preview', '--prompt', 'x']],
+  ])('a 2.x Veo command line %j exits 1 with the migration message, not "unknown option"', (args) => {
+    const r = cli(args);
+    expect(r.status).toBe(1);
+    expect(r.stderr).toContain('removed in 3.0');
+    expect(r.stderr).toContain('--omni');
+    expect(r.stderr).not.toContain('unknown option');
     expect(r.requests).toHaveLength(0);
   });
 });
@@ -141,16 +161,16 @@ describe('CLI — image generation', () => {
     const r = cli(['--gemini', '--prompt', 'a red apple'], [imageResponse([{ inlineData: { mimeType: 'image/png', data: PNG } }])]);
     expect(r.status, r.stderr).toBe(0);
     expect(r.requests).toHaveLength(1);
-    expect(r.requests[0].url).toContain('/models/gemini-3.1-flash-image:generateContent');
+    expect(r.requests[0].url).toContain('/models/gemini-nano-banana-2.1:generateContent');
     const body = JSON.parse(r.requests[0].body!);
     expect(body.generationConfig).toEqual({ responseModalities: ['TEXT', 'IMAGE'] });
 
-    const written = files('gemini-3.1-flash-image');
+    const written = files('gemini-nano-banana-2.1');
     const png = written.filter((f) => f.endsWith('.png'));
     const json = written.filter((f) => f.endsWith('.json'));
     expect(png).toHaveLength(1);
     expect(json).toHaveLength(1);
-    const metadata = JSON.parse(readFileSync(path.join(out, 'gemini-3.1-flash-image', json[0]), 'utf8'));
+    const metadata = JSON.parse(readFileSync(path.join(out, 'gemini-nano-banana-2.1', json[0]), 'utf8'));
     // 1.x regenerated filenames here, so they never matched the saved files
     expect(metadata.outputs).toEqual([{ type: 'image', filename: png[0] }]);
     expect(metadata.finishReason).toBe('STOP');
@@ -160,7 +180,7 @@ describe('CLI — image generation', () => {
     const JPEG = Buffer.from([0xff, 0xd8, 0xff, 0xe0, 0x00, 0x10, 0x4a, 0x46, 0x49, 0x46, 0x00, 0x01]).toString('base64');
     const r = cli(['--gemini', '--prompt', 'a red apple'], [imageResponse([{ inlineData: { mimeType: 'image/jpeg', data: JPEG } }])]);
     expect(r.status, r.stderr).toBe(0);
-    const written = files('gemini-3.1-flash-image');
+    const written = files('gemini-nano-banana-2.1');
     const jpg = written.filter((f) => f.endsWith('.jpg'));
     expect(jpg).toHaveLength(1);
     expect(written.filter((f) => f.endsWith('.png'))).toEqual([]);
@@ -176,7 +196,7 @@ describe('CLI — image generation', () => {
     expect(r.status).toBe(1);
     expect(r.stderr).toContain('Completed 1 of 3 prompts before this failure');
     expect(r.stderr).toContain('Prompt 2 failed');
-    expect(files('gemini-3.1-flash-image').filter((f) => f.endsWith('.png'))).toHaveLength(1);
+    expect(files('gemini-nano-banana-2.1').filter((f) => f.endsWith('.png'))).toHaveLength(1);
   });
 
   it('--model, --aspect-ratio, --image-size and repeated --input-image all reach the wire', () => {
@@ -221,7 +241,7 @@ describe('CLI — image generation', () => {
     const r = cli(['--gemini', '--prompt', 'x'], [imageResponse([], 'IMAGE_SAFETY')]);
     expect(r.status).toBe(1);
     expect(r.stderr).toContain('returned no image (finishReason: IMAGE_SAFETY)');
-    expect(files('gemini-3.1-flash-image').filter((f) => f.endsWith('.json'))).toHaveLength(1);
+    expect(files('gemini-nano-banana-2.1').filter((f) => f.endsWith('.json'))).toHaveLength(1);
   });
 
   it("--capability-validation warn sends a value the table rejects", () => {
@@ -249,54 +269,72 @@ describe('CLI — image generation', () => {
   });
 });
 
-describe('CLI — Veo generation', () => {
-  it('submits with source shape, downloads the video, writes metadata', () => {
-    const doneOp = {
-      name: 'models/veo-3.1-lite-generate-preview/operations/op1',
-      done: true,
-      response: {
-        generateVideoResponse: {
-          generatedSamples: [{ video: { uri: 'https://generativelanguage.googleapis.com/v1beta/files/abc123:download?alt=media' } }],
-        },
-      },
-    };
-    const r = cli(
-      ['--veo', '--veo-model', 'veo-3.1-lite-generate-preview', '--prompt', 'waves', '--veo-resolution', '1080p', '--veo-duration', '8'],
-      [{ json: doneOp }, { base64: Buffer.from('fake-mp4-bytes').toString('base64'), contentType: 'video/mp4' }]
-    );
-    expect(r.status, r.stderr).toBe(0);
-    expect(r.requests).toHaveLength(2);
-    expect(r.requests[0].url).toContain('/models/veo-3.1-lite-generate-preview:predictLongRunning');
-    const body = JSON.parse(r.requests[0].body!);
-    expect(body.instances[0]).toEqual({ prompt: 'waves' });
-    expect(body.parameters).toMatchObject({ resolution: '1080p', durationSeconds: 8 });
-    expect(r.requests[1].url).toContain('files/abc123:download');
+describe('CLI — Omni generation', () => {
+  const interaction = (video: Record<string, unknown>, id = 'v1_cli1') => ({
+    json: { id, status: 'completed', model: 'gemini-omni-1.2-flash', object: 'interaction', steps: [{ type: 'model_output', content: [{ type: 'video', mime_type: 'video/mp4', ...video }] }] },
+  });
+  const MP4 = Buffer.from('fake-mp4-bytes').toString('base64');
+  const dirOf = 'omni/gemini-omni-1.2-flash';
 
-    const written = files('veo/veo-3.1-lite-generate-preview');
+  it('text-to-video: one interaction, the video and metadata written, the interaction id printed', () => {
+    const r = cli(['--omni', '--prompt', 'waves at dusk', '--omni-resolution', '1080p', '--omni-duration', '8', '--omni-aspect-ratio', '9:16'], [interaction({ data: MP4 })]);
+    expect(r.status, r.stderr).toBe(0);
+    expect(r.requests).toHaveLength(1);
+    expect(r.requests[0].url).toBe('https://generativelanguage.googleapis.com/v1beta/interactions');
+    expect(JSON.parse(r.requests[0].body!)).toEqual({
+      model: 'gemini-omni-1.2-flash',
+      input: 'waves at dusk',
+      response_format: { type: 'video', aspect_ratio: '9:16', resolution: '1080p', duration: '8s' },
+    });
+    expect(r.stdout).toContain('--omni-previous v1_cli1');
+
+    const written = files(dirOf);
     const mp4 = written.filter((f) => f.endsWith('.mp4'));
+    const json = written.filter((f) => f.endsWith('.json'));
     expect(mp4).toHaveLength(1);
-    expect(readFileSync(path.join(out, 'veo/veo-3.1-lite-generate-preview', mp4[0]), 'utf8')).toBe('fake-mp4-bytes');
+    expect(json).toEqual([mp4[0].replace(/\.mp4$/, '.json')]);
+    expect(readFileSync(path.join(out, dirOf, mp4[0]), 'utf8')).toBe('fake-mp4-bytes');
+    const metadata = JSON.parse(readFileSync(path.join(out, dirOf, json[0]), 'utf8'));
+    expect(metadata).toMatchObject({ interaction_id: 'v1_cli1', model: 'gemini-omni-1.2-flash', parameters: { prompt: 'waves at dusk', resolution: '1080p', durationSeconds: '8' } });
   });
 
-  it('--veo-image: the image goes in instances[0].image', () => {
-    const png = path.join(dir, 'first.png');
-    writeFileSync(png, Buffer.from(PNG, 'base64'));
-    const doneOp = {
-      name: 'models/veo-3.1-generate-preview/operations/op2',
-      done: true,
-      response: {
-        generateVideoResponse: {
-          generatedSamples: [{ video: { uri: 'https://generativelanguage.googleapis.com/v1beta/files/def456:download?alt=media' } }],
-        },
-      },
-    };
-    const r = cli(
-      ['--veo', '--prompt', 'the cat stretches', '--veo-image', png],
-      [{ json: doneOp }, { base64: Buffer.from('fake-mp4-bytes').toString('base64'), contentType: 'video/mp4' }]
-    );
+  it('--omni-image (repeated) and --omni-previous reach the wire, images in order before the text', () => {
+    const a = path.join(dir, 'first.png');
+    const b = path.join(dir, 'last.png');
+    writeFileSync(a, Buffer.from(PNG, 'base64'));
+    writeFileSync(b, Buffer.from(PNG, 'base64'));
+    const r = cli(['--omni', '--prompt', 'first frame to last frame', '--omni-image', a, '--omni-image', b, '--omni-previous', 'v1_prev'], [interaction({ data: MP4 })]);
     expect(r.status, r.stderr).toBe(0);
     const body = JSON.parse(r.requests[0].body!);
-    expect(body.instances[0]).toEqual({ prompt: 'the cat stretches', image: { bytesBase64Encoded: PNG, mimeType: 'image/png' } });
-    expect(files('veo/veo-3.1-generate-preview').filter((f) => f.endsWith('.mp4'))).toHaveLength(1);
+    expect(body.input).toEqual([
+      { type: 'image', data: PNG, mime_type: 'image/png' },
+      { type: 'image', data: PNG, mime_type: 'image/png' },
+      { type: 'text', text: 'first frame to last frame' },
+    ]);
+    expect(body.previous_interaction_id).toBe('v1_prev');
+  });
+
+  it('--omni-delivery uri: waits for the file to be ACTIVE, then downloads it', () => {
+    const uri = 'https://generativelanguage.googleapis.com/v1beta/files/abc123:download?alt=media';
+    const r = cli(
+      ['--omni', '--prompt', 'x', '--omni-delivery', 'uri'],
+      [interaction({ uri }), { json: { name: 'files/abc123', state: 'ACTIVE' } }, { base64: MP4, contentType: 'video/mp4' }]
+    );
+    expect(r.status, r.stderr).toBe(0);
+    expect(JSON.parse(r.requests[0].body!).response_format).toEqual({ type: 'video', delivery: 'uri' });
+    expect(r.requests[1].url).toContain('/files/abc123');
+    expect(r.requests[2].url).toContain('files/abc123:download');
+    const mp4 = files(dirOf).filter((f) => f.endsWith('.mp4'));
+    expect(readFileSync(path.join(out, dirOf, mp4[0]), 'utf8')).toBe('fake-mp4-bytes');
+  });
+
+  it('a vendor 402 exits 1 with the billing message', () => {
+    const r = cli(['--omni', '--prompt', 'x'], [
+      { status: 402, json: [{ error: { code: 402, message: 'Your prepayment credits are depleted.', status: 'RESOURCE_EXHAUSTED' } }] },
+    ]);
+    expect(r.status).toBe(1);
+    expect(r.requests).toHaveLength(1); // not retried
+    expect(r.stderr).toContain('Your prepayment credits are depleted.');
+    expect(r.stderr).not.toContain('httpMeta');
   });
 });

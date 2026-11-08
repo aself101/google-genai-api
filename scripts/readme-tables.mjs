@@ -25,8 +25,8 @@ const yesNo = (b) => (b ? 'yes' : '—');
 
 /** @param {typeof import('../src/config.ts')} config */
 export function renderTables(config) {
-  const { MODELS, DEFAULT_IMAGE_MODEL, MODEL_CONSTRAINTS, VEO_MODELS, VEO_MODEL_CONSTRAINTS, IMAGE_SIZES, ASPECT_RATIOS } = config;
-  const imageIds = [MODELS.GEMINI_3_1_FLASH, MODELS.GEMINI_3_1_FLASH_LITE, MODELS.GEMINI_3_PRO];
+  const { MODELS, DEFAULT_IMAGE_MODEL, MODEL_CONSTRAINTS, OMNI_MODELS, OMNI_MODEL_CONSTRAINTS, IMAGE_SIZES, ASPECT_RATIOS } = config;
+  const imageIds = [MODELS.GEMINI_NANO_BANANA_2_1, MODELS.GEMINI_3_1_FLASH, MODELS.GEMINI_3_1_FLASH_LITE, MODELS.GEMINI_3_PRO];
 
   const image = [
     '| Model | Aspect ratios | `imageSize` | Input images |',
@@ -42,21 +42,20 @@ export function renderTables(config) {
     `All aspect ratios: ${list(ASPECT_RATIOS)}. All sizes: ${list(IMAGE_SIZES)} (uppercase K).`,
   ].join('\n');
 
-  const veo = [
-    '| Model | Resolutions | Durations (s) | Reference images | Interpolation | Extension | Negative prompt | Audio | Needs 8 s |',
+  const omni = [
+    '| Model | Aspect ratios | Resolutions | Duration (s) | First+last frame / extension (s) | Images | Edit | Extend | Audio |',
     '|---|---|---|---|---|---|---|---|---|',
-    ...Object.values(VEO_MODELS).map((id) => {
-      const c = VEO_MODEL_CONSTRAINTS[id];
-      const refs = c.referenceImages ? `up to ${c.referenceImages.max}` : '—';
-      const required = Object.keys(c.durationRequired ?? {}).map(code).join(', ') || '—';
-      const name = id === VEO_MODELS.VEO_3_1 ? `${code(id)} (default)` : code(id);
-      return `| ${name} | ${list(c.resolutions)} | ${c.durations.join(', ')} | ${refs} | ${yesNo(c.features.interpolation)} | ${yesNo(c.features.extension)} | ${yesNo(c.features.negativePrompt !== false)} | ${yesNo(c.features.nativeAudio)} | ${required} |`;
+    ...Object.values(OMNI_MODELS).map((id) => {
+      const c = OMNI_MODEL_CONSTRAINTS[id];
+      const d = c.durationSeconds;
+      const name = id === OMNI_MODELS.OMNI_1_2_FLASH ? `${code(id)} (default)` : code(id);
+      return `| ${name} | ${list(c.aspectRatios)} | ${list(c.resolutions)} | ${d.min}-${d.max} (default ${d.default}) | ${d.min}-${c.interpolationAndExtensionMaxSeconds}; extended up to ${c.extendedTotalMaxSeconds} total | up to ${c.maxImages} | ${yesNo(c.features.editing)} | ${yesNo(c.features.extension)} | ${yesNo(c.features.nativeAudio)} |`;
     }),
   ].join('\n');
 
   const video = `Video understanding uses ${code(MODELS.GEMINI_VIDEO)}.`;
 
-  return { 'image-models': image, 'veo-models': veo, 'video-model': video };
+  return { 'image-models': image, 'omni-models': omni, 'video-model': video };
 }
 
 // The body may be empty (a freshly inserted block): `(?:…\n)?`.

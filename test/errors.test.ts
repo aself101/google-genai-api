@@ -29,7 +29,7 @@ describe('classification', () => {
     expect(cls(apiError(422, {}))).toBe('USER_ACTIONABLE');
   });
 
-  it('by gRPC code, for a failed Veo operation', () => {
+  it('by gRPC code, for a failed long-running operation', () => {
     const op = (code: number) => Object.assign(new Error('x'), { operationError: { code, message: 'x' } });
     for (const code of [4, 8, 14]) expect(cls(op(code))).toBe('TRANSIENT');
     for (const code of [3, 5, 9]) expect(cls(op(code))).toBe('USER_ACTIONABLE');
@@ -67,7 +67,7 @@ describe('non-production: the original error, augmented', () => {
     expect(out).not.toHaveProperty('cause');
   });
 
-  it('keeps a Veo operationError', () => {
+  it('keeps an operationError', () => {
     const original = Object.assign(new Error('failed'), { operationError: { code: 3, message: 'failed' } });
     const out = toPublicError(original, { surface: 'video' });
     expect(out).toBe(original);
@@ -133,7 +133,7 @@ describe('production: a new Error that discloses only the vendor message', () =>
     );
   });
 
-  it('a failed Veo operation surfaces its own message with the gRPC code attached', () => {
+  it('a failed operation surfaces its own message with the gRPC code attached', () => {
     const op = Object.assign(new Error('Unsupported aspect ratio'), { operationError: { code: 3, message: 'Unsupported aspect ratio' } });
     const out = prod(op);
     expect(out.message).toBe('Video generation failed: Unsupported aspect ratio');

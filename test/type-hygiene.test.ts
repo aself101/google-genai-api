@@ -31,7 +31,7 @@ const files = readdirSync(src, { recursive: true })
 
 describe('src/ has no non-null or double assertions', () => {
   it('scans every source file', () => {
-    expect(files.length).toBeGreaterThanOrEqual(8); // api, cli, config, errors, utils, veo-api, video-api, types
+    expect(files.length).toBeGreaterThanOrEqual(8); // api, cli, config, errors, utils, omni-api, video-api, types
   });
 
   it('finds none', () => {

@@ -4,9 +4,9 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Node.js Version](https://img.shields.io/node/v/google-genai-api)](https://nodejs.org)
 
-A TypeScript/Node.js wrapper and CLI for the [Gemini Developer API](https://ai.google.dev/gemini-api/docs): image generation and editing with the current Gemini image models, video generation with Veo 3.1, and video understanding with Gemini. Built on the official [`@google/genai`](https://www.npmjs.com/package/@google/genai) SDK (2.x).
+A TypeScript/Node.js wrapper and CLI for the [Gemini Developer API](https://ai.google.dev/gemini-api/docs): image generation and editing with the current Gemini (Nano Banana) image models, video generation and conversational video editing with Gemini Omni, and video understanding with Gemini. Built on the official [`@google/genai`](https://www.npmjs.com/package/@google/genai) SDK (2.x).
 
-> **Upgrading from 1.x?** Imagen and Veo 3.0/2.0 are gone (Google shut them down), the default image model changed, and `aspectRatio` is now actually sent. See [Upgrading to 2.0](#upgrading-to-20).
+> **Upgrading from 2.x?** Google shut down every Veo model on 2026-10-22, so `google-genai-api/veo` is gone; video generation is now [Gemini Omni](#video-generation-omni) (`google-genai-api/omni`, CLI `--omni`). The default image model is now Nano Banana 2.1, and video understanding moved to `gemini-3.8-flash`. See [Upgrading to 3.0](#upgrading-to-30). Coming from 1.x, read [Upgrading to 2.0](#upgrading-to-20) too.
 
 ## Quick Start
 
@@ -18,14 +18,15 @@ Requires Node.js ≥ 20 and a Gemini API key ([Authentication](#authentication))
 npm install -g google-genai-api
 export GOOGLE_GENAI_API_KEY="your-api-key"
 
-# Image (default model: gemini-3.1-flash-image)
+# Image (default model: gemini-nano-banana-2.1)
 google-genai --gemini --prompt "a serene mountain landscape" --aspect-ratio 16:9
 
 # Edit with several reference images, at 2K
 google-genai --gemini --prompt "put the person in the room" -i person.jpg -i room.jpg --image-size 2K
 
-# Video with Veo 3.1
-google-genai --veo --prompt "waves crashing against a lighthouse at dusk" --veo-duration 8
+# Video with Gemini Omni — prints an interaction id you can pass back to edit the video
+google-genai --omni --prompt "waves crashing against a lighthouse at dusk" --omni-duration 8
+google-genai --omni --prompt "Make it night. Keep everything else the same." --omni-previous <interaction-id>
 
 # Video understanding
 google-genai --video --input-video ./clip.mp4 --prompt "Summarize this video"
@@ -35,7 +36,7 @@ google-genai --video --input-video ./clip.mp4 --prompt "Summarize this video"
 
 ```typescript
 import { GoogleGenAIAPI, GoogleGenAIVideoAPI, extractGeminiParts } from 'google-genai-api';
-import { GoogleGenAIVeoAPI } from 'google-genai-api/veo';
+import { GoogleGenAIOmniAPI } from 'google-genai-api/omni';
 
 const images = new GoogleGenAIAPI(process.env.GOOGLE_GENAI_API_KEY!);
 const response = await images.generateWithGemini({
@@ -45,10 +46,11 @@ const response = await images.generateWithGemini({
 });
 const parts = extractGeminiParts(response); // [{ type: 'image', mimeType, data }, ...]
 
-const veo = new GoogleGenAIVeoAPI(process.env.GOOGLE_GENAI_API_KEY!);
-let operation = await veo.generateVideo({ prompt: 'a cat playing piano', durationSeconds: '8' });
-operation = await veo.waitForCompletion(operation);
-await veo.downloadVideo(operation, './cat.mp4');
+const omni = new GoogleGenAIOmniAPI(process.env.GOOGLE_GENAI_API_KEY!);
+const clip = await omni.generate({ prompt: 'a cat playing piano', durationSeconds: 8 });
+await omni.saveVideo(clip, './cat.mp4');
+const edited = await omni.generate({ prompt: 'Give the cat a top hat.', previousInteractionId: clip.interactionId });
+await omni.saveVideo(edited, './cat-hat.mp4');
 
 const video = new GoogleGenAIVideoAPI(process.env.GOOGLE_GENAI_API_KEY!);
 const file = await video.uploadVideoFile('./clip.mp4');
@@ -57,6 +59,7 @@ const analysis = await video.generateFromVideo({ prompt: 'Summarize this video',
 
 ## Table of Contents
 
+- [Upgrading to 3.0](#upgrading-to-30)
 - [Upgrading to 2.0](#upgrading-to-20)
 - [Models](#models)
 - [Model lifecycle](#model-lifecycle)
@@ -64,7 +67,7 @@ const analysis = await video.generateFromVideo({ prompt: 'Summarize this video',
 - [Authentication](#authentication)
 - [Image generation](#image-generation)
 - [Validation](#validation)
-- [Video generation (Veo)](#video-generation-veo)
+- [Video generation (Omni)](#video-generation-omni)
 - [Video understanding](#video-understanding)
 - [Errors](#errors)
 - [Public API](#public-api)
@@ -76,9 +79,30 @@ const analysis = await video.generateFromVideo({ prompt: 'Summarize this video',
 - [Development](#development)
 - [Maintainer notes](#maintainer-notes)
 
+## Upgrading to 3.0
+
+3.0 exists because Google shut down every Veo model on the Gemini API on 2026-10-22 — 2.x's video generation has failed on every call since — and named Gemini Omni Flash as the replacement. Omni is not a new Veo: it runs on a different API (Interactions, not a long-running `generateVideos` operation), returns the video from one synchronous call, and edits or extends earlier videos in later turns. So the Veo client is removed rather than repointed. Every other change is a model Google superseded or scheduled for shutdown. The full list is in the [CHANGELOG](CHANGELOG.md).
+
+| 2.x | 3.0 |
+|---|---|
+| `import { GoogleGenAIVeoAPI } from 'google-genai-api/veo'` | `import { GoogleGenAIOmniAPI } from 'google-genai-api/omni'`. The `./veo` subpath is gone (`ERR_PACKAGE_PATH_NOT_EXPORTED`). |
+| `generateVideo` / `generateFromImage` / `generateWithReferences` / `generateWithInterpolation` / `extendVideo` | One `generate(params)`. Omni reads the mode from the prompt and inputs: say what each image is for ("first frame", "the character in the reference image"). |
+| `waitForCompletion(op)` + `downloadVideo(op, path)` | `generate` resolves when the video is done; `saveVideo(result, path)` writes it. |
+| `extendVideo({ video })` | `generate({ prompt: 'Extend this video…', previousInteractionId })` — or edit it the same way. 3-10 s per turn, up to 30 s total. |
+| `VEO_MODELS`, `VEO_MODEL_CONSTRAINTS`, `VEO_*` constants, `getVeoViolations`, `validateVeoParams`, `isKnownVeoModel`, all `Veo*` types | `OMNI_MODELS`, `OMNI_MODEL_CONSTRAINTS`, `OMNI_*`, `getOmniViolations`, `validateOmniParams`, `isKnownOmniModel`, `Omni*` types |
+| `imageToVeoInput(path)` → `{ imageBytes, mimeType }` | `imageToInlineData(path)` → `{ data, mimeType }`, passed in `images` |
+| `durationSeconds: '4' \| '6' \| '8'` | Any whole number 3-15 (default 10); 3-10 with first+last frame or when extending |
+| `resolution`: `720p`, `1080p`, `4k` | `360p`, `720p`, `1080p`, `4k` (1080p and 4k are upscaled) |
+| `negativePrompt`, `personGeneration`, `seed` | Not supported by Omni; passing one throws `ValidationError`. Write negatives into the prompt ("No dialogue"). |
+| `saveVeoMetadata`, `parseVeoMetadata`, `generateVeoOutputPath`, `createVeoSpinner` | Removed. The CLI writes its own metadata (`interaction_id`, parameters). |
+| CLI `--veo`, `--veo-*` | `--omni`, `--omni-aspect-ratio`, `--omni-resolution`, `--omni-duration`, `--omni-image` (repeatable), plus `--omni-previous`, `--omni-video`, `--omni-task`, `--omni-delivery`. A 2.x command line exits 1 with this mapping. |
+| Default image model `gemini-3.1-flash-image` | `gemini-nano-banana-2.1` (Google: "recommended for all new projects"). Pass `model: 'gemini-3.1-flash-image'` to keep 2.x output; it is still cataloged. Nano Banana 2.1 has no `512` size. |
+| Video understanding on `gemini-2.5-flash` (shuts down 2026-12-01) | `gemini-3.8-flash` |
+| `@google/genai ^2.24.0` | `^2.32.0` (still 2.x; Node ≥ 20 unchanged) |
+
 ## Upgrading to 2.0
 
-2.0 exists because Google retired most of what 1.x wrapped, and because 1.x never sent the aspect ratio you passed. Nothing below was removed on this package's own initiative: every removal is a model Google shut down or announced a shutdown for. The full list is in the [CHANGELOG](CHANGELOG.md).
+This table records the 1.x → 2.0 step; its Veo rows describe 2.x, which 3.0 replaced with Omni ([Upgrading to 3.0](#upgrading-to-30)). 2.0 exists because Google retired most of what 1.x wrapped, and because 1.x never sent the aspect ratio you passed. Nothing below was removed on this package's own initiative: every removal is a model Google shut down or announced a shutdown for. The full list is in the [CHANGELOG](CHANGELOG.md).
 
 **Requires Node.js ≥ 20** (the `@google/genai` 2.x floor).
 
@@ -104,7 +128,7 @@ const analysis = await video.generateFromVideo({ prompt: 'Summarize this video',
 | `durationSeconds: '5'` (Veo 2 only) | `'4'`, `'6'` or `'8'` |
 | `VeoGenerateParams.seed` | Removed: the Gemini Developer API rejects it (every 1.x call with a seed failed). Passing it throws `ValidationError`. |
 | `VeoModelConstraint.resolution1080p` | Still there, deprecated; use `durationRequired` |
-| Veo polling retried 429/502/503 and any error whose message contained "network" or "timeout" | Retries only a failed poll request (network error, timeout, 408, 429, any 5xx); a job that finished with an error is thrown at once. See [Video generation](#video-generation-veo). |
+| Veo polling retried 429/502/503 and any error whose message contained "network" or "timeout" | Retries only a failed poll request (network error, timeout, 408, 429, any 5xx); a job that finished with an error is thrown at once. (Veo itself is gone in 3.0: [Upgrading to 3.0](#upgrading-to-30).) |
 | Video upload polling retried any error whose message contained "network", "timeout" or "processing" | Retries only a failed poll request, as Veo does; a 429 still waits 60 s |
 | Production errors: one generic sentence | Category sentence plus Google's own message for rejected requests; `status`, `classification` etc. on every error. See [Errors](#errors). |
 | Types not importable | `import type { GeminiGenerateParams, … } from 'google-genai-api'` |
@@ -114,14 +138,15 @@ const analysis = await video.generateFromVideo({ prompt: 'Summarize this video',
 
 ## Models
 
-The package catalogs **current models only** — those Google has announced no shutdown for. Values below are generated from the package's constraint tables (`MODEL_CONSTRAINTS`, `VEO_MODEL_CONSTRAINTS`), which come from Google's model pages and live probes; if Google accepts something the table does not, see [`capabilityValidation`](#validation).
+The package catalogs **current models only** — those Google has announced no shutdown for. Values below are generated from the package's constraint tables (`MODEL_CONSTRAINTS`, `OMNI_MODEL_CONSTRAINTS`), which come from Google's model pages and live probes; if Google accepts something the table does not, see [`capabilityValidation`](#validation).
 
 ### Image models
 
 <!-- generated:image-models -->
 | Model | Aspect ratios | `imageSize` | Input images |
 |---|---|---|---|
-| `gemini-3.1-flash-image` (default) | all 14 | `512`, `1K`, `2K`, `4K` | up to 14 |
+| `gemini-nano-banana-2.1` (default) | all 14 | `1K`, `2K`, `4K` | up to 14 |
+| `gemini-3.1-flash-image` | all 14 | `512`, `1K`, `2K`, `4K` | up to 14 |
 | `gemini-3.1-flash-lite-image` | all 14 | `1K` | up to 14 |
 | `gemini-3-pro-image` | `1:1`, `3:2`, `2:3`, `3:4`, `4:3`, `4:5`, `5:4`, `9:16`, `16:9`, `21:9` | `1K`, `2K`, `4K` | up to 14 |
 
@@ -132,30 +157,30 @@ At the extreme ratios (`1:4`, `4:1`, `1:8`, `8:1`) Flash and Lite return the exa
 
 `imageSize` is a resolution tier, not a fixed edge: on `gemini-3.1-flash-image`, `2K` gave 2048×2048 at `1:1` and 2816×1536 at the model's default framing (live, 2026-09-22). All images carry Google's SynthID watermark.
 
-### Veo models
+`gemini-nano-banana-2.1` is Google's update to Nano Banana 2 (`gemini-3.1-flash-image`) and its recommendation for new work. Its row was checked live on 2026-11-08 at every ratio and size: 1:1 gives 1024², 2048², 4096²; 16:9 at `1K` gives 1376×768; `512` is refused by Google ("Image size 512 is not supported for this model").
 
-<!-- generated:veo-models -->
-| Model | Resolutions | Durations (s) | Reference images | Interpolation | Extension | Negative prompt | Audio | Needs 8 s |
+### Omni models
+
+<!-- generated:omni-models -->
+| Model | Aspect ratios | Resolutions | Duration (s) | First+last frame / extension (s) | Images | Edit | Extend | Audio |
 |---|---|---|---|---|---|---|---|---|
-| `veo-3.1-generate-preview` (default) | `720p`, `1080p`, `4k` | 4, 6, 8 | up to 3 | yes | yes | yes | yes | `1080p`, `4k` |
-| `veo-3.1-fast-generate-preview` | `720p`, `1080p`, `4k` | 4, 6, 8 | up to 3 | yes | yes | yes | yes | `1080p`, `4k` |
-| `veo-3.1-lite-generate-preview` | `720p`, `1080p` | 4, 6, 8 | — | yes | — | — | yes | `1080p` |
-<!-- /generated:veo-models -->
+| `gemini-omni-1.2-flash` (default) | `16:9`, `9:16` | `360p`, `720p`, `1080p`, `4k` | 3-15 (default 10) | 3-10; extended up to 30 total | up to 6 | yes | yes | yes |
+<!-- /generated:omni-models -->
 
-`personGeneration` depends on the mode: text-to-video and extension accept `allow_all` only; image-to-video accepts `allow_all` or `allow_adult`; `dont_allow` is rejected everywhere (observed live; Google limits EU, UK, CH and MENA to `allow_adult`, so `capabilityValidation: 'warn'` sends other values anyway). All three are Google preview models. Veo 3.1 Lite rejects reference images (verified live) and does not support extension or 4k.
+Up to 6 reference images (at most 3 per character, 2 characters). An input video to edit can be up to 15 s; extension continues from its last 10 s. Omni does not take a negative prompt, system instructions or temperature. Editing or extending an *uploaded* video is not available in the EEA, Switzerland or the UK (editing videos Omni generated is). `gemini-omni-1.1-flash` is not cataloged: from 2026-12-03 Google routes it to 1.2.
 
 ### Video understanding
 
 <!-- generated:video-model -->
-Video understanding uses `gemini-2.5-flash`.
+Video understanding uses `gemini-3.8-flash`.
 <!-- /generated:video-model -->
 
 ## Model lifecycle
 
 - **Current models only.** A model is in the catalog if it generates and Google's [deprecations page](https://ai.google.dev/gemini-api/docs/deprecations) shows no shutdown date for it. When Google announces one, the model is removed in the next release.
-- **Removal never cuts you off early.** Any string is accepted as an image or Veo model id (video understanding uses a fixed model, below). An id the package does not catalog — a model newer than this release, or a retired one Google still serves — is sent with a one-time warning per client, with shape checks only (see [Validation](#validation)). `gemini-2.5-flash-image` keeps working this way until Google turns it off on 2026-10-02.
+- **Removal never cuts you off early.** Any string is accepted as an image or Omni model id (video understanding uses a fixed model, below). An id the package does not catalog — a model newer than this release, or a retired one Google still serves — is sent with a one-time warning per client, with shape checks only (see [Validation](#validation)). `gemini-2.5-flash-image` keeps working this way until Google turns it off on 2027-03-15.
 - **Checked automatically.** `npm run check:lifecycle` fails if a cataloged model has a shutdown date or is missing from Google's page. It runs weekly in CI and before every publish.
-- `isKnownImageModel(id)` / `isKnownVeoModel(id)` tell you whether an id is cataloged. `MODEL_CONSTRAINTS` and `VEO_MODEL_CONSTRAINTS` are keyed by string, so looking up a removed id compiles and returns `undefined` — check with the guard first.
+- `isKnownImageModel(id)` / `isKnownOmniModel(id)` tell you whether an id is cataloged. `MODEL_CONSTRAINTS` and `OMNI_MODEL_CONSTRAINTS` are keyed by string, so looking up a removed id compiles and returns `undefined` — check with the guard first.
 
 ## Installation
 
@@ -227,8 +252,8 @@ Every request also sends `responseModalities: ['TEXT', 'IMAGE']`. The response i
 
 Both clients check parameters before any network call.
 
-- **Shape rules** apply to every model id and always throw: a prompt is present and not too long; each input image has data and a well-formed `image/…` MIME type; `aspectRatio` looks like `W:H`; `imageSize` looks like `512` / `2K` (uppercase K); Veo `resolution`, `durationSeconds` and `personGeneration` are well-formed; Veo `seed` is rejected.
-- **Capability rules** apply to cataloged models: the value is in the model's list, the input count is within its limit, the Veo mode is one the model supports, 1080p/4k use an 8-second duration.
+- **Shape rules** apply to every model id and always throw: a prompt is present and not too long; each input image has data and a well-formed `image/…` MIME type; `aspectRatio` looks like `W:H`; `imageSize` looks like `512` / `2K` (uppercase K); Omni `resolution`, `durationSeconds` (whole seconds), `task` and `delivery` are well-formed, each image or video has exactly one of `data` and `uri`; the 2.x video parameters `negativePrompt`, `personGeneration` and `seed` are rejected.
+- **Capability rules** apply to cataloged models: the value is in the model's list, the input count is within its limit, an Omni duration is 3-15 s. The 10-second ceiling for first+last frame and extension is left to the API: Omni decides from the prompt which of those a request is.
 
 A violation throws `ValidationError` (an `Error`; `violations` lists every problem, each tagged `shape` or `capability`). Capability rules come from Google's docs, which have been wrong before, so they can be downgraded:
 
@@ -246,34 +271,48 @@ try {
 }
 ```
 
-Without a client, from `google-genai-api/config`: `getModelViolations(model, params)` and `getVeoViolations(model, params, mode)` return the violations; `validateModelParams` and `validateVeoParams` throw on the first one (their 1.x contract).
+Without a client, from `google-genai-api/config`: `getModelViolations(model, params)` and `getOmniViolations(model, params)` return the violations; `validateModelParams` throws on the first one (its 1.x contract) and `validateOmniParams` on any.
 
-## Video generation (Veo)
+## Video generation (Omni)
 
 ```typescript
-import { GoogleGenAIVeoAPI, VEO_MODELS } from 'google-genai-api/veo';
-import { imageToVeoInput } from 'google-genai-api/utils';
+import { GoogleGenAIOmniAPI } from 'google-genai-api/omni';
+import { imageToInlineData } from 'google-genai-api/utils';
 
-const veo = new GoogleGenAIVeoAPI(apiKey);
+const omni = new GoogleGenAIOmniAPI(apiKey);
 
 // Text-to-video
-let op = await veo.generateVideo({ prompt: 'a butterfly in a garden', resolution: '1080p', durationSeconds: '8' });
+const first = await omni.generate({ prompt: 'A woman playing violin outdoors.', durationSeconds: 8, resolution: '1080p' });
+await omni.saveVideo(first, './violin.mp4');
 
-// Image-to-video
-op = await veo.generateFromImage({ prompt: 'the cat wakes up', image: await imageToVeoInput('./cat.png') });
+// Edit it, then extend it — each turn is a new video
+const edited = await omni.generate({ prompt: 'Make the violin invisible. Keep everything else the same.', previousInteractionId: first.interactionId });
+const longer = await omni.generate({ prompt: 'Extend this video: she takes a bow.', previousInteractionId: edited.interactionId, durationSeconds: 5 });
 
-// Reference images (3.1 / Fast), first-to-last-frame interpolation, extension (3.1 / Fast)
-op = await veo.generateWithReferences({ prompt: '…', referenceImages: [{ image: await imageToVeoInput('./dress.png'), referenceType: 'asset' }] });
-op = await veo.generateWithInterpolation({ firstFrame: await imageToVeoInput('./a.png'), lastFrame: await imageToVeoInput('./b.png'), model: VEO_MODELS.VEO_3_1_LITE });
-
-op = await veo.waitForCompletion(op, { onProgress: (_op, ms) => console.log(`${ms / 1000}s`) });
-await veo.downloadVideo(op, './out.mp4');
-op = await veo.extendVideo({ prompt: 'the butterfly lands', video: veo.extractVideo(op).video });
+// Images: say in the prompt what each one is for
+const start = await imageToInlineData('./forest-day.png');
+const end = await imageToInlineData('./forest-night.png');
+const transition = await omni.generate({ prompt: 'Transition from the first frame to the last frame.', images: [start, end], durationSeconds: 6 });
 ```
 
-`VeoGenerateParams`: `prompt`, `model`, `aspectRatio`, `resolution`, `durationSeconds` (string or number; sent as a number), `negativePrompt`, `personGeneration`. Per-model values: [Models](#models). Modes keep fixed settings the API requires: reference images and interpolation always use 8 seconds; extension always uses 720p and one video.
+**`generate(params)`** returns `{ interactionId, model, status, video: { mimeType, data? , uri? }, text? }`.
 
-**Polling.** `waitForCompletion` polls every 10 s for up to 60 attempts. Only a failed *poll request* is retried (network error, timeout, 408/429/5xx). A job that finished with an error is thrown at once. If polling runs out, the error has `isTimeout: true` and `operationName` — the job may still finish; Google keeps generated videos for 48 hours. To pick a job up again later, pass `{ name: operationName, done: false }` to `waitForCompletion`; it does not need the original operation object (1.x crashed on one).
+| Param | Type | Notes |
+|---|---|---|
+| `prompt` | `string` | Required. Omni infers the mode from it and the inputs. |
+| `model` | `string` | Default `gemini-omni-1.2-flash`; any id is accepted ([Model lifecycle](#model-lifecycle)) |
+| `images` | `({ data, mimeType } \| { uri })[]` | In the order the prompt refers to them; up to 6 |
+| `video` | `{ uri } \| { data, mimeType }` | A video to edit or extend (up to 15 s). Upload with `GoogleGenAIVideoAPI.uploadVideoFile`. |
+| `previousInteractionId` | `string` | Edit or extend the video an earlier call produced |
+| `aspectRatio`, `resolution`, `durationSeconds` | | Sent as `response_format`; values: [Omni models](#omni-models) |
+| `task` | `OmniTask` | Mode fallback (`generation_config.video_config.task`). Google: try the prompt first. **Not with `previousInteractionId`** — the API rejects the pair; to edit or extend with a task, pass `video`. |
+| `delivery` | `'inline' \| 'uri'` | `uri` returns a Files API link instead of base64. Google recommends it over 4 MB, but inline returned 6 MB (4k, 3 s) and 8 MB (360p, 15 s) without trouble live. `saveVideo` handles both. |
+| `store` | `boolean` | `false` is faster, but the result can then not be continued. **Google does not reject a later `previousInteractionId` for it**: it silently generates a new, unrelated video, and bills for it (live 2026-11-08). |
+| `timeoutMs` | `number` | Default `OMNI_TIMEOUTS.REQUEST` (15 min) |
+
+Wall time observed live (3 s clips): 360p ≈ 14 s, 720p ≈ 20 s, 1080p ≈ 38 s, 4k ≈ 91 s; 4k at 15 s took 213 s. An extension returns the whole video (3 s + 10 s → 13 s).
+
+**One call, never retried.** `generate` is synchronous: it resolves when the video exists. It is never retried automatically, because every attempt is a billed generation — the SDK's Interactions client otherwise retries a 503 up to four times. An interaction that completes without a video (for example, refused by safety filters) throws with `interactionId` and whatever text the model returned.
 
 `getModelInfo(model?)` returns a cataloged model's constraints and throws for an uncataloged id.
 
@@ -302,9 +341,9 @@ Offsets accept `"90s"`, `"90"`, `"1m30s"`, `"1:30"`, `"1:15:30"`. Supported form
 | Property | Meaning |
 |---|---|
 | `status` | HTTP status, for HTTP failures |
-| `code` | gRPC code, for a Veo job that failed |
+| `code` | gRPC code, for a failed long-running operation (none of the 3.0 clients produce one; kept for compatibility) |
 | `classification` | `AUTH`, `TRANSIENT`, `USER_ACTIONABLE`, `SAFETY_BLOCKED`, `AUDIO_BLOCKED`, `NETWORK`, `TIMEOUT` |
-| `surface` | `image` (`GoogleGenAIAPI`), `video` (Veo) or `video-understanding` (`GoogleGenAIVideoAPI`) |
+| `surface` | `image` (`GoogleGenAIAPI`), `video` (`GoogleGenAIOmniAPI`) or `video-understanding` (`GoogleGenAIVideoAPI`) |
 
 **In production**, the caller gets a new `Error` with the same properties and a message that names the category, for example:
 
@@ -312,17 +351,18 @@ Offsets accept `"90s"`, `"90"`, `"1m30s"`, `"1:30"`, `"1:15:30"`. Supported form
 Image generation failed (HTTP 400): Image size 2K is not supported for this model
 Video generation failed: authentication or permission failure (HTTP 403).
 Image generation failed: a temporary error occurred (HTTP 429). Please try again.
+Video generation failed (HTTP 402): Your prepayment credits are depleted. Please go to AI Studio …
 ```
 
 Only Google's own `error.message` is ever included, and only for rejected requests and safety blocks — never the body's `details` (which can carry project and quota identifiers), never text from a non-Gemini response such as a proxy's HTML page, never for authentication or rate-limit failures, and no `cause` (Node prints cause chains). Validation errors are thrown before any API call and are never rewritten.
 
-All three clients work this way. One exception, kept from 1.x: when `GoogleGenAIVideoAPI.generateFromVideo` is given a file it cannot find, it throws a message of its own in every environment, classified `USER_ACTIONABLE`, with the properties above set. On a 404 that is 1.x's `Video file not found. The file may have expired (files expire after 48 hours) or was deleted.` Google usually answers a missing file with 403 `PERMISSION_DENIED` ("You do not have permission to access the File … or it may not exist"), which also covers a file from another project, so that case reads `Video file not found or not accessible with this API key. It may have expired (files expire after 48 hours), been deleted, or belong to another project.` A poll that runs out of attempts (Veo, or video upload processing) throws the package's own timeout error with `isTimeout: true`, not a rewritten one.
+All three clients work this way. One exception, kept from 1.x: when `GoogleGenAIVideoAPI.generateFromVideo` is given a file it cannot find, it throws a message of its own in every environment, classified `USER_ACTIONABLE`, with the properties above set. On a 404 that is 1.x's `Video file not found. The file may have expired (files expire after 48 hours) or was deleted.` Google usually answers a missing file with 403 `PERMISSION_DENIED` ("You do not have permission to access the File … or it may not exist"), which also covers a file from another project, so that case reads `Video file not found or not accessible with this API key. It may have expired (files expire after 48 hours), been deleted, or belong to another project.` A poll that runs out of attempts (an Omni `uri` video that never becomes ACTIVE, or video upload processing) throws the package's own timeout error with `isTimeout: true`, not a rewritten one. The Omni client reads Google's message from the Interactions client's error body (a JSON array), where the other clients find it in the error message.
 
 > **Logs are not sanitized.** On failure the clients log the SDK's full error message — including any `details` — at `error` level, in every environment, as 1.x did. That reaches your logs, not your callers. Set the log level (second constructor argument, or `--log-level`) accordingly.
 
 ## Public API
 
-Types for everything below — `GeminiGenerateParams`, `GeminiResponse`, `VeoGenerateParams`, `VeoOperation`, `ModelConstraint`, `Violation`, … — are exported from the root: `import type { … } from 'google-genai-api'`.
+Types for everything below — `GeminiGenerateParams`, `GeminiResponse`, `OmniGenerateParams`, `OmniResult`, `ModelConstraint`, `Violation`, … — are exported from the root: `import type { … } from 'google-genai-api'`.
 
 ### `google-genai-api`
 
@@ -335,16 +375,15 @@ import {
 } from 'google-genai-api';
 ```
 
-### `google-genai-api/veo`
+### `google-genai-api/omni`
 
 ```typescript
 import {
-  GoogleGenAIVeoAPI,
-  VEO_MODELS,
-  VEO_MODES,
-  VEO_TIMEOUTS,
+  GoogleGenAIOmniAPI,
+  OMNI_MODELS,
+  OMNI_TIMEOUTS,
   getGoogleGenAIApiKey,
-} from 'google-genai-api/veo';
+} from 'google-genai-api/omni';
 ```
 
 ### `google-genai-api/video`
@@ -365,15 +404,12 @@ import {
   IMAGE_SIZES,
   SUPPORTED_IMAGE_MIME_TYPES,
   GEMINI_MODES,
-  VEO_MODELS,
-  VEO_MODEL_CONSTRAINTS,
-  VEO_ASPECT_RATIOS,
-  VEO_RESOLUTIONS,
-  VEO_DURATIONS,
-  VEO_MODES,
-  VEO_PERSON_GENERATION,
-  VEO_PERSON_GENERATION_BY_MODE, // values the API accepts per Veo mode
-  VEO_TIMEOUTS,
+  OMNI_MODELS,
+  OMNI_MODEL_CONSTRAINTS,
+  OMNI_ASPECT_RATIOS,
+  OMNI_RESOLUTIONS,
+  OMNI_TASKS,
+  OMNI_TIMEOUTS,
   VIDEO_MIME_TYPES,
   VIDEO_SIZE_LIMITS,
   VIDEO_TIMEOUTS,
@@ -381,12 +417,12 @@ import {
   // validation
   ValidationError,
   getModelViolations,
-  getVeoViolations,
+  getOmniViolations,
   validateModelParams,
-  validateVeoParams,
+  validateOmniParams,
   validateVideoParams,
   isKnownImageModel,
-  isKnownVeoModel,
+  isKnownOmniModel,
   detectGeminiMode,
   // keys and helpers
   getGoogleGenAIApiKey,
@@ -401,28 +437,23 @@ import {
 ```typescript
 import {
   imageToInlineData,     // local path or HTTPS URL → { mimeType, data }
-  imageToVeoInput,       // local path → { imageBytes, mimeType }
   validateImageUrl,      // SSRF checks (see Security)
   validateImagePath,     // magic-byte check
   validateVideoPath,     // format, size, magic bytes
   saveBase64Image,
   saveMetadata,
-  saveVeoMetadata,
-  parseVeoMetadata,
   generateFilename,
-  generateVeoOutputPath,
   ensureDirectory,
   extractVideoMetadata,
   formatTimeOffset,
   createSpinner,
-  createVeoSpinner,
   setLogLevel,
   logger,
   pause,
 } from 'google-genai-api/utils';
 ```
 
-`GoogleGenAIAPI` and `GoogleGenAIVeoAPI` take `(apiKey, logLevel = 'info', options?)`; `options.capabilityValidation` is `'error'` (default) or `'warn'`. `GoogleGenAIVideoAPI` takes `(apiKey, logLevel = 'info')`: it has no constraint table to validate against.
+`GoogleGenAIAPI` and `GoogleGenAIOmniAPI` take `(apiKey, logLevel = 'info', options?)`; `options.capabilityValidation` is `'error'` (default) or `'warn'`. `GoogleGenAIVideoAPI` takes `(apiKey, logLevel = 'info')`: it has no constraint table to validate against.
 
 ## CLI
 
@@ -432,10 +463,10 @@ google-genai <mode> --prompt "…" [options]
 
 | Mode | |
 |---|---|
-| `--gemini` | Image generation/editing with `--model` (default `gemini-3.1-flash-image`) |
+| `--gemini` | Image generation/editing with `--model` (default `gemini-nano-banana-2.1`) |
 | `--model <id>` | Image model; implies image mode. Any id is sent (uncataloged ids with a warning). |
 | `--gemini-3-pro` | Shorthand for `--model gemini-3-pro-image` |
-| `--veo` | Video generation |
+| `--omni` | Video generation and editing |
 | `--video` | Video understanding (needs `--input-video`) |
 
 | Option | |
@@ -445,8 +476,11 @@ google-genai <mode> --prompt "…" [options]
 | `-a, --aspect-ratio <ratio>` | Omit for the model's default framing |
 | `--image-size <size>` | `512`, `1K`, `2K`, `4K` — per model |
 | `--capability-validation <mode>` | `error` (default) or `warn` |
-| `--veo-model`, `--veo-aspect-ratio`, `--veo-resolution`, `--veo-duration` | Veo settings; defaults `veo-3.1-generate-preview`, `16:9`, `720p`, `8` |
-| `--veo-negative-prompt`, `--veo-image`, `--veo-person-generation` | Veo settings; no default |
+| `--omni-model`, `--omni-aspect-ratio`, `--omni-resolution`, `--omni-duration` | Omni settings; Google's defaults when omitted (`gemini-omni-1.2-flash`, `16:9`, `720p`, 10 s) |
+| `--omni-image <path>` | Image to animate, a first/last frame, or a reference; repeat (up to 6, in order) |
+| `--omni-previous <id>` | Edit or extend the video of an earlier run (each run prints its id) |
+| `--omni-video <path>` | Upload a video (up to 15 s) to edit or extend |
+| `--omni-task`, `--omni-delivery` | Mode fallback; `inline` (default) or `uri` |
 | `--input-video`, `--video-start`, `--video-end` | Video understanding |
 | `-o, --output-dir <path>` | Default `datasets/google`, or `GOOGLE_GENAI_OUTPUT_DIR` |
 | `--api-key`, `--log-level` | |
@@ -457,8 +491,8 @@ The CLI exits 1 on a validation error, an API error, a run that returns no image
 ```bash
 google-genai --model gemini-3.1-flash-lite-image --prompt "a flat paper-plane icon"
 google-genai --gemini-3-pro --prompt "hyper-real mountain lake" --image-size 4K
-google-genai --veo --veo-model veo-3.1-lite-generate-preview --prompt "rain on a window" --veo-resolution 1080p --veo-duration 8
-google-genai --veo --prompt "the cat stretches" --veo-image ./cat.png
+google-genai --omni --prompt "rain on a window, single continuous shot" --omni-resolution 1080p --omni-duration 8
+google-genai --omni --prompt "the cat in this photo wakes up and stretches" --omni-image ./cat.png
 google-genai --video --input-video ./clip.mp4 --prompt "Summarize" --prompt "List key moments with timestamps"
 ```
 
@@ -468,12 +502,12 @@ The CLI writes under `--output-dir` (default `datasets/google`), one directory p
 
 ```text
 datasets/google/
-├── gemini-3.1-flash-image/
-│   ├── 20260922_101530_a-red-apple.jpg
-│   └── 20260922_101530_a-red-apple.json
-├── veo/veo-3.1-generate-preview/
-│   ├── 20260922_102210_waves-at-dusk.mp4
-│   └── 20260922_102210_waves-at-dusk.json
+├── gemini-nano-banana-2.1/
+│   ├── 20261108_101530_a-red-apple.jpg
+│   └── 20261108_101530_a-red-apple.json
+├── omni/gemini-omni-1.2-flash/
+│   ├── 20261108_102210_waves-at-dusk.mp4
+│   └── 20261108_102210_waves-at-dusk.json   # interaction_id, parameters, bytes
 └── video-analysis/
 ```
 
@@ -481,12 +515,12 @@ Images take the extension of the bytes the model returned — the current models
 
 ```json
 {
-  "model": "gemini-3.1-flash-image",
-  "timestamp": "2026-09-22T10:15:30.123Z",
+  "model": "gemini-nano-banana-2.1",
+  "timestamp": "2026-11-08T10:15:30.123Z",
   "prompt": "a red apple",
   "parameters": { "aspectRatio": "16:9", "imageSize": "2K" },
   "finishReason": "STOP",
-  "outputs": [{ "type": "image", "filename": "20260922_101530_a-red-apple.jpg" }],
+  "outputs": [{ "type": "image", "filename": "20261108_101530_a-red-apple.jpg" }],
   "text": []
 }
 ```
@@ -505,15 +539,16 @@ See [Known limitations](#known-limitations) for what the URL checks do not cover
 ## Known limitations
 
 - **The URL checks cover addresses, not proxies.** With `HTTPS_PROXY` set, the connection goes to the proxy and the target is resolved by the proxy, outside these checks. The IP ranges are a fixed list of special-purpose blocks; an internal network that uses public address space is not recognised as internal.
-- **No timeout on API calls.** Generation calls and the Veo video download (the SDK's `files.download`) use the SDK's defaults, which set none; only image downloads (60 s) and the video-file delete (30 s) set their own.
-- **Video understanding uses a fixed model**, `gemini-2.5-flash`, with no override. When Google retires it, every `generateFromVideo` call fails until a release moves it; `check:lifecycle` flags the announcement for the next release, not for installed copies.
-- **A Veo job the CLI stops waiting for keeps running.** The CLI polls for up to 10 minutes (one 4k/8 s render took 6); on timeout it exits 1 and prints the operation name. Pick the job up with the library: `veo.waitForCompletion({ name, done: false })`.
-- **What has been exercised live** — the full battery in [docs/LIVE-BATTERY-2026-09-23.md](docs/LIVE-BATTERY-2026-09-23.md) (through the built package; one key, US region): every image model at every aspect ratio and size it lists, 14 input images, edits, batches, and `capabilityValidation: 'warn'` against Google's own rejections; Veo text-to-video on every model at 720p, 1080p and 4k, 4/6/8 s and both ratios, image-to-video, reference images, interpolation, extension, resume by name, and the `negativePrompt`/`personGeneration` rules; video understanding including clipping offsets and the CLI's `--video` batch. **Not** exercised live: the rate-limit (429) and long-processing branches of upload polling, a safety-blocked prompt, Veo extension on Standard (same path as Fast), other regions, and Pro's thought parts — Pro has never returned one, so the thought-part filter is tested only against Google's documented shape.
+- **Few timeouts on API calls.** Omni generation is bounded (`OMNI_TIMEOUTS.REQUEST`, 15 min, overridable per call) and so are image downloads (60 s) and the video-file delete (30 s). Image generation, video understanding and the Omni `uri` download (the SDK's `files.download`) use the SDK's defaults, which set none.
+- **Video understanding uses a fixed model**, `gemini-3.8-flash`, with no override. When Google retires it, every `generateFromVideo` call fails until a release moves it; `check:lifecycle` flags the announcement for the next release, not for installed copies.
+- **Some Omni mistakes cost a generation instead of an error.** Continuing a `store: false` interaction silently makes a new video. Extending past 30 s in total fails only after about a minute of server time ("Request contains an invalid argument"). The client cannot check either one, because it does not know an earlier interaction's storage or length.
+- **An Omni call that times out may still have been billed.** The request is synchronous; if the client gives up, Google may finish the video anyway, and there is no operation to resume. Raise `timeoutMs` for 4k or 15 s rather than retrying.
+- **What has been exercised live.** 3.0: the battery in [docs/LIVE-BATTERY-2026-11-08.md](docs/LIVE-BATTERY-2026-11-08.md) (through the built package; one key, US region). It covered the Nano Banana 2.1 grid; every Omni aspect ratio, resolution and duration; every mode, task and delivery; editing and extension, including uploaded videos; video understanding on `gemini-3.8-flash`; the error surface; and the CLI. Image models and video understanding from 2.0: [docs/LIVE-BATTERY-2026-09-23.md](docs/LIVE-BATTERY-2026-09-23.md). **Not** exercised live: other regions (Omni's EEA/CH/UK limits), a 429 or a safety refusal on Omni, the rate-limit and long-processing branches of upload polling, and Pro's thought parts.
 - **No total-size check on input images.** Validation checks the count; the Gemini API rejects requests over its inline size limit. Only three input images have been exercised live.
-- **The constraint tables come from Google's docs and a set of live probes** (see the list above). `capabilityValidation: 'warn'` exists because the docs have been wrong. Regional `personGeneration` limits are not modeled.
+- **The constraint tables come from Google's docs and a set of live probes** (see the list above). `capabilityValidation: 'warn'` exists because the docs have been wrong. Omni's regional limits (uploaded-video editing in the EEA, CH, UK) are not modeled.
 - **A vendor field this package does not declare cannot be sent.** The SDK only serializes fields it knows; new ones arrive in a release.
-- **SDK drift is detected weekly, not prevented.** The package depends on `@google/genai ^2.24.0`; a new 2.x minor is tested by the weekly workflow, not at your install.
-- **Every Veo model is a Google preview.**
+- **SDK drift is detected weekly, not prevented.** The package depends on `@google/genai ^2.32.0`; a new 2.x minor is tested by the weekly workflow, not at your install.
+- **`@google/genai` 3.x is not supported yet.** It requires Node ≥ 22 and changes the default API version to `v1`; this release stays on 2.x so the Node floor does not move in the same major as the Omni switch.
 - **Logs include full SDK error messages** ([Errors](#errors)).
 
 ## Troubleshooting
@@ -526,11 +561,15 @@ See [Known limitations](#known-limitations) for what the URL checks do not cover
 
 **`returned no image (finishReason: IMAGE_SAFETY)`** — the prompt or input was blocked; rephrase. Other finish reasons are listed in Google's docs.
 
-**`seed was removed in 2.0`** — the Gemini Developer API does not support Veo seeds; remove it.
+**`negativePrompt is not supported by Gemini Omni`** (or `personGeneration`, `seed`) — a 2.x Veo parameter ([Upgrading to 3.0](#upgrading-to-30)); write negatives into the prompt ("No dialogue", "No text on screen").
+
+**`--veo … removed in 3.0`** — Google shut Veo down; use `--omni` ([Upgrading to 3.0](#upgrading-to-30)).
+
+**`HTTP 402 … prepayment credits are depleted`** — the key's project has no prepaid balance left; top it up in AI Studio under the project's billing. Every model returns this, not only video.
 
 **`Model '…' is not in this package's catalog`** — a warning, not an error: the request was sent. Check the id if it was a typo.
 
-**Veo `timed out after …`** — the job may still complete; retry `waitForCompletion` with the same operation.
+**Omni `completed without a video`** — usually a safety refusal; the error includes what the model said and the `interactionId`. Rephrase, or describe the edit more simply ("Keep everything else the same").
 
 **`429 … spend-based rate limit`** — Google caps the rate of spend per account by billing history and tier; it is not a per-minute request quota. Space requests out (the battery ran fine at one every 20 s) and retry; the error is classified `TRANSIENT`.
 
@@ -547,7 +586,7 @@ node dist/cli.js --help
 
 Tests run offline. Most mock the SDK; `test/wire.test.ts` runs the real SDK serializer against a stubbed `fetch` and checks the request body, and `test/cli.test.ts` runs the built CLI in a subprocess against canned responses.
 
-**Releasing** is manual. `npm publish` runs `check:release`, which refuses unless `CHANGELOG.md` has a heading for the version and an empty `[Unreleased]`, the build succeeds, the tarball holds only `package.json`, `dist/`, `README.md`, `LICENSE`, `CHANGELOG.md`, and `check:lifecycle` passes (it needs network; `npm run check:release -- --offline` uses the committed snapshot of Google's page).
+**Releasing** is manual. `npm publish` runs `check:release`, which refuses unless `CHANGELOG.md` has a heading for the version and an empty `[Unreleased]`, the build succeeds, the tarball holds only `package.json`, `dist/`, `README.md`, `LICENSE`, `CHANGELOG.md` and no `dist/` file without a `src/` module, and `check:lifecycle` passes (it needs network; `npm run check:release -- --offline` uses the committed snapshot of Google's page).
 
 ## Maintainer notes
 

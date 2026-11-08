@@ -2,7 +2,7 @@
  * Validation errors (spec D5).
  *
  * Leaf module: imports nothing from this package, so config.ts, api.ts and
- * veo-api.ts can all depend on it without a cycle.
+ * omni-api.ts can all depend on it without a cycle.
  */
 
 /**
@@ -51,7 +51,7 @@ export class ValidationError extends Error {
 
 /**
  * How an API failure is classified. Drives the production message and, for
- * Veo polling, whether a poll request is retried.
+ * file-state polling, whether a poll request is retried.
  */
 export type PublicErrorClass =
   | 'AUTH'
@@ -63,7 +63,7 @@ export type PublicErrorClass =
   | 'TIMEOUT';
 
 /**
- * Which client produced an error: `image` = `GoogleGenAIAPI`, `video` = `GoogleGenAIVeoAPI`,
+ * Which client produced an error: `image` = `GoogleGenAIAPI`, `video` = `GoogleGenAIOmniAPI`,
  * `video-understanding` = `GoogleGenAIVideoAPI`. Selects the production message's subject.
  */
 export type PublicErrorSurface = 'image' | 'video' | 'video-understanding';
@@ -76,7 +76,7 @@ export type PublicErrorSurface = 'image' | 'video' | 'video-understanding';
 export interface PublicErrorFields {
   /** HTTP status, when the failure was an HTTP response */
   status?: number;
-  /** gRPC status code, for a failed Veo operation */
+  /** gRPC status code, for a failed long-running operation (none of the 3.0 clients produce one) */
   code?: number;
   /**
    * How the failure was classified. Absent only on a frozen or sealed error,
@@ -85,7 +85,7 @@ export interface PublicErrorFields {
    */
   classification: PublicErrorClass;
   /**
-   * `image` = GoogleGenAIAPI, `video` = Veo, `video-understanding` = GoogleGenAIVideoAPI.
+   * `image` = GoogleGenAIAPI, `video` = Omni, `video-understanding` = GoogleGenAIVideoAPI.
    * Absent in the same frozen-error case as `classification`.
    */
   surface: PublicErrorSurface;
@@ -140,6 +140,13 @@ interface ErrorLike {
   cause?: unknown;
   status?: unknown;
   operationError?: { code?: unknown; message?: unknown };
+  /**
+   * The raw response body, on errors from the SDK's Interactions client (the
+   * Omni surface). Its `message` is not the vendor body — it reads like
+   * `402 API error occurred: {"httpMeta":…}` — and `body` holds the JSON, as an
+   * object or as an array of one (observed live 2026-11-08).
+   */
+  body?: unknown;
 }
 
 /**
@@ -151,16 +158,26 @@ function vendorMessage(err: ErrorLike): string | undefined {
   if (err.operationError && typeof err.operationError.message === 'string') {
     return err.operationError.message;
   }
-  if (typeof err.message !== 'string') return undefined;
-  let body: unknown;
-  try {
-    body = JSON.parse(err.message);
-  } catch {
-    return undefined;
+  for (const [source, text] of [['message', err.message], ['body', err.body]] as const) {
+    if (typeof text !== 'string') continue;
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(text);
+    } catch {
+      continue;
+    }
+    const first: unknown = Array.isArray(parsed) ? parsed[0] : parsed;
+    const e = (first as { error?: { status?: unknown; code?: unknown; message?: unknown } } | null)?.error;
+    if (!e || typeof e.message !== 'string') continue;
+    // A Gemini error carries a gRPC status name. The Interactions API's own
+    // validation errors (only ever in `body`) carry none: `{error: {message,
+    // code: 'invalid_request'}}` (live 2026-11-08) — accepted only from `body`,
+    // and only with a lowercase-identifier code, so a stranger's JSON is not.
+    const grpc = typeof e.status === 'string' && GRPC_STATUS_NAMES.has(e.status);
+    const interactions = source === 'body' && e.status === undefined && typeof e.code === 'string' && /^[a-z][a-z_]*$/.test(e.code);
+    if (grpc || interactions) return e.message.trim();
   }
-  const e = (body as { error?: { status?: unknown; message?: unknown } } | null)?.error;
-  if (!e || typeof e.status !== 'string' || !GRPC_STATUS_NAMES.has(e.status)) return undefined;
-  return typeof e.message === 'string' ? e.message : undefined;
+  return undefined;
 }
 
 function classify(status: number | undefined, code: number | undefined, err: ErrorLike, vendor: string | undefined): PublicErrorClass {
@@ -217,6 +234,35 @@ function productionMessage(cls: PublicErrorClass, surface: PublicErrorSurface, s
   }
 }
 
+/**
+ * The SDK's Interactions client (Omni) sets `message` to `<status> API error
+ * occurred: {"httpMeta":…}`, which says nothing; the vendor error is in `body`.
+ * Outside production, replace that message with the vendor error as JSON — the
+ * form the models client's `ApiError.message` already has — so a caller (and
+ * the CLI) sees Google's text, e.g. "Your prepayment credits are depleted".
+ * Identity, class and every other property are kept (spec 3.0 D27). Only the
+ * Interactions shape is touched: a message that does not match is left alone.
+ */
+function replaceInteractionsMessage(target: Error, err: ErrorLike): void {
+  if (typeof err.body !== 'string' || !/^\d{3} API error occurred: /.test(target.message)) return;
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(err.body);
+  } catch {
+    return;
+  }
+  const first: unknown = Array.isArray(parsed) ? parsed[0] : parsed;
+  const e = (first as { error?: { status?: unknown } } | null)?.error;
+  if (!e || typeof e.status !== 'string' || !GRPC_STATUS_NAMES.has(e.status)) return;
+  const descriptor = Object.getOwnPropertyDescriptor(target, 'message');
+  if (descriptor && !descriptor.writable && !descriptor.configurable) return;
+  try {
+    Object.defineProperty(target, 'message', { value: JSON.stringify(first), configurable: true, enumerable: false, writable: true });
+  } catch {
+    // leave the message as it was
+  }
+}
+
 /** Add a property without assignment: `DOMException.code` is a getter with no setter. */
 function attach(target: object, key: string, value: unknown): void {
   if (value === undefined || !Object.isExtensible(target)) return;
@@ -254,6 +300,7 @@ export function toPublicError(error: unknown, context: { surface: PublicErrorSur
   if (process.env.NODE_ENV !== 'production') {
     const original = error instanceof Error ? error : new Error(String(error));
     for (const [key, value] of Object.entries(fields)) attach(original, key, value);
+    replaceInteractionsMessage(original, err);
     return original as Error & PublicErrorFields;
   }
 

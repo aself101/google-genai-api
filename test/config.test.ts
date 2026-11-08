@@ -13,21 +13,19 @@ import {
   ValidationError,
   getModelViolations,
   isKnownImageModel,
-  isKnownVeoModel,
+  isKnownOmniModel,
   GEMINI_MODES,
   MODEL_CONSTRAINTS,
   DEFAULT_OUTPUT_DIR,
   VIDEO_MIME_TYPES,
   VIDEO_SIZE_LIMITS,
   VIDEO_TIMEOUTS,
-  VEO_MODELS,
-  VEO_ASPECT_RATIOS,
-  VEO_RESOLUTIONS,
-  VEO_DURATIONS,
-  VEO_PERSON_GENERATION,
-  VEO_TIMEOUTS,
-  VEO_MODES,
-  VEO_MODEL_CONSTRAINTS,
+  OMNI_MODELS,
+  OMNI_ASPECT_RATIOS,
+  OMNI_RESOLUTIONS,
+  OMNI_TASKS,
+  OMNI_TIMEOUTS,
+  OMNI_MODEL_CONSTRAINTS,
   getGoogleGenAIApiKey,
   validateApiKeyFormat,
   redactApiKey,
@@ -35,31 +33,34 @@ import {
   detectGeminiMode,
   parseTimeOffset,
   validateVideoParams,
-  validateVeoParams,
-  getVeoViolations,
+  validateOmniParams,
+  getOmniViolations,
 } from '../src/config.js';
-import type { InlineData, VeoReferenceImage, VeoPersonGeneration, VeoMode } from '../src/types/index.js';
+import type { InlineData } from '../src/types/index.js';
 
 describe('Configuration Constants', () => {
   describe('Models', () => {
-    it('catalogs only current image models (spec D2)', () => {
+    it('catalogs only current models (spec D2)', () => {
+      expect(MODELS.GEMINI_NANO_BANANA_2_1).toBe('gemini-nano-banana-2.1');
       expect(MODELS.GEMINI_3_1_FLASH).toBe('gemini-3.1-flash-image');
       expect(MODELS.GEMINI_3_1_FLASH_LITE).toBe('gemini-3.1-flash-lite-image');
       expect(MODELS.GEMINI_3_PRO).toBe('gemini-3-pro-image');
-      expect(MODELS.GEMINI_VIDEO).toBe('gemini-2.5-flash');
+      // 2.x: gemini-2.5-flash, which shuts down 2026-12-01 (spec 3.0 D21)
+      expect(MODELS.GEMINI_VIDEO).toBe('gemini-3.8-flash');
     });
 
     it('does not keep keys for models with an announced shutdown', () => {
       expect(Object.keys(MODELS).sort()).toEqual(
-        ['GEMINI_3_1_FLASH', 'GEMINI_3_1_FLASH_LITE', 'GEMINI_3_PRO', 'GEMINI_VIDEO'].sort()
+        ['GEMINI_NANO_BANANA_2_1', 'GEMINI_3_1_FLASH', 'GEMINI_3_1_FLASH_LITE', 'GEMINI_3_PRO', 'GEMINI_VIDEO'].sort()
       );
       expect(Object.values(MODELS)).not.toContain('gemini-2.5-flash-image');
       expect(Object.values(MODELS)).not.toContain('gemini-3-pro-image-preview');
+      expect(Object.values(MODELS)).not.toContain('gemini-2.5-flash');
     });
 
-    it('defaults image generation to gemini-3.1-flash-image (spec D4)', () => {
-      expect(DEFAULT_IMAGE_MODEL).toBe('gemini-3.1-flash-image');
-      expect(DEFAULT_IMAGE_MODEL).toBe(MODELS.GEMINI_3_1_FLASH);
+    it('defaults image generation to gemini-nano-banana-2.1 (spec 3.0 D20)', () => {
+      expect(DEFAULT_IMAGE_MODEL).toBe('gemini-nano-banana-2.1');
+      expect(DEFAULT_IMAGE_MODEL).toBe(MODELS.GEMINI_NANO_BANANA_2_1);
     });
   });
 
@@ -86,7 +87,7 @@ describe('Configuration Constants', () => {
   });
 
   describe('Model Constraints', () => {
-    const imageModels = [MODELS.GEMINI_3_1_FLASH, MODELS.GEMINI_3_1_FLASH_LITE, MODELS.GEMINI_3_PRO];
+    const imageModels = [MODELS.GEMINI_NANO_BANANA_2_1, MODELS.GEMINI_3_1_FLASH, MODELS.GEMINI_3_1_FLASH_LITE, MODELS.GEMINI_3_PRO];
 
     it('has an entry for every MODELS value, and nothing else', () => {
       expect(Object.keys(MODEL_CONSTRAINTS).sort()).toEqual([...Object.values(MODELS)].sort());
@@ -106,6 +107,9 @@ describe('Configuration Constants', () => {
     });
 
     it('records per-model ratios and sizes from vendor docs and live probes', () => {
+      expect(MODEL_CONSTRAINTS[MODELS.GEMINI_NANO_BANANA_2_1].aspectRatios).toEqual(ASPECT_RATIOS);
+      // "512 … not supported on Gemini Nano Banana 2.1" (image-generation guide, 2026-11-08)
+      expect(MODEL_CONSTRAINTS[MODELS.GEMINI_NANO_BANANA_2_1].imageSizes).toEqual(['1K', '2K', '4K']);
       expect(MODEL_CONSTRAINTS[MODELS.GEMINI_3_1_FLASH].aspectRatios).toEqual(ASPECT_RATIOS);
       expect(MODEL_CONSTRAINTS[MODELS.GEMINI_3_1_FLASH].imageSizes).toEqual(['512', '1K', '2K', '4K']);
       expect(MODEL_CONSTRAINTS[MODELS.GEMINI_3_1_FLASH_LITE].aspectRatios).toEqual(ASPECT_RATIOS);
@@ -132,15 +136,17 @@ describe('Configuration Constants', () => {
     it('isKnownImageModel is true only for cataloged image models', () => {
       expect(isKnownImageModel('gemini-3.1-flash-image')).toBe(true);
       expect(isKnownImageModel('gemini-3-pro-image')).toBe(true);
-      expect(isKnownImageModel('gemini-2.5-flash')).toBe(false); // video understanding, not image
+      expect(isKnownImageModel('gemini-nano-banana-2.1')).toBe(true);
+      expect(isKnownImageModel('gemini-3.8-flash')).toBe(false); // video understanding, not image
       expect(isKnownImageModel('gemini-2.5-flash-image')).toBe(false); // dropped (spec D2)
       expect(isKnownImageModel('not-a-model')).toBe(false);
     });
 
-    it('isKnownVeoModel is true only for cataloged Veo models', () => {
-      expect(isKnownVeoModel(VEO_MODELS.VEO_3_1)).toBe(true);
-      expect(isKnownVeoModel('veo-2.0-generate-001')).toBe(false);
-      expect(isKnownVeoModel('toString')).toBe(false); // own-property check, not the prototype
+    it('isKnownOmniModel is true only for cataloged Omni models', () => {
+      expect(isKnownOmniModel(OMNI_MODELS.OMNI_1_2_FLASH)).toBe(true);
+      expect(isKnownOmniModel('gemini-omni-1.1-flash')).toBe(false); // routes to 1.2 from 2026-12-03 (spec D2)
+      expect(isKnownOmniModel('veo-3.1-generate-preview')).toBe(false); // shut down 2026-10-22
+      expect(isKnownOmniModel('toString')).toBe(false); // own-property check, not the prototype
     });
   });
 
@@ -432,20 +438,20 @@ describe('Video Configuration Constants', () => {
   });
 
   describe('Model Constraints for Gemini Video', () => {
-    it('should have gemini-2.5-flash model constraints', () => {
-      const geminiVideo = MODEL_CONSTRAINTS['gemini-2.5-flash'];
+    it('should have video-understanding model constraints', () => {
+      const geminiVideo = MODEL_CONSTRAINTS[MODELS.GEMINI_VIDEO];
       expect(geminiVideo).toBeDefined();
       expect(geminiVideo.video).toBeDefined();
       expect(geminiVideo.features!.videoUnderstanding).toBe(true);
     });
 
     it('should support video clipping', () => {
-      const geminiVideo = MODEL_CONSTRAINTS['gemini-2.5-flash'];
+      const geminiVideo = MODEL_CONSTRAINTS[MODELS.GEMINI_VIDEO];
       expect(geminiVideo.video!.supportsClipping).toBe(true);
     });
 
     it('should have correct file size limits', () => {
-      const geminiVideo = MODEL_CONSTRAINTS['gemini-2.5-flash'];
+      const geminiVideo = MODEL_CONSTRAINTS[MODELS.GEMINI_VIDEO];
       expect(geminiVideo.video!.maxFileSize).toBe(VIDEO_SIZE_LIMITS.MAX_FILE_SIZE);
     });
   });
@@ -653,290 +659,137 @@ describe('validateVideoParams', () => {
 // VEO VIDEO GENERATION TESTS
 // ============================================================================
 
-describe('Veo Configuration Constants', () => {
-  describe('VEO_MODELS', () => {
-    it('should have the Veo 3.1 models defined', () => {
-      expect(VEO_MODELS.VEO_3_1).toBe('veo-3.1-generate-preview');
-      expect(VEO_MODELS.VEO_3_1_FAST).toBe('veo-3.1-fast-generate-preview');
-    });
+describe('Omni configuration (3.0)', () => {
+  const OMNI = OMNI_MODELS.OMNI_1_2_FLASH;
+
+  it('catalogs gemini-omni-1.2-flash only', () => {
+    expect(OMNI_MODELS).toEqual({ OMNI_1_2_FLASH: 'gemini-omni-1.2-flash' });
+    expect(Object.keys(OMNI_MODEL_CONSTRAINTS)).toEqual(['gemini-omni-1.2-flash']);
   });
 
-  describe('VEO_ASPECT_RATIOS', () => {
-    it('should have supported aspect ratios', () => {
-      expect(VEO_ASPECT_RATIOS).toContain('16:9');
-      expect(VEO_ASPECT_RATIOS).toContain('9:16');
-      expect(VEO_ASPECT_RATIOS.length).toBe(2);
-    });
+  it('records the vendor limits (omni guide, 2026-11-08)', () => {
+    const c = OMNI_MODEL_CONSTRAINTS[OMNI];
+    expect(c.aspectRatios).toEqual(['16:9', '9:16']);
+    expect(c.resolutions).toEqual(['360p', '720p', '1080p', '4k']);
+    expect(c.durationSeconds).toEqual({ min: 3, max: 15, default: 10 });
+    expect(c.interpolationAndExtensionMaxSeconds).toBe(10);
+    expect(c.extendedTotalMaxSeconds).toBe(30);
+    expect(c.maxImages).toBe(6);
+    expect(OMNI_ASPECT_RATIOS).toBe(c.aspectRatios);
+    expect(OMNI_RESOLUTIONS).toBe(c.resolutions);
+    // The values the API accepts (live 2026-11-08). SDK 2.32's Task type also lists 'upscale'; the API rejects it.
+    expect(OMNI_TASKS).toEqual(['text_to_video', 'image_to_video', 'reference_to_video', 'edit', 'extend']);
   });
 
-  describe('VEO_RESOLUTIONS', () => {
-    it('should have supported resolutions', () => {
-      expect(VEO_RESOLUTIONS).toEqual(['720p', '1080p', '4k']);
-    });
-  });
-
-  describe('VEO_DURATIONS', () => {
-    it('should have durations for Veo 3.1', () => {
-      expect(VEO_DURATIONS[VEO_MODELS.VEO_3_1]).toEqual(['4', '6', '8']);
-    });
-  });
-
-  describe('VEO_PERSON_GENERATION', () => {
-    it('should have all person generation options', () => {
-      expect(VEO_PERSON_GENERATION.ALLOW_ALL).toBe('allow_all');
-      expect(VEO_PERSON_GENERATION.ALLOW_ADULT).toBe('allow_adult');
-      expect(VEO_PERSON_GENERATION.DONT_ALLOW).toBe('dont_allow');
-    });
-  });
-
-  describe('VEO_TIMEOUTS', () => {
-    it('should have correct timeout values', () => {
-      expect(VEO_TIMEOUTS.MIN_LATENCY).toBe(11000);
-      expect(VEO_TIMEOUTS.MAX_LATENCY).toBe(360000);
-      expect(VEO_TIMEOUTS.POLL_INTERVAL).toBe(10000);
-      expect(VEO_TIMEOUTS.POLL_MAX_ATTEMPTS).toBe(60);
-      expect(VEO_TIMEOUTS.VIDEO_RETENTION_HOURS).toBe(48);
-    });
-  });
-
-  describe('VEO_MODES', () => {
-    it('should have all generation modes', () => {
-      expect(VEO_MODES.TEXT_TO_VIDEO).toBe('text-to-video');
-      expect(VEO_MODES.IMAGE_TO_VIDEO).toBe('image-to-video');
-      expect(VEO_MODES.REFERENCE_IMAGES).toBe('reference-images');
-      expect(VEO_MODES.INTERPOLATION).toBe('interpolation');
-      expect(VEO_MODES.EXTENSION).toBe('extension');
-    });
-  });
-
-  describe('VEO_MODEL_CONSTRAINTS', () => {
-    it('should have constraints for all models', () => {
-      expect(VEO_MODEL_CONSTRAINTS[VEO_MODELS.VEO_3_1]).toBeDefined();
-      expect(VEO_MODEL_CONSTRAINTS[VEO_MODELS.VEO_3_1_FAST]).toBeDefined();
-    });
-
-    it('should have Veo 3.1 support all features', () => {
-      const constraints = VEO_MODEL_CONSTRAINTS[VEO_MODELS.VEO_3_1];
-      expect(constraints.features.textToVideo).toBe(true);
-      expect(constraints.features.imageToVideo).toBe(true);
-      expect(constraints.features.referenceImages).toBe(true);
-      expect(constraints.features.interpolation).toBe(true);
-      expect(constraints.features.extension).toBe(true);
-      expect(constraints.features.nativeAudio).toBe(true);
-    });
+  it('bounds the synchronous request and the file poll', () => {
+    expect(OMNI_TIMEOUTS.REQUEST).toBeGreaterThanOrEqual(600000);
+    expect(OMNI_TIMEOUTS.FILE_POLL_INTERVAL * OMNI_TIMEOUTS.FILE_POLL_MAX_ATTEMPTS).toBe(600000);
   });
 });
 
-describe('validateVeoParams', () => {
-  describe('Model validation', () => {
-    it('should accept valid Veo 3.1 model', () => {
-      expect(validateVeoParams(VEO_MODELS.VEO_3_1, { prompt: 'test' })).toBe(true);
-    });
+describe('getOmniViolations / validateOmniParams', () => {
+  const OMNI = OMNI_MODELS.OMNI_1_2_FLASH;
+  const img = { data: 'aGVsbG8=', mimeType: 'image/png' };
 
-    it('no longer throws for an unknown model id (spec D3); shape rules still apply', () => {
-      expect(validateVeoParams('veo-9-imaginary', { prompt: 'test', resolution: '8k', durationSeconds: '30' })).toBe(true);
-      expect(() => validateVeoParams('veo-9-imaginary', {})).toThrow('Prompt is required');
-    });
-
-    it('throws ValidationError, returns true (1.x contract kept)', () => {
-      expect(validateVeoParams(VEO_MODELS.VEO_3_1_LITE, { prompt: 'x' })).toBe(true);
-      expect(() => validateVeoParams(VEO_MODELS.VEO_3_1_LITE, { prompt: 'x', resolution: '4k' })).toThrow(ValidationError);
-    });
+  it('accepts a plain prompt and every documented value', () => {
+    expect(getOmniViolations(OMNI, { prompt: 'a red ball' })).toEqual([]);
+    for (const aspectRatio of OMNI_ASPECT_RATIOS) expect(getOmniViolations(OMNI, { prompt: 'x', aspectRatio })).toEqual([]);
+    for (const resolution of OMNI_RESOLUTIONS) expect(getOmniViolations(OMNI, { prompt: 'x', resolution })).toEqual([]);
+    for (const durationSeconds of [3, 10, 15, '8']) expect(getOmniViolations(OMNI, { prompt: 'x', durationSeconds })).toEqual([]);
+    expect(getOmniViolations(OMNI, { prompt: 'x', images: Array(6).fill(img) })).toEqual([]);
+    expect(getOmniViolations(OMNI, { prompt: 'x', video: { uri: 'https://generativelanguage.googleapis.com/v1beta/files/abc' } })).toEqual([]);
+    expect(getOmniViolations(OMNI, { prompt: 'x', previousInteractionId: 'v1_abc', delivery: 'uri', store: false })).toEqual([]);
+    expect(getOmniViolations(OMNI, { prompt: 'x', video: { uri: 'https://generativelanguage.googleapis.com/v1beta/files/abc' }, task: 'edit' })).toEqual([]);
   });
 
-  describe('Veo 3.1 Lite (spec §2.2; owed from P2 — the feature-gate branches have a model again)', () => {
-    const ref: VeoReferenceImage[] = [{ image: { imageBytes: 'data', mimeType: 'image/png' }, referenceType: 'asset' }];
-
-    it('is cataloged with 720p/1080p, no refs, no extension, interpolation yes', () => {
-      const c = VEO_MODEL_CONSTRAINTS[VEO_MODELS.VEO_3_1_LITE];
-      expect(VEO_MODELS.VEO_3_1_LITE).toBe('veo-3.1-lite-generate-preview');
-      expect(c.resolutions).toEqual(['720p', '1080p']);
-      expect(c.features).toMatchObject({ referenceImages: false, extension: false, interpolation: true, nativeAudio: true });
-      expect(c.referenceImages).toBeNull();
-      expect(c.extension).toBeNull();
-      expect(c.durationRequired).toEqual({ '1080p': '8' });
-    });
-
-    it('rejects reference-images mode (was: Veo 2/3)', () => {
-      expect(() =>
-        validateVeoParams(VEO_MODELS.VEO_3_1_LITE, { prompt: 'x', referenceImages: ref }, VEO_MODES.REFERENCE_IMAGES as VeoMode)
-      ).toThrow('reference-images mode is not supported by veo-3.1-lite-generate-preview');
-    });
-
-    it('rejects extension mode (was: Veo 2/3)', () => {
-      expect(() =>
-        validateVeoParams(VEO_MODELS.VEO_3_1_LITE, { prompt: 'x', video: {} }, VEO_MODES.EXTENSION as VeoMode)
-      ).toThrow('extension mode is not supported');
-    });
-
-    it('rejects an unsupported resolution — 4k (was: 1080p on Veo 2)', () => {
-      expect(() => validateVeoParams(VEO_MODELS.VEO_3_1_LITE, { prompt: 'x', resolution: '4k' })).toThrow(
-        "Invalid resolution '4k' for veo-3.1-lite-generate-preview"
-      );
-    });
-
-    it('accepts interpolation', () => {
-      expect(
-        validateVeoParams(
-          VEO_MODELS.VEO_3_1_LITE,
-          { firstFrame: { imageBytes: 'a', mimeType: 'image/png' }, lastFrame: { imageBytes: 'b', mimeType: 'image/png' } },
-          VEO_MODES.INTERPOLATION as VeoMode
-        )
-      ).toBe(true);
-    });
+  it('prompt is required (shape, every id)', () => {
+    for (const prompt of [undefined, '', '   ', 42]) {
+      // @ts-expect-error — deliberately malformed
+      const [v] = getOmniViolations('any-model', { prompt });
+      expect(v).toMatchObject({ kind: 'shape', param: 'prompt' });
+    }
   });
 
-  describe('4k and durationRequired', () => {
-    it('3.1 and Fast accept 4k at 8s and reject it at 4s', () => {
-      for (const m of [VEO_MODELS.VEO_3_1, VEO_MODELS.VEO_3_1_FAST]) {
-        expect(validateVeoParams(m, { prompt: 'x', resolution: '4k', durationSeconds: '8' })).toBe(true);
-        expect(() => validateVeoParams(m, { prompt: 'x', resolution: '4k', durationSeconds: '4' })).toThrow(
-          '4k resolution requires 8-second duration'
-        );
-      }
-    });
-
-    it('keeps the deprecated resolution1080p populated alongside durationRequired', () => {
-      for (const m of Object.values(VEO_MODELS)) {
-        expect(VEO_MODEL_CONSTRAINTS[m].resolution1080p).toEqual({ requiresDuration: '8', aspectRatio: null });
-        expect(VEO_MODEL_CONSTRAINTS[m].durationRequired!['1080p']).toBe('8');
-      }
-    });
+  it('malformed values are shape violations; well-formed but unlisted values are capability', () => {
+    expect(getOmniViolations(OMNI, { prompt: 'x', aspectRatio: 'wide' })[0]).toMatchObject({ kind: 'shape', param: 'aspectRatio' });
+    expect(getOmniViolations(OMNI, { prompt: 'x', aspectRatio: '1:1' })[0]).toMatchObject({ kind: 'capability', param: 'aspectRatio', allowed: ['16:9', '9:16'] });
+    expect(getOmniViolations(OMNI, { prompt: 'x', resolution: 'hd' })[0]).toMatchObject({ kind: 'shape', param: 'resolution' });
+    expect(getOmniViolations(OMNI, { prompt: 'x', resolution: '8k' })[0]).toMatchObject({ kind: 'capability', param: 'resolution' });
+    expect(getOmniViolations(OMNI, { prompt: 'x', durationSeconds: '8s' })[0]).toMatchObject({ kind: 'shape', param: 'durationSeconds' });
+    expect(getOmniViolations(OMNI, { prompt: 'x', durationSeconds: 2.5 })[0]).toMatchObject({ kind: 'shape', param: 'durationSeconds' });
+    expect(getOmniViolations(OMNI, { prompt: 'x', task: 'Make-It-So' })[0]).toMatchObject({ kind: 'shape', param: 'task' });
+    expect(getOmniViolations(OMNI, { prompt: 'x', task: 'remix' })[0]).toMatchObject({ kind: 'capability', param: 'task' });
   });
 
-  describe('getVeoViolations — shape vs capability', () => {
-    it('seed is a shape violation, for every id (spec D15)', () => {
-      for (const m of [VEO_MODELS.VEO_3_1, 'veo-9-imaginary']) {
-        expect(getVeoViolations(m, { prompt: 'x', seed: 42 }).map((v) => [v.kind, v.param])).toContainEqual(['shape', 'seed']);
-      }
-    });
-
-    it('malformed values are shape; well-formed but unlisted values are capability', () => {
-      expect(getVeoViolations(VEO_MODELS.VEO_3_1, { prompt: 'x', resolution: '4K' })).toMatchObject([{ kind: 'shape', param: 'resolution' }]);
-      expect(getVeoViolations(VEO_MODELS.VEO_3_1, { prompt: 'x', resolution: '8k' })).toMatchObject([{ kind: 'capability', param: 'resolution' }]);
-      expect(getVeoViolations(VEO_MODELS.VEO_3_1, { prompt: 'x', personGeneration: 'Allow All' })).toMatchObject([{ kind: 'shape' }]);
-      expect(getVeoViolations(VEO_MODELS.VEO_3_1, { prompt: 'x', personGeneration: 'allow_robots' })).toMatchObject([{ kind: 'capability' }]);
-    });
-
-    it('an unknown id gets no capability violations — a future 8k or new personGeneration value reaches the vendor', () => {
-      expect(
-        getVeoViolations('veo-9-imaginary', { prompt: 'x', resolution: '8k', durationSeconds: '30', aspectRatio: '1:1', personGeneration: 'allow_robots' })
-      ).toEqual([]);
-    });
+  it('duration outside 3-15 is a capability violation, and 0 is not mistaken for "unset"', () => {
+    for (const d of [0, 2, 16, 30]) {
+      const [v] = getOmniViolations(OMNI, { prompt: 'x', durationSeconds: d });
+      expect(v).toMatchObject({ kind: 'capability', param: 'durationSeconds' });
+    }
   });
 
-  describe('Prompt validation', () => {
-    it('should require prompt for text-to-video', () => {
-      expect(() => validateVeoParams(VEO_MODELS.VEO_3_1, {})).toThrow('Prompt is required');
-    });
-
-    it('should accept valid prompt', () => {
-      expect(validateVeoParams(VEO_MODELS.VEO_3_1, { prompt: 'A cat playing' })).toBe(true);
-    });
+  it("task with previousInteractionId is a capability violation (the API: 'not allowed when video task is set')", () => {
+    const [v] = getOmniViolations(OMNI, { prompt: 'x', task: 'edit', previousInteractionId: 'v1_abc' });
+    expect(v).toMatchObject({ kind: 'capability', param: 'task' });
+    expect(v.message).toMatch(/previousInteractionId/);
+    // an unknown id is not checked (spec D3)
+    expect(getOmniViolations('gemini-omni-9-flash', { prompt: 'x', task: 'edit', previousInteractionId: 'v1_abc' })).toEqual([]);
   });
 
-  describe('Aspect ratio validation', () => {
-    it('should accept valid aspect ratios', () => {
-      expect(validateVeoParams(VEO_MODELS.VEO_3_1, { prompt: 'test', aspectRatio: '16:9' })).toBe(true);
-      expect(validateVeoParams(VEO_MODELS.VEO_3_1, { prompt: 'test', aspectRatio: '9:16' })).toBe(true);
-    });
-
-    it('should reject invalid aspect ratio', () => {
-      expect(() => validateVeoParams(VEO_MODELS.VEO_3_1, { prompt: 'test', aspectRatio: '4:3' })).toThrow(
-        'Invalid aspect ratio'
-      );
-    });
+  it("'upscale' is a capability violation: the SDK type lists it, the API rejects it (live 2026-11-08)", () => {
+    const [v] = getOmniViolations(OMNI, { prompt: 'x', task: 'upscale' });
+    expect(v).toMatchObject({ kind: 'capability', param: 'task' });
   });
 
-  describe('Resolution validation', () => {
-    it('should accept valid resolutions', () => {
-      expect(validateVeoParams(VEO_MODELS.VEO_3_1, { prompt: 'test', resolution: '720p' })).toBe(true);
-      expect(
-        validateVeoParams(VEO_MODELS.VEO_3_1, { prompt: 'test', resolution: '1080p', durationSeconds: '8' })
-      ).toBe(true);
-    });
-
-    it('should reject invalid resolution', () => {
-      expect(() => validateVeoParams(VEO_MODELS.VEO_3_1, { prompt: 'test', resolution: '4K' })).toThrow(
-        'Invalid resolution'
-      );
-    });
+  it('more than 6 images is a capability violation', () => {
+    const [v] = getOmniViolations(OMNI, { prompt: 'x', images: Array(7).fill(img) });
+    expect(v).toMatchObject({ kind: 'capability', param: 'images', value: 7 });
   });
 
-  describe('Duration validation', () => {
-    it('should accept valid durations for Veo 3.1', () => {
-      expect(validateVeoParams(VEO_MODELS.VEO_3_1, { prompt: 'test', durationSeconds: '4' })).toBe(true);
-      expect(validateVeoParams(VEO_MODELS.VEO_3_1, { prompt: 'test', durationSeconds: '6' })).toBe(true);
-      expect(validateVeoParams(VEO_MODELS.VEO_3_1, { prompt: 'test', durationSeconds: '8' })).toBe(true);
-    });
-
-    it('should reject invalid duration', () => {
-      expect(() => validateVeoParams(VEO_MODELS.VEO_3_1, { prompt: 'test', durationSeconds: '10' })).toThrow(
-        'Invalid duration'
-      );
-    });
+  it('an unknown id gets shape checks only — a future 8k or 7th image reaches the vendor', () => {
+    expect(getOmniViolations('gemini-omni-9-flash', { prompt: 'x', resolution: '8k', images: Array(7).fill(img), durationSeconds: 60 })).toEqual([]);
+    expect(getOmniViolations('gemini-omni-9-flash', { prompt: 'x', resolution: 'hd' })[0]).toMatchObject({ kind: 'shape' });
   });
 
-  describe('1080p constraints', () => {
-    it('should require 8s duration for 1080p on Veo 3.1', () => {
-      expect(() =>
-        validateVeoParams(VEO_MODELS.VEO_3_1, { prompt: 'test', resolution: '1080p', durationSeconds: '4' })
-      ).toThrow('1080p resolution requires 8-second duration');
-    });
+  it('media needs exactly one of data and uri, and a matching MIME family', () => {
+    const cases: Array<[unknown, string]> = [
+      [{}, 'images[0]'],
+      [{ data: 'aGk=', uri: 'files/x', mimeType: 'image/png' }, 'images[0]'],
+      [{ data: 'aGk=' }, 'images[0].mimeType'],
+      [{ data: 'aGk=', mimeType: 'video/mp4' }, 'images[0].mimeType'],
+      ['not-an-object', 'images[0]'],
+    ];
+    for (const [media, param] of cases) {
+      // @ts-expect-error — deliberately malformed
+      const [v] = getOmniViolations(OMNI, { prompt: 'x', images: [media] });
+      expect(v).toMatchObject({ kind: 'shape', param });
+    }
+    const [v] = getOmniViolations(OMNI, { prompt: 'x', video: { data: 'aGk=', mimeType: 'image/png' } });
+    expect(v).toMatchObject({ kind: 'shape', param: 'video.mimeType' });
   });
 
-  describe('Reference images validation', () => {
-    it('should reject more than 3 reference images', () => {
-      const refs: VeoReferenceImage[] = [
-        { image: { imageBytes: '', mimeType: '' }, referenceType: 'asset' },
-        { image: { imageBytes: '', mimeType: '' }, referenceType: 'asset' },
-        { image: { imageBytes: '', mimeType: '' }, referenceType: 'asset' },
-        { image: { imageBytes: '', mimeType: '' }, referenceType: 'asset' },
-      ];
-      expect(() =>
-        validateVeoParams(VEO_MODELS.VEO_3_1, { prompt: 'test', referenceImages: refs }, VEO_MODES.REFERENCE_IMAGES as VeoMode)
-      ).toThrow('Maximum 3 reference images');
-    });
-
-    it('should reject empty reference images array', () => {
-      expect(() =>
-        validateVeoParams(VEO_MODELS.VEO_3_1, { prompt: 'test', referenceImages: [] }, VEO_MODES.REFERENCE_IMAGES as VeoMode)
-      ).toThrow('At least one reference image');
-    });
+  it('delivery must be inline or uri', () => {
+    // @ts-expect-error — deliberately malformed
+    const [v] = getOmniViolations(OMNI, { prompt: 'x', delivery: 'stream' });
+    expect(v).toMatchObject({ kind: 'shape', param: 'delivery' });
   });
 
-  describe('Person generation validation', () => {
-    // What the API accepted and rejected live (2026-09-23 battery; one key, US region).
-    it.each([
-      ['text-to-video', 'allow_all', true],
-      ['text-to-video', 'allow_adult', false],
-      ['text-to-video', 'dont_allow', false],
-      ['image-to-video', 'allow_all', true],
-      ['image-to-video', 'allow_adult', true],
-      ['image-to-video', 'dont_allow', false],
-      ['extension', 'allow_all', true],
-      ['extension', 'allow_adult', false],
-    ] as const)('%s + %s → accepted: %s', (mode, value, ok) => {
-      const params = { prompt: 'test', personGeneration: value, video: { uri: 'x' }, image: { imageBytes: 'x', mimeType: 'image/png' } };
-      const found = getVeoViolations(VEO_MODELS.VEO_3_1, params as never, mode).filter((x) => x.param === 'personGeneration');
-      expect(found.length === 0).toBe(ok);
-      if (!ok) expect(found[0].kind).toBe('capability');
-    });
+  it('Veo-only parameters are rejected with a migration hint, not silently dropped', () => {
+    for (const key of ['negativePrompt', 'personGeneration', 'seed'] as const) {
+      const [v] = getOmniViolations(OMNI, { prompt: 'x', [key]: 'blurry' });
+      expect(v).toMatchObject({ kind: 'shape', param: key });
+      expect(v.message).toMatch(/not supported by Gemini Omni/);
+    }
+  });
 
-    it('negativePrompt is rejected on Veo 3.1 Lite (seen live) and accepted on Fast and Standard', () => {
-      const neg = (model: string) => getVeoViolations(model, { prompt: 'x', negativePrompt: 'boats' } as never).filter((x) => x.param === 'negativePrompt');
-      expect(neg(VEO_MODELS.VEO_3_1_LITE)).toHaveLength(1);
-      expect(neg(VEO_MODELS.VEO_3_1_LITE)[0].kind).toBe('capability');
-      expect(neg(VEO_MODELS.VEO_3_1_FAST)).toEqual([]);
-      expect(neg(VEO_MODELS.VEO_3_1)).toEqual([]);
-    });
-
-    it('should reject invalid person generation value', () => {
-      expect(() =>
-        validateVeoParams(VEO_MODELS.VEO_3_1, { prompt: 'test', personGeneration: 'invalid' as VeoPersonGeneration })
-      ).toThrow('Invalid personGeneration value');
-    });
+  it('validateOmniParams throws ValidationError with every violation, returns true otherwise', () => {
+    expect(validateOmniParams(OMNI, { prompt: 'x' })).toBe(true);
+    try {
+      validateOmniParams(OMNI, { prompt: '', resolution: '8k' });
+      expect.unreachable();
+    } catch (error) {
+      expect(error).toBeInstanceOf(ValidationError);
+      expect((error as ValidationError).violations.map((v) => v.param)).toEqual(['prompt', 'resolution']);
+    }
   });
 });
-
-/* END */

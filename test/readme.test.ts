@@ -8,7 +8,8 @@
  * (b) every <!-- generated:… --> block equals a fresh render from the catalog
  * (c) every #anchor link resolves to a heading
  * (V15) no 1.x value lists, no stale aspect default, no hardcoded test stats
- * (V5) retired model names appear only inside "Upgrading to 2.0"
+ * (V5) retired model names appear only inside the upgrade guides ("Upgrading to
+ *      3.0", "Upgrading to 2.0"), or on a line that links to the 3.0 guide
  *
  * Runs against dist/ (built by test/global-setup.ts).
  */
@@ -129,16 +130,16 @@ describe('README (V17 b): generated tables match the catalog', () => {
     expect(Object.keys(found).sort()).toEqual(Object.keys(tables).sort());
   });
 
-  for (const name of ['image-models', 'veo-models', 'video-model']) {
+  for (const name of ['image-models', 'omni-models', 'video-model']) {
     it(`block "${name}" equals a fresh render`, () => {
       expect(found[name]).toBe(tables[name]);
     });
   }
 
   it('control: a hand-edited cell is detected', () => {
-    const edited = README.replace('| `veo-3.1-lite-generate-preview` | `720p`, `1080p` |', '| `veo-3.1-lite-generate-preview` | `720p`, `1080p`, `4k` |');
+    const edited = README.replace('| `360p`, `720p`, `1080p`, `4k` | 3-15', '| `360p`, `720p`, `1080p`, `4k`, `8k` | 3-15');
     expect(edited).not.toBe(README);
-    expect((readBlocks(edited) as Record<string, string>)['veo-models']).not.toBe(tables['veo-models']);
+    expect((readBlocks(edited) as Record<string, string>)['omni-models']).not.toBe(tables['omni-models']);
   });
 });
 
@@ -159,12 +160,23 @@ describe('README (V15, V5): no stale values, retired names only in the upgrade g
     expect(README).not.toMatch(/\b358\b|88\.47/);
   });
 
-  it('mentions retired models only inside "Upgrading to 2.0"', () => {
-    const retired = /imagen|veo-3\.0|veo-2\.0|VEO_3[^_]|VEO_3_FAST|VEO_2[^_0-9]|gemini-3-pro-image-preview|3\.1-flash-image-preview/i;
-    const upgrade = section(README, 'Upgrading to 2.0');
-    expect(upgrade).not.toBe('');
-    const outside = README.replace(upgrade, '');
-    const offending = outside.split('\n').filter((l) => retired.test(l) && !/Imagen and Veo 3\.0\/2\.0 are gone/.test(l));
-    expect(offending).toEqual([]);
+  // Veo (every model shut down 2026-10-22) joined the retired set in 3.0.
+  const retired = /imagen|\bveo\b|veo-|VEO_|GoogleGenAIVeoAPI|imageToVeoInput|gemini-2\.5-flash\b(?!-image)|gemini-3-pro-image-preview|3\.1-flash-image-preview/i;
+  const offendingLines = (readme: string): string[] => {
+    const up3 = section(readme, 'Upgrading to 3.0');
+    const up2 = section(readme, 'Upgrading to 2.0');
+    const outside = readme.replace(up3, '').replace(up2, '');
+    return outside.split('\n').filter((l) => retired.test(l) && !l.includes('(#upgrading-to-30)'));
+  };
+
+  it('mentions retired models only inside the upgrade guides, or beside a link to one', () => {
+    expect(section(README, 'Upgrading to 3.0')).not.toBe('');
+    expect(section(README, 'Upgrading to 2.0')).not.toBe('');
+    expect(offendingLines(README)).toEqual([]);
+  });
+
+  it('control: the 2.0 README fails it (Veo all over the page)', () => {
+    const v2 = readFileSync(path.join(root, 'test/fixtures/README-2.0.0.md'), 'utf8').replace(/\r\n/g, '\n');
+    expect(offendingLines(v2).length).toBeGreaterThan(10);
   });
 });
